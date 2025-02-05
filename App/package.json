@@ -1,0 +1,36 @@
+{
+  "name": "cursor-like-editor",
+  "version": "1.0.0",
+  "description": "A modern code editor inspired by Cursor",
+  "main": "index.js",
+  "scripts": {
+    "start": "vite",
+    "build": "vite build",
+    "serve": "vite preview"
+  },
+  "dependencies": {
+    "@emotion/react": "^11.14.0",
+    "@types/react-syntax-highlighter": "^15.5.13",
+    "@types/uuid": "^10.0.0",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/addon-web-links": "^0.11.0",
+    "@xterm/xterm": "^5.5.0",
+    "monaco-editor": "^0.45.0",
+    "openai": "^4.81.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-markdown": "^9.0.3",
+    "react-syntax-highlighter": "^15.6.1",
+    "uuid": "^11.0.5",
+    "node-pty": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.2.0",
+    "typescript": "^5.0.0",
+    "vite": "^5.4.14",
+    "vite-plugin-monaco-editor": "^1.1.0"
+  },
+  "proxy": "http://localhost:1234"
+}
