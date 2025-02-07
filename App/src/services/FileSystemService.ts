@@ -10,8 +10,16 @@ export class FileSystemService {
   private static fileCache: Map<string, string> = new Map();
 
   private static normalizePath(path: string): string {
-    // Normalize the path to use forward slashes and remove any leading slashes
-    return path.replace(/\\/g, '/').replace(/^\/+/, '');
+    // Normalize the path to use forward slashes
+    let normalized = path.replace(/\\/g, '/');
+    
+    // If it's a root path (e.g. /file.txt), keep the leading slash
+    if (path.startsWith('/') || path.startsWith('\\')) {
+      return normalized;
+    }
+    
+    // Otherwise, remove any leading slashes
+    return normalized.replace(/^\/+/, '');
   }
 
   static async fetchFolderContents(path: string): Promise<{ 
@@ -29,7 +37,10 @@ export class FileSystemService {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ path: normalizedPath })
+        body: JSON.stringify({ 
+          path: normalizedPath,
+          currentDir: this.currentDirectory 
+        })
       });
 
       if (!response.ok) {
@@ -169,7 +180,13 @@ export class FileSystemService {
       }
 
       const normalizedPath = this.normalizePath(filePath);
-      console.log('Reading file:', { fileId, filePath, normalizedPath });
+      console.log('Reading file:', { fileId, filePath, normalizedPath, currentDir: this.currentDirectory });
+      
+      // For root paths, use the path as is without modifying current directory
+      const effectiveCurrentDir = this.currentDirectory;
+      if (!effectiveCurrentDir && (filePath.startsWith('/') || filePath.startsWith('\\'))) {
+        console.log('Reading root file with path:', normalizedPath);
+      }
       
       return await FileReaderService.readFile(normalizedPath);
       
@@ -182,7 +199,11 @@ export class FileSystemService {
   static async saveFile(path: string, content: string): Promise<{ success: boolean, content: string }> {
     try {
       await this.refreshStructure();
-      if (!this.currentDirectory) {
+      const normalizedPath = this.normalizePath(path);
+      
+      // Don't require currentDirectory for root paths
+      const isRootPath = path.startsWith('/') || path.startsWith('\\');
+      if (!this.currentDirectory && !isRootPath) {
         throw new Error('No directory opened');
       }
 
@@ -192,9 +213,9 @@ export class FileSystemService {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ 
-          path,
+          path: normalizedPath,
           content,
-          currentDir: this.currentDirectory
+          currentDir: isRootPath ? null : this.currentDirectory
         })
       });
 

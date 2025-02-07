@@ -1,3 +1,5 @@
+import { FileSystemService } from './FileSystemService';
+
 const API_URL = 'http://localhost:8000';
 
 export class FileReaderService {
@@ -5,7 +7,17 @@ export class FileReaderService {
     try {
       console.log('Reading file:', filePath);
       
-      const response = await fetch(`${API_URL}/read-file?path=${encodeURIComponent(filePath)}`, {
+      // Build query parameters
+      const params = new URLSearchParams();
+      params.append('path', filePath);
+      
+      // Only append currentDir if the path is not absolute
+      const currentDir = FileSystemService.getCurrentDirectory();
+      if (currentDir && !filePath.startsWith('/') && !filePath.startsWith('\\')) {
+        params.append('currentDir', currentDir);
+      }
+      
+      const response = await fetch(`${API_URL}/read-file?${params}`, {
         method: 'GET',
         headers: {
           'Accept': 'text/plain',
@@ -16,7 +28,9 @@ export class FileReaderService {
       if (!response.ok) {
         console.error('Server error:', {
           status: response.status,
-          statusText: response.statusText
+          statusText: response.statusText,
+          filePath,
+          currentDir
         });
         return null;
       }

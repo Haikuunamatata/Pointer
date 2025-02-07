@@ -1,5 +1,6 @@
 import { FileSystemService } from './FileSystemService';
 import { lmStudio } from './LMStudioService';
+import { FileChangeEventService } from './FileChangeEventService';
 
 interface FileOperation {
   path: string;
@@ -134,7 +135,6 @@ Task:
 Return ONLY the final merged code without any explanations. The code should be ready to use as-is.`;
 
     try {
-      // Use LMStudio to get the merged content
       const response = await lmStudio.createChatCompletion({
         model: 'deepseek-coder-v2-lite-instruct',
         messages: [
@@ -259,43 +259,52 @@ Return ONLY the final formatted code without any explanations. The code should b
     
     for (const operation of operations) {
       try {
-        // Create directory structure if needed
-        await this.createDirectoryIfNeeded(operation.path);
-
-        const exists = await this.fileExists(operation.path);
+        const normalizedPath = operation.path.replace(/\\/g, '/');
+        const isRootPath = operation.path.startsWith('/') || operation.path.startsWith('\\');
+        
+        if (!isRootPath) {
+          await this.createDirectoryIfNeeded(operation.path);
+        }
+        
+        const exists = await this.fileExists(normalizedPath);
         
         if (exists) {
-          // If file exists, get its content directly from the backend
-          const response = await fetch(`http://localhost:8000/read-file?path=${encodeURIComponent(operation.path)}`);
+          // Build query parameters for reading the file
+          const params = new URLSearchParams();
+          params.append('path', normalizedPath);
+          
+          // Only append currentDir if not a root path
+          const currentDir = FileSystemService.getCurrentDirectory();
+          if (currentDir && !isRootPath) {
+            params.append('currentDir', currentDir);
+          }
+          
+          const response = await fetch(`http://localhost:8000/read-file?${params}`);
           
           if (!response.ok) {
-            console.error(`Failed to read existing file: ${operation.path}`);
+            console.error(`Failed to read existing file: ${normalizedPath}`);
             continue;
           }
           
           const existingContent = await response.text();
+          let mergedContent: string;
           
           if (this.isCompleteFile(operation.content)) {
-            // If it's a complete file, still use AI to merge to preserve any custom modifications
-            const mergedContent = await this.mergeChanges(existingContent, operation.content, operation.path);
-            await FileSystemService.saveFile(operation.path, mergedContent);
-            console.log(`Updated existing file with complete content: ${operation.path}`);
+            mergedContent = await this.mergeChanges(existingContent, operation.content, normalizedPath);
           } else {
-            // If it's a partial update, use AI to merge the changes
-            const mergedContent = await this.mergeChanges(existingContent, operation.content, operation.path);
-            await FileSystemService.saveFile(operation.path, mergedContent);
-            console.log(`Merged changes into existing file: ${operation.path}`);
+            mergedContent = await this.mergeChanges(existingContent, operation.content, normalizedPath);
           }
-        } else {
-          // If file doesn't exist, use AI to prepare and format the new content
-          const formattedContent = await this.prepareNewFile(operation.content, operation.path);
-          await FileSystemService.saveFile(operation.path, formattedContent);
-          console.log(`Created new file with AI formatting: ${operation.path}`);
-        }
 
-        // Comprehensive refresh after each operation
-        await this.refreshEverything();
-        
+          // Only emit the change, don't save yet
+          FileChangeEventService.emitChange(normalizedPath, existingContent, mergedContent);
+          console.log(`Proposed changes for: ${normalizedPath}`);
+        } else {
+          const formattedContent = await this.prepareNewFile(operation.content, normalizedPath);
+          
+          // Only emit the change for new files, don't save yet
+          FileChangeEventService.emitChange(normalizedPath, '', formattedContent);
+          console.log(`Proposed new file: ${normalizedPath}`);
+        }
       } catch (error) {
         console.error(`Error processing file ${operation.path}:`, error);
       }

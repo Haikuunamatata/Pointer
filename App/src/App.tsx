@@ -13,6 +13,7 @@ import './styles/App.css';
 import { ChatService, ChatSession } from './services/ChatService';
 import { v4 as uuidv4 } from 'uuid';
 import Terminal from './components/Terminal';
+import { DiffViewer } from './components/DiffViewer';
 
 // Initialize language support
 initializeLanguageSupport();
@@ -1249,6 +1250,8 @@ const App: React.FC = () => {
       {fileSystem.terminalOpen && (
         <Terminal isVisible={fileSystem.terminalOpen} />
       )}
+
+      <DiffViewer />
     </div>
   );
 };

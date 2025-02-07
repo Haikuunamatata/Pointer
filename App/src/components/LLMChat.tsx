@@ -22,6 +22,10 @@ declare global {
     fileSystem?: { items: Record<string, { path: string }> };
     reloadFileContent?: (fileId: string) => Promise<void>;
   }
+
+  interface WindowEventMap {
+    'showLLMChat': CustomEvent<{ input: string; selection?: string }>;
+  }
 }
 
 interface Message {
@@ -250,6 +254,16 @@ const ProcessFilesButton: React.FC<{ content: string }> = ({ content }) => {
   const [error, setError] = useState(false);
   const [success, setSuccess] = useState(false);
   const [hasProcessed, setHasProcessed] = useState(false);
+  const progressInterval = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Cleanup interval on unmount
+  useEffect(() => {
+    return () => {
+      if (progressInterval.current) {
+        clearInterval(progressInterval.current);
+      }
+    };
+  }, []);
 
   const handleProcess = async () => {
     try {
@@ -257,10 +271,16 @@ const ProcessFilesButton: React.FC<{ content: string }> = ({ content }) => {
       setError(false);
       setSuccess(false);
       
+      // Start periodic refresh while processing
+      progressInterval.current = setInterval(async () => {
+        await FileSystemService.refreshStructure();
+        FileSystemService.clearLoadedFolders();
+      }, 1000); // Refresh every second while processing
+
       // Process the AI response
       await AIFileService.processAIResponse(content);
       
-      // Force a file structure refresh
+      // Force a final file structure refresh
       await FileSystemService.refreshStructure();
       
       // Refresh editor content if available
@@ -285,6 +305,11 @@ const ProcessFilesButton: React.FC<{ content: string }> = ({ content }) => {
       setTimeout(() => setError(false), 2000);
     } finally {
       setProcessing(false);
+      // Clear the refresh interval
+      if (progressInterval.current) {
+        clearInterval(progressInterval.current);
+        progressInterval.current = null;
+      }
     }
   };
 
@@ -365,28 +390,14 @@ const INITIAL_SYSTEM_MESSAGE = {
   role: 'system' as const,
   content: `You are a coding assistant that helps users write, debug, edit, and understand code.
 
-IMPORTANT - CODE DISPLAY RULES:
-When showing code, you MUST ALWAYS wrap it in the following format:
-Pointer:Code+filename.ext:start
-code here
-Pointer:Code+filename.ext:end
+When showing code examples, use standard markdown code blocks with language specifiers:
 
-For example, if showing Python code, ALWAYS include a filename like this:
-Pointer:Code+example.py:start
+\`\`\`python
 def example():
     return "Hello World"
-Pointer:Code+example.py:end
+\`\`\`
 
-❌ NEVER show code without wrapping it in Pointer:Code tags
-❌ NEVER use raw code blocks with \`\`\` marks
-❌ NEVER use language specifiers
-❌ NEVER show code without a filename
-
-✅ ALWAYS include a descriptive filename that matches the code content
-✅ ALWAYS use the Pointer:Code format for ALL code snippets
-✅ ALWAYS use appropriate file extensions (.py for Python, .js for JavaScript, etc.)
-
-MARKDOWN FORMATTING:
+MARKDOWN FORMATTING GUIDELINES:
 1. Use headers for structure:
    # Main Section
    ## Sub-section
@@ -401,10 +412,15 @@ MARKDOWN FORMATTING:
 
 4. Use **bold** for emphasis
 
-REMEMBER: 
-- EVERY piece of code MUST be wrapped in Pointer:Code tags with a filename
-- The filename MUST be relevant to the code content
-- NEVER show bare code blocks without Pointer:Code tags`
+5. For code blocks, always use triple backticks with a language specifier:
+   \`\`\`language
+   code here
+   \`\`\`
+
+Remember:
+- Always specify the language in code blocks
+- Use proper markdown formatting
+- Keep responses clear and well-structured`
 };
 
 // Update the processFileReferences function
@@ -666,48 +682,109 @@ const MessageRenderer: React.FC<{ message: Message }> = ({ message }) => {
 export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectChat }: LLMChatProps) {
   const [messages, setMessages] = useState<Message[]>([INITIAL_SYSTEM_MESSAGE]);
   const [input, setInput] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
   const [selectedMessageIndex, setSelectedMessageIndex] = useState<number | null>(null);
   const [truncatedMessages, setTruncatedMessages] = useState<Message[]>([]);
-  const abortControllerRef = useRef<AbortController | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const chatContainerRef = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(300);
-  const [isDragging, setIsDragging] = useState(false);
-  const dragStartXRef = useRef<number>(0);
-  const dragStartWidthRef = useRef<number>(width);
-  const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
-  const [chats, setChats] = useState<ChatSession[]>([]);
-  const [isChatListVisible, setIsChatListVisible] = useState(false);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [showCompletions, setShowCompletions] = useState(false);
   const [completions, setCompletions] = useState<FileCompletion[]>([]);
   const [completionIndex, setCompletionIndex] = useState(0);
+  const [isChatListVisible, setIsChatListVisible] = useState(false);
+  const [chats, setChats] = useState<ChatSession[]>([]);
   const [isSettingsVisible, setIsSettingsVisible] = useState(false);
+  const [isScrolledToBottom, setIsScrolledToBottom] = useState(true);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [isResizing, setIsResizing] = useState(false);
+  const [width, setWidth] = useState(400);
+  const [isLMStudioConnected, setIsLMStudioConnected] = useState(false);
+  const [isLMStudioChecking, setIsLMStudioChecking] = useState(true);
+  const [isLMStudioEnabled, setIsLMStudioEnabled] = useState(false);
+  const [isLMStudioRetrying, setIsLMStudioRetrying] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
+  const [isProcessingFiles, setIsProcessingFiles] = useState(false);
+  const [processedFiles, setProcessedFiles] = useState<string[]>([]);
+  const [processingError, setProcessingError] = useState<string | null>(null);
+  const [isProcessingCancelled, setIsProcessingCancelled] = useState(false);
+  const [isProcessingComplete, setIsProcessingComplete] = useState(false);
+  const [isProcessingStarted, setIsProcessingStarted] = useState(false);
+  const [totalFiles, setTotalFiles] = useState(0);
+  const [currentFileIndex, setCurrentFileIndex] = useState(0);
+  const [currentFileName, setCurrentFileName] = useState('');
+  const [processingProgress, setProcessingProgress] = useState(0);
+  const [processingStartTime, setProcessingStartTime] = useState<number | null>(null);
+  const [estimatedTimeRemaining, setEstimatedTimeRemaining] = useState<string | null>(null);
+  const [processingSpeed, setProcessingSpeed] = useState<string | null>(null);
+  const [processingStats, setProcessingStats] = useState<{
+    totalFiles: number;
+    processedFiles: number;
+    errorFiles: number;
+    startTime: number | null;
+    endTime: number | null;
+  }>({
+    totalFiles: 0,
+    processedFiles: 0,
+    errorFiles: 0,
+    startTime: null,
+    endTime: null,
+  });
+
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const resizeStartX = useRef<number>(0);
+  const startWidth = useRef<number>(0);
+  const processingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const progressInterval = useRef<ReturnType<typeof setInterval> | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Add event listener for showLLMChat event
+  useEffect(() => {
+    const handleShowLLMChat = (event: CustomEvent<{ input: string; selection?: string }>) => {
+      const { input, selection } = event.detail;
+      
+      // If there's a selection, include it in the prompt
+      const fullPrompt = selection 
+        ? `${input}\n\nSelected code:\n\`\`\`\n${selection}\n\`\`\``
+        : input;
+        
+      setInput(fullPrompt);
+      if (!isVisible) {
+        onClose(); // This typically toggles visibility
+      }
+      if (textareaRef.current) {
+        textareaRef.current.focus();
+      }
+    };
+
+    window.addEventListener('showLLMChat', handleShowLLMChat as EventListener);
+    return () => {
+      window.removeEventListener('showLLMChat', handleShowLLMChat as EventListener);
+    };
+  }, [isVisible, onClose]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     e.preventDefault();
-    setIsDragging(true);
-    dragStartXRef.current = e.clientX;
-    dragStartWidthRef.current = width;
-    document.body.style.userSelect = 'none';
+    setIsResizing(true);
+    resizeStartX.current = e.clientX;
+    startWidth.current = width;
   };
 
+  const handleMouseMove = (e: MouseEvent) => {
+    if (!isResizing) return;
+    const deltaX = resizeStartX.current - e.clientX;
+    const newWidth = Math.min(Math.max(startWidth.current + deltaX, 300), 800);
+    setWidth(newWidth);
+    if (onResize) {
+      onResize(newWidth);
+    }
+  };
+
+  const handleMouseUp = () => {
+    setIsResizing(false);
+  };
+
+  // Add mouse event handlers for resizing
   useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!isDragging) return;
-      const deltaX = dragStartXRef.current - e.clientX;
-      const newWidth = Math.min(Math.max(dragStartWidthRef.current + deltaX, 250), 800);
-      setWidth(newWidth);
-      onResize?.(newWidth);
-    };
-
-    const handleMouseUp = () => {
-      setIsDragging(false);
-      document.body.style.userSelect = '';
-    };
-
-    if (isDragging) {
+    if (isResizing) {
       window.addEventListener('mousemove', handleMouseMove);
       window.addEventListener('mouseup', handleMouseUp);
     }
@@ -716,11 +793,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [isDragging, onResize]);
-
-  useEffect(() => {
-    onResize?.(width);
-  }, [width, onResize]);
+  }, [isResizing]);
 
   const isNearBottom = () => {
     const container = chatContainerRef.current;
@@ -731,29 +804,29 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   };
 
   const handleScroll = () => {
-    setShouldAutoScroll(isNearBottom());
+    setIsScrolledToBottom(isNearBottom());
   };
 
   const scrollToBottom = () => {
-    if (shouldAutoScroll) {
+    if (isScrolledToBottom) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   };
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, shouldAutoScroll]);
+  }, [messages, isScrolledToBottom]);
 
   const handleCancel = () => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
-      setIsLoading(false);
+      setIsProcessing(false);
     }
   };
 
   const handleMessageSelect = (index: number) => {
-    if (isLoading) return;
+    if (isProcessing) return;
     
     // Get the actual messages without system message
     const visibleMessages = messages.filter(m => m.role !== 'system');
@@ -817,7 +890,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() || isLoading) return;
+    if (!input.trim() || isProcessing) return;
 
     const newMessage: Message = {
       role: 'user',
@@ -859,7 +932,7 @@ FINAL REMINDER:
 
     setMessages(prev => [...prev, contextMessage, newMessage]);
     setInput('');
-    setIsLoading(true);
+    setIsProcessing(true);
 
     try {
       // Create a new AbortController for this request
@@ -933,7 +1006,7 @@ FINAL REMINDER:
         return newMessages;
       });
     } finally {
-      setIsLoading(false);
+      setIsProcessing(false);
       abortControllerRef.current = null;
     }
   };
@@ -1189,7 +1262,7 @@ FINAL REMINDER:
         onMouseDown={handleMouseDown}
         className="resize-handle"
         style={{
-          background: isDragging ? 'var(--accent-color)' : undefined,
+          background: isResizing ? 'var(--accent-color)' : undefined,
         }}
       />
 
@@ -1204,7 +1277,7 @@ FINAL REMINDER:
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <h3 style={{ margin: 0, color: 'var(--text-primary)', fontSize: '13px' }}>LLM Chat</h3>
+          <h3 style={{ margin: 5, color: 'var(--text-primary)', fontSize: '13px' }}>Builder</h3>
           <div style={{ position: 'relative' }}>
             <div className="chat-switcher">
               <button
@@ -1500,7 +1573,7 @@ FINAL REMINDER:
               </div>
             )}
           </div>
-          {isLoading ? (
+          {isProcessing ? (
             <button
               onClick={handleCancel}
               style={{

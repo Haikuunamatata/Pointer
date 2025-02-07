@@ -2,6 +2,8 @@ import React, { useRef, useEffect, useState } from 'react';
 import * as monaco from 'monaco-editor';
 import { FileSystemItem } from '../types';
 import { getLanguageFromFileName } from '../utils/languageUtils';
+import { AIFileService } from '../services/AIFileService';
+import { lmStudio } from '../services/LMStudioService';
 
 interface EditorPaneProps {
   fileId: string;
@@ -13,6 +15,8 @@ const EditorPane: React.FC<EditorPaneProps> = ({ fileId, file, onEditorReady }) 
   const editorRef = useRef<HTMLDivElement>(null);
   const editor = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const contentRef = useRef<string>('');  // Add this to track content changes
+  const [showPromptInput, setShowPromptInput] = useState(false);
+  const [prompt, setPrompt] = useState('');
 
   // Normalize content once when file changes
   useEffect(() => {
@@ -65,6 +69,11 @@ const EditorPane: React.FC<EditorPaneProps> = ({ fileId, file, onEditorReady }) 
         trimAutoWhitespace: true,
       });
 
+      // Add keyboard event handler for Ctrl+I
+      editor.current.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyI, () => {
+        setShowPromptInput(true);
+      });
+
       if (editor.current) {
         onEditorReady(editor.current);
       }
@@ -88,6 +97,52 @@ const EditorPane: React.FC<EditorPaneProps> = ({ fileId, file, onEditorReady }) 
     };
   }, [fileId, file, onEditorReady]);
 
+  const handlePromptSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!prompt.trim()) return;
+
+    // Get the current selection or cursor position
+    const selection = editor.current?.getSelection();
+    const position = selection?.getStartPosition();
+    
+    // Get the current file path
+    const currentFile = window.getCurrentFile?.();
+    if (!currentFile) return;
+
+    // Create a context-aware prompt
+    const contextPrompt = `In file ${currentFile.path}${position ? ` at line ${position.lineNumber}, column ${position.column}` : ''}, ${prompt}`;
+    
+    try {
+      // Get response from LM Studio
+      const response = await lmStudio.createChatCompletion({
+        model: 'deepseek-coder-v2-lite-instruct',
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a coding assistant. Return only code changes without explanations.'
+          },
+          {
+            role: 'user',
+            content: contextPrompt
+          }
+        ],
+        temperature: 0.3,
+      });
+
+      const aiContent = response.choices[0]?.message?.content;
+      if (aiContent) {
+        // Process the AI response directly
+        await AIFileService.processAIResponse(aiContent);
+      }
+    } catch (error) {
+      console.error('Error processing AI request:', error);
+    }
+
+    // Reset the prompt input
+    setPrompt('');
+    setShowPromptInput(false);
+  };
+
   if (!file) {
     return <div>No file loaded</div>;
   }
@@ -100,7 +155,75 @@ const EditorPane: React.FC<EditorPaneProps> = ({ fileId, file, onEditorReady }) 
         height: '100%',
         position: 'relative',
       }} 
-    />
+    >
+      {showPromptInput && (
+        <div style={{
+          position: 'absolute',
+          top: '50%',
+          left: '50%',
+          transform: 'translate(-50%, -50%)',
+          background: 'var(--bg-secondary)',
+          padding: '20px',
+          borderRadius: '8px',
+          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.2)',
+          zIndex: 1000,
+          minWidth: '300px',
+        }}>
+          <form onSubmit={handlePromptSubmit}>
+            <input
+              type="text"
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder="Ask AI anything..."
+              style={{
+                width: '100%',
+                padding: '8px 12px',
+                border: '1px solid var(--border-color)',
+                borderRadius: '4px',
+                background: 'var(--bg-primary)',
+                color: 'var(--text-primary)',
+                fontSize: '14px',
+              }}
+              autoFocus
+            />
+            <div style={{ 
+              marginTop: '10px', 
+              display: 'flex', 
+              justifyContent: 'flex-end',
+              gap: '8px'
+            }}>
+              <button
+                type="button"
+                onClick={() => setShowPromptInput(false)}
+                style={{
+                  padding: '6px 12px',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: '4px',
+                  background: 'var(--bg-primary)',
+                  color: 'var(--text-primary)',
+                  cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                style={{
+                  padding: '6px 12px',
+                  border: '1px solid var(--accent-color)',
+                  borderRadius: '4px',
+                  background: 'var(--accent-color)',
+                  color: 'white',
+                  cursor: 'pointer',
+                }}
+              >
+                Ask AI
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+    </div>
   );
 };
 
