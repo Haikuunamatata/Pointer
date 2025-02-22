@@ -165,4 +165,4 @@ This project is licensed under the MIT License - see the LICENSE file of the rep
 - Backend powered by [FastAPI](https://fastapi.tiangolo.com/)
 
 
-https://blog.codinghorror.com/content/images/uploads/2007/03/6a0120a85dcdae970b0128776ff992970c-pi.png
+![works on my machine](https://blog.codinghorror.com/content/images/uploads/2007/03/6a0120a85dcdae970b0128776ff992970c-pi.png)
