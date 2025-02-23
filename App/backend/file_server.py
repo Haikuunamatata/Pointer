@@ -14,6 +14,8 @@ import json
 import asyncio
 import subprocess
 import signal
+from keyword_extractor import extract_keywords
+import math
 
 app = FastAPI()
 qt_app = QApplication(sys.argv)
@@ -774,62 +776,111 @@ async def list_files(currentDir: str | None = None):
 
 @app.post("/get-relevant-files")
 async def get_relevant_files(request: RelevantFilesRequest):
-    """Get relevant files based on a query, including their contents if requested."""
+    """Get files relevant to a search query using keyword extraction."""
     if not base_directory:
         raise HTTPException(status_code=400, detail="No directory opened")
-    
+
     try:
-        relevant_files = {}
+        # Extract keywords from the query
+        keywords = extract_keywords(request.query)
+        
+        relevant_files = []
+        
+        # Walk through the directory
         for root, _, files in os.walk(base_directory):
             for file in files:
-                if file.startswith('.'):
-                    continue
-                    
-                full_path = os.path.join(root, file)
                 if not is_text_file(file):
                     continue
                     
+                file_path = os.path.join(root, file)
+                relative_path = os.path.relpath(file_path, base_directory)
+                
                 try:
-                    relative_path = os.path.relpath(full_path, base_directory)
-                    
-                    # Skip files larger than 1MB
-                    if os.path.getsize(full_path) > 1024 * 1024:
-                        continue
-                        
-                    # Read file content if requested
-                    content = None
-                    if request.include_content:
-                        try:
-                            with open(full_path, 'r', encoding='utf-8', errors='replace') as f:
+                    # Check if file is in cache
+                    if file_path in file_cache:
+                        content = file_cache[file_path]
+                    else:
+                        # Read file content if not too large
+                        if os.path.getsize(file_path) <= 1024 * 1024:  # 1MB limit
+                            with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
                                 content = f.read()
-                        except Exception as e:
-                            print(f"Error reading file {full_path}: {str(e)}")
+                            file_cache[file_path] = content
+                        else:
                             continue
                     
-                    relevant_files[relative_path] = {
-                        'path': relative_path,
-                        'name': file,
-                        'type': 'file',
-                        'content': content
-                    }
+                    # Calculate relevance score based on multiple factors
+                    score = 0
+                    content_lower = content.lower()
                     
-                    if len(relevant_files) >= request.max_files:
-                        break
-                        
+                    # 1. Keyword frequency in content
+                    for keyword in keywords:
+                        keyword_lower = keyword.lower()
+                        count = content_lower.count(keyword_lower)
+                        if count > 0:
+                            # Log scale for frequency to prevent large files from dominating
+                            score += (1 + math.log(count)) * 2
+                    
+                    # 2. Keyword presence in file path (higher weight)
+                    path_lower = relative_path.lower()
+                    for keyword in keywords:
+                        if keyword.lower() in path_lower:
+                            score += 5
+                    
+                    # 3. Keyword proximity (keywords appearing close together)
+                    words = content_lower.split()
+                    for i in range(len(words)):
+                        matches = 0
+                        for j in range(5):  # Look at 5-word windows
+                            if i + j < len(words) and any(k.lower() in words[i + j] for k in keywords):
+                                matches += 1
+                        score += matches * 0.5  # Bonus for keywords appearing close together
+                    
+                    if score > 0:
+                        relevant_files.append({
+                            'path': relative_path,
+                            'score': round(score, 2)  # Round to 2 decimal places
+                        })
                 except Exception as e:
-                    print(f"Error processing file {full_path}: {str(e)}")
+                    print(f"Error processing file {file_path}: {str(e)}")
                     continue
-                    
-            if len(relevant_files) >= request.max_files:
-                break
-                
+        
+        # Sort by relevance score
+        relevant_files.sort(key=lambda x: x['score'], reverse=True)
+        
+        # Limit the number of results
+        relevant_files = relevant_files[:request.max_files]
+        
         return {
             'files': relevant_files,
-            'base_directory': base_directory
+            'keywords': keywords
         }
         
     except Exception as e:
-        print(f"Error in get_relevant_files: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/get-file-contents")
+async def get_file_contents(files: List[str]):
+    """Get the contents of specific files."""
+    if not base_directory:
+        raise HTTPException(status_code=400, detail="No directory opened")
+
+    try:
+        file_contents = {}
+        for file_path in files:
+            full_path = os.path.join(base_directory, file_path)
+            
+            try:
+                if os.path.exists(full_path) and is_text_file(file_path):
+                    if os.path.getsize(full_path) <= 1024 * 1024:  # 1MB limit
+                        with open(full_path, 'r', encoding='utf-8', errors='replace') as f:
+                            content = f.read()
+                        file_contents[file_path] = content
+            except Exception as e:
+                print(f"Error reading file {file_path}: {str(e)}")
+                continue
+
+        return file_contents
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.websocket("/ws/terminal")

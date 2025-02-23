@@ -31,6 +31,11 @@ declare global {
 interface Message {
   role: 'system' | 'user' | 'assistant';
   content: string;
+  relevantFiles?: {
+    path: string;
+    score: number;
+  }[];
+  keywords?: string[];
 }
 
 interface LLMChatProps {
@@ -53,14 +58,13 @@ interface FileCompletion {
 
 interface RelevantFile {
   path: string;
-  name: string;
-  type: string;
+  score: number;
   content: string | null;
 }
 
 interface RelevantFilesResponse {
-  files: Record<string, RelevantFile>;
-  base_directory: string;
+  files: RelevantFile[];
+  keywords: string[];
 }
 
 interface ChatCompletionResponse {
@@ -271,12 +275,6 @@ const ProcessFilesButton: React.FC<{ content: string }> = ({ content }) => {
       setError(false);
       setSuccess(false);
       
-      // Start periodic refresh while processing
-      progressInterval.current = setInterval(async () => {
-        await FileSystemService.refreshStructure();
-        FileSystemService.clearLoadedFolders();
-      }, 1000); // Refresh every second while processing
-
       // Process the AI response
       await AIFileService.processAIResponse(content);
       
@@ -679,6 +677,96 @@ const MessageRenderer: React.FC<{ message: Message }> = ({ message }) => {
   );
 };
 
+const RelevantFilesList: React.FC<{ files: RelevantFile[]; keywords: string[] }> = ({ files, keywords }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  if (!files || files.length === 0) return null;
+
+  return (
+    <div className="relevant-files-container" style={{
+      position: 'sticky',
+      top: 0,
+      zIndex: 10,
+      backgroundColor: 'var(--bg-primary)',
+      marginBottom: '12px',
+      borderRadius: '4px',
+      border: '1px solid var(--border-color)',
+      boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+    }}>
+      <div 
+        onClick={() => setIsExpanded(!isExpanded)}
+        style={{
+          padding: '8px 12px',
+          cursor: 'pointer',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          borderBottom: isExpanded ? '1px solid var(--border-color)' : 'none',
+          backgroundColor: 'var(--bg-secondary)'
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span>Relevant Files ({files.length})</span>
+          {keywords.length > 0 && (
+            <span style={{ color: 'var(--text-secondary)', fontSize: '0.9em' }}>
+              Keywords: {keywords.join(', ')}
+            </span>
+          )}
+        </div>
+        <svg 
+          width="12" 
+          height="12" 
+          viewBox="0 0 12 12" 
+          style={{ 
+            transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+            transition: 'transform 0.2s ease'
+          }}
+        >
+          <path 
+            d="M2 4L6 8L10 4" 
+            stroke="currentColor" 
+            fill="none" 
+            strokeWidth="2"
+          />
+        </svg>
+      </div>
+      {isExpanded && (
+        <div style={{ 
+          padding: '8px 12px', 
+          maxHeight: '200px', 
+          overflowY: 'auto',
+          backgroundColor: 'var(--bg-primary)',
+          borderBottomLeftRadius: '4px',
+          borderBottomRightRadius: '4px'
+        }}>
+          {files.map((file, index) => (
+            <div 
+              key={file.path} 
+              style={{
+                padding: '4px 8px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                backgroundColor: index % 2 === 0 ? 'var(--bg-secondary)' : 'transparent',
+                borderRadius: '2px'
+              }}
+            >
+              <span style={{ flex: 1 }}>{file.path}</span>
+              <span style={{ 
+                color: 'var(--text-secondary)',
+                fontSize: '0.9em',
+                marginLeft: '12px'
+              }}>
+                {file.score}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectChat }: LLMChatProps) {
   const [messages, setMessages] = useState<Message[]>([INITIAL_SYSTEM_MESSAGE]);
   const [input, setInput] = useState('');
@@ -692,7 +780,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   const [chats, setChats] = useState<ChatSession[]>([]);
   const [isSettingsVisible, setIsSettingsVisible] = useState(false);
   const [isScrolledToBottom, setIsScrolledToBottom] = useState(true);
-  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [showScrollButton, setShowScrollButton] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
   const [width, setWidth] = useState(400);
   const [isLMStudioConnected, setIsLMStudioConnected] = useState(false);
@@ -726,6 +814,8 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
     startTime: null,
     endTime: null,
   });
+  const [relevantFiles, setRelevantFiles] = useState<RelevantFile[]>([]);
+  const [keywords, setKeywords] = useState<string[]>([]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
@@ -874,17 +964,18 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
           query,
           max_files: 10,
           include_content: true
-        })
+        }),
       });
 
       if (!response.ok) {
         throw new Error('Failed to fetch relevant files');
       }
 
-      return await response.json();
+      const data = await response.json();
+      return data;
     } catch (error) {
       console.error('Error fetching relevant files:', error);
-      return { files: {}, base_directory: '' };
+      return { files: [], keywords: [] };
     }
   };
 
@@ -892,18 +983,35 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
     e.preventDefault();
     if (!input.trim() || isProcessing) return;
 
-    const newMessage: Message = {
-      role: 'user',
-      content: input
-    };
+    try {
+      setIsProcessing(true);
+      setShowScrollButton(false);
 
-    // Get relevant files based on the user's query
-    const relevantFiles = await getRelevantFiles(input);
-    
-    // Create a context message with file information
-    const contextMessage: Message = {
-      role: 'system',
-      content: `CRITICAL FORMATTING REQUIREMENT:
+      // First, get relevant files based on the input
+      const relevantFilesResponse = await getRelevantFiles(input);
+      setRelevantFiles(relevantFilesResponse.files);
+      setKeywords(relevantFilesResponse.keywords);
+
+      // Then, get the contents of the relevant files
+      const fileContents = await fetch('http://localhost:8000/get-file-contents', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(relevantFilesResponse.files.map(f => f.path))
+      }).then(res => res.json());
+
+      const newMessage: Message = {
+        role: 'user',
+        content: input,
+        relevantFiles: relevantFilesResponse.files.map(f => ({ path: f.path, score: f.score })),
+        keywords: relevantFilesResponse.keywords
+      };
+
+      // Create a context message with file information
+      const contextMessage: Message = {
+        role: 'system',
+        content: `CRITICAL FORMATTING REQUIREMENT:
 You MUST format ALL code responses using this exact format:
 Pointer:Code+filename.ext:start
 code here
@@ -916,25 +1024,24 @@ def example():
 Pointer:Code+example.py:end
 
 Current workspace context:
-Base directory: ${relevantFiles.base_directory}
-Relevant files:
-${Object.entries(relevantFiles.files).map(([path, file]) => 
-`File: ${path}
-${file.content ? file.content : '[Content not available]'}`
+Relevant files (sorted by relevance):
+${relevantFilesResponse.files.map(file => 
+`File: ${file.path} (${file.score})
+${fileContents[file.path] || '[Content not available]'}`
 ).join('\n\n')}
+
+Keywords extracted: ${relevantFilesResponse.keywords.join(', ')}
 
 FINAL REMINDER:
 1. NEVER use \`\`\` code blocks
 2. ALWAYS wrap code in Pointer:Code tags
 3. ALWAYS include a descriptive filename
 4. Format EVERY code snippet this way`
-    };
+      };
 
-    setMessages(prev => [...prev, contextMessage, newMessage]);
-    setInput('');
-    setIsProcessing(true);
+      setMessages(prev => [...prev, contextMessage, newMessage]);
+      setInput('');
 
-    try {
       // Create a new AbortController for this request
       abortControllerRef.current = new AbortController();
 
@@ -952,7 +1059,7 @@ FINAL REMINDER:
         presencePenalty: 0,
       };
 
-      // Prepare messages array, ensuring all messages have required fields
+      // Prepare messages array
       const messagesForAPI = [
         INITIAL_SYSTEM_MESSAGE,
         {
@@ -967,7 +1074,6 @@ FINAL REMINDER:
         newMessage
       ];
 
-      // Include both the context message and user message in the conversation
       await lmStudio.createStreamingChatCompletion({
         model: modelConfig.name,
         messages: messagesForAPI,
@@ -977,37 +1083,20 @@ FINAL REMINDER:
         frequency_penalty: modelConfig.frequencyPenalty,
         presence_penalty: modelConfig.presencePenalty,
         onUpdate: (content: string) => {
-          // Try to convert any code blocks to Pointer:Code format
-          let processedContent = content;
-          const codeBlockRegex = /```(\w+)?\n([\s\S]*?)```/g;
-          processedContent = processedContent.replace(codeBlockRegex, (_, lang, code) => {
-            const extension = lang || 'txt';
-            return `Pointer:Code+code.${extension}:start\n${code.trim()}\nPointer:Code+code.${extension}:end`;
-          });
-
           setMessages(prev => {
             const newMessages = [...prev];
             newMessages[newMessages.length - 1] = {
               role: 'assistant',
-              content: processedContent
+              content: content
             };
             return newMessages;
           });
         }
       });
+
     } catch (error) {
-      console.error('Error getting response:', error instanceof Error ? error.message : 'Unknown error');
-      setMessages(prev => {
-        const newMessages = [...prev];
-        newMessages[newMessages.length - 1] = {
-          role: 'assistant',
-          content: `Sorry, there was an error processing your request: ${error instanceof Error ? error.message : 'Unknown error'}`
-        };
-        return newMessages;
-      });
-    } finally {
+      console.error('Error in handleSubmit:', error);
       setIsProcessing(false);
-      abortControllerRef.current = null;
     }
   };
 
@@ -1196,6 +1285,15 @@ FINAL REMINDER:
       console.log('Saving chat, messages length:', messages.length);
       if (messages.length > 1 && currentChatId) {
         try {
+          // Filter out system messages that contain file contents
+          const cleanedMessages = messages.map(msg => ({
+            ...msg,
+            // Remove content from system messages that contain file contents
+            content: msg.role === 'system' && msg.content.includes('Current workspace context:') 
+              ? INITIAL_SYSTEM_MESSAGE.content 
+              : msg.content
+          }));
+
           const response = await fetch(`http://localhost:8000/chats/${currentChatId}`, {
             method: 'POST',
             headers: {
@@ -1205,7 +1303,7 @@ FINAL REMINDER:
               id: currentChatId,
               name: `Chat ${new Date().toLocaleString()}`,
               createdAt: new Date().toISOString(),
-              messages,
+              messages: cleanedMessages,
             }),
           });
           
@@ -1385,6 +1483,7 @@ FINAL REMINDER:
           gap: '12px',
         }}
       >
+        <RelevantFilesList files={relevantFiles} keywords={keywords} />
         {messages.filter(message => message.role !== 'system').length === 0 ? (
           <div style={{
             display: 'flex',

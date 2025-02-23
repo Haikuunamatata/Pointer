@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import * as monaco from 'monaco-editor';
 import { FileChangeEventService } from '../services/FileChangeEventService';
 import { FileSystemService } from '../services/FileSystemService';
+import { getIconForFile } from './FileIcons';
 
 interface DiffChange {
   filePath: string;
@@ -113,6 +114,38 @@ const styles = {
     opacity: 0.5,
     cursor: 'not-allowed',
   },
+  fileList: {
+    width: '200px',
+    borderRight: '1px solid var(--border-color)',
+    backgroundColor: 'var(--bg-secondary)',
+    display: 'flex',
+    flexDirection: 'column' as const,
+    overflow: 'auto',
+  },
+  fileItem: {
+    padding: '8px 12px',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    fontSize: '12px',
+    color: 'var(--text-primary)',
+    transition: 'background-color 0.2s ease',
+  },
+  fileItemActive: {
+    backgroundColor: 'var(--bg-selected)',
+    borderLeft: '2px solid var(--accent-color)',
+  },
+  fileItemIcon: {
+    display: 'flex',
+    alignItems: 'center',
+    opacity: 0.7,
+  },
+  diffContainer: {
+    display: 'flex',
+    flex: 1,
+    overflow: 'hidden',
+  },
 };
 
 const ANIMATION_STYLES = `
@@ -157,6 +190,7 @@ const ANIMATION_STYLES = `
 
 export const DiffViewer: React.FC = () => {
   const [diffs, setDiffs] = useState<DiffChange[]>([]);
+  const [currentDiffIndex, setCurrentDiffIndex] = useState(0);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isHovering, setIsHovering] = useState<{[key: string]: boolean}>({});
@@ -183,7 +217,7 @@ export const DiffViewer: React.FC = () => {
           // Create decorations for the diff
           const originalLines = oldContent.split('\n');
           const newLines = newContent.split('\n');
-          const diffDecorations = [];
+          const diffDecorations: monaco.editor.IModelDeltaDecoration[] = [];
 
           // First pass: find all changes
           const changes = [];
@@ -286,7 +320,7 @@ export const DiffViewer: React.FC = () => {
     cleanupEditor();
 
     if (diffs.length > 0) {
-      const currentDiff = diffs[0];
+      const currentDiff = diffs[currentDiffIndex];
       
       diffEditorRef.current = monaco.editor.createDiffEditor(containerRef.current, {
         automaticLayout: true,
@@ -309,7 +343,6 @@ export const DiffViewer: React.FC = () => {
         diffWordWrap: 'on',
         padding: { top: 8, bottom: 8 },
         originalEditable: false,
-        modifiedEditable: false,
         renderIndicators: true,
         renderMarginRevertIcon: true,
       });
@@ -337,7 +370,6 @@ export const DiffViewer: React.FC = () => {
         renderSideBySide: true,
         enableSplitViewResizing: false,
         originalEditable: false,
-        modifiedEditable: false,
         lineNumbers: 'on',
         folding: false,
         renderIndicators: true,
@@ -351,19 +383,19 @@ export const DiffViewer: React.FC = () => {
         diffEditorRef.current?.getModifiedEditor().setScrollTop(0);
       }, 50);
     }
-  }, [isModalOpen]);
+  }, [isModalOpen, currentDiffIndex]);
 
   const handleAccept = async () => {
     if (diffs.length === 0 || isProcessing) return;
     
-    const currentDiff = diffs[0];
+    const currentDiff = diffs[currentDiffIndex];
     setIsProcessing(true);
     
     try {
       const modifiedContent = diffEditorRef.current?.getModifiedEditor().getValue() || '';
       await FileSystemService.saveFile(currentDiff.filePath, modifiedContent);
       
-      setDiffs(prev => prev.filter((_, i) => i !== 0));
+      setDiffs(prev => prev.filter((_, i) => i !== currentDiffIndex));
       
       const currentFile = window.getCurrentFile?.();
       if (currentFile?.path === currentDiff.filePath && window.editor) {
@@ -378,6 +410,9 @@ export const DiffViewer: React.FC = () => {
 
       if (diffs.length <= 1) {
         setIsModalOpen(false);
+      } else {
+        // Move to the next diff if available
+        setCurrentDiffIndex(prev => prev >= diffs.length - 1 ? 0 : prev);
       }
     } catch (error) {
       console.error('Error accepting changes:', error);
@@ -389,9 +424,12 @@ export const DiffViewer: React.FC = () => {
   const handleReject = () => {
     if (isProcessing) return;
     setDiffs(prev => {
-      const newDiffs = prev.filter((_, i) => i !== 0);
+      const newDiffs = prev.filter((_, i) => i !== currentDiffIndex);
       if (newDiffs.length === 0) {
         setIsModalOpen(false);
+      } else {
+        // Move to the next diff if available
+        setCurrentDiffIndex(prev => prev >= newDiffs.length ? 0 : prev);
       }
       return newDiffs;
     });
@@ -430,7 +468,7 @@ export const DiffViewer: React.FC = () => {
     return null;
   }
 
-  const currentDiff = diffs[0];
+  const currentDiff = diffs[currentDiffIndex];
   const fileName = currentDiff.filePath.split('/').pop() || currentDiff.filePath;
 
   return (
@@ -471,7 +509,7 @@ export const DiffViewer: React.FC = () => {
               <div>
                 <div style={styles.modalTitle}>Review Changes</div>
                 <div style={styles.modalSubtitle}>
-                  {fileName} {diffs.length > 1 && `(+${diffs.length - 1} more files)`}
+                  {fileName} {diffs.length > 1 && `(${currentDiffIndex + 1}/${diffs.length} files)`}
                 </div>
               </div>
               <div style={styles.buttonGroup}>
@@ -517,7 +555,38 @@ export const DiffViewer: React.FC = () => {
                 </button>
               </div>
             </div>
-            <div ref={containerRef} style={styles.editorContainer} />
+            <div style={styles.diffContainer}>
+              <div style={styles.fileList}>
+                {diffs.map((diff, index) => {
+                  const fileName = diff.filePath.split('/').pop() || diff.filePath;
+                  const isActive = index === currentDiffIndex;
+                  
+                  return (
+                    <div
+                      key={diff.filePath}
+                      onClick={() => setCurrentDiffIndex(index)}
+                      style={{
+                        ...styles.fileItem,
+                        ...(isActive ? styles.fileItemActive : {}),
+                        marginLeft: isActive ? '-2px' : '0',
+                      }}
+                    >
+                      <span style={styles.fileItemIcon}>
+                        {getIconForFile(fileName)}
+                      </span>
+                      <span style={{
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}>
+                        {fileName}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+              <div ref={containerRef} style={styles.editorContainer} />
+            </div>
           </div>
         </div>
       )}

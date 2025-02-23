@@ -70,4 +70,22 @@
 
 .close-button:hover {
   color: var(--text-secondary);
+}
+
+.relevant-files-container {
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.relevant-files-container:hover {
+  border-color: var(--accent-color) !important;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.relevant-files-container .file-item {
+  transition: background-color 0.2s ease;
+}
+
+.relevant-files-container .file-item:hover {
+  background-color: var(--bg-hover) !important;
 } 

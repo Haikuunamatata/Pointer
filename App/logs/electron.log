@@ -1,0 +1,9 @@
+npm error Missing script: "electron-dev"
+npm error
+npm error Did you mean this?
+npm error   npm run electron:dev # run the "electron:dev" package script
+npm error
+npm error To see a list of scripts, run:
+npm error   npm run
+
+npm error A complete log of this run can be found in: C:\Users\Das_F1sHy312\AppData\Local\npm-cache\_logs\2025-02-23T08_59_16_614Z-debug-0.log

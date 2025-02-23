@@ -1,135 +1,99 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow } = require('electron');
 const path = require('path');
-const isDev = require('electron-is-dev');
-const { spawn } = require('child_process');
+const isDev = process.env.NODE_ENV !== 'production';
 
-let mainWindow;
-let pythonProcess;
+console.log('Electron app is starting...');
 
-function createWindow() {
+async function waitForViteServer() {
+  const maxRetries = 10;
+  const retryDelay = 1000;
+  let retries = 0;
+
+  while (retries < maxRetries) {
+    try {
+      const response = await fetch('http://localhost:3000');
+      if (response.ok) {
+        console.log('Vite server is ready');
+        return true;
+      }
+    } catch (err) {
+      console.log('Waiting for Vite server...', retries + 1);
+    }
+    await new Promise(resolve => setTimeout(resolve, retryDelay));
+    retries++;
+  }
+  return false;
+}
+
+async function createWindow() {
   // Create the browser window.
-  mainWindow = new BrowserWindow({
-    width: 1280,
+  const mainWindow = new BrowserWindow({
+    width: 1200,
     height: 800,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      enableRemoteModule: false,
+      webSecurity: true,
       preload: path.join(__dirname, 'preload.js')
-    },
-    titleBarStyle: 'hidden',
-    frame: false,
-    backgroundColor: '#1e1e1e',
+    }
   });
 
   // Load the app
-  mainWindow.loadURL(
-    isDev
-      ? 'http://localhost:5173'  // Vite dev server URL
-      : `file://${path.join(__dirname, '../dist/index.html')}`
-  );
-
-  // Start Python backend server
-  startPythonServer();
-
-  // Open the DevTools in development.
   if (isDev) {
+    // Wait for Vite server in development
+    const serverReady = await waitForViteServer();
+    if (!serverReady) {
+      console.error('Failed to connect to Vite server');
+      app.quit();
+      return;
+    }
+
+    await mainWindow.loadURL('http://localhost:3000');
     mainWindow.webContents.openDevTools();
+  } else {
+    await mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
 
-  // Handle window state changes
-  mainWindow.on('maximize', () => {
-    mainWindow.webContents.send('window-state-change', { isMaximized: true });
-  });
-
-  mainWindow.on('unmaximize', () => {
-    mainWindow.webContents.send('window-state-change', { isMaximized: false });
-  });
-}
-
-function startPythonServer() {
-  // Path to your Python script
-  const scriptPath = isDev
-    ? path.join(__dirname, '../backend/file_server.py')
-    : path.join(process.resourcesPath, 'backend/file_server.py');
-
-  // Start Python process
-  pythonProcess = spawn('python', [scriptPath], {
-    stdio: ['pipe', 'pipe', 'pipe']
-  });
-
-  pythonProcess.stdout.on('data', (data) => {
-    console.log(`Python stdout: ${data}`);
-  });
-
-  pythonProcess.stderr.on('data', (data) => {
-    console.error(`Python stderr: ${data}`);
-  });
-
-  pythonProcess.on('close', (code) => {
-    console.log(`Python process exited with code ${code}`);
-    // Attempt to restart the server if it crashes
-    if (code !== 0) {
-      console.log('Attempting to restart Python server...');
-      setTimeout(startPythonServer, 1000);
+  // Handle loading errors
+  mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
+    console.error('Failed to load:', errorCode, errorDescription);
+    if (isDev) {
+      // Retry loading in development
+      setTimeout(() => {
+        console.log('Retrying to load the app...');
+        mainWindow.loadURL('http://localhost:3000');
+      }, 1000);
     }
+  });
+
+  // Log any console messages from the renderer process
+  mainWindow.webContents.on('console-message', (event, level, message) => {
+    console.log('Renderer Console:', message);
   });
 }
 
 // This method will be called when Electron has finished initialization
-app.whenReady().then(createWindow);
+app.whenReady().then(async () => {
+  console.log('Electron app is ready. Creating window...');
+  if (isDev) {
+    const session = require('electron').session;
+    await session.defaultSession.clearCache();
+    console.log('Cache cleared');
+  }
+  await createWindow();
+});
 
 // Quit when all windows are closed.
 app.on('window-all-closed', () => {
+  console.log('All windows closed. Quitting app...');
   if (process.platform !== 'darwin') {
     app.quit();
-  }
-  if (pythonProcess) {
-    pythonProcess.kill();
   }
 });
 
 app.on('activate', () => {
+  console.log('App activated. Checking for open windows...');
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
-  }
-});
-
-// Handle window controls
-ipcMain.on('minimize-window', () => {
-  mainWindow.minimize();
-});
-
-ipcMain.on('maximize-window', () => {
-  if (mainWindow.isMaximized()) {
-    mainWindow.unmaximize();
-  } else {
-    mainWindow.maximize();
-  }
-});
-
-ipcMain.on('close-window', () => {
-  mainWindow.close();
-});
-
-// Handle file dialogs
-ipcMain.handle('open-directory-dialog', async () => {
-  const result = await dialog.showOpenDialog(mainWindow, {
-    properties: ['openDirectory']
-  });
-  return result.filePaths[0];
-});
-
-ipcMain.handle('open-file-dialog', async () => {
-  const result = await dialog.showOpenDialog(mainWindow, {
-    properties: ['openFile']
-  });
-  return result.filePaths[0];
-});
-
-// Handle app quit
-app.on('before-quit', () => {
-  if (pythonProcess) {
-    pythonProcess.kill();
   }
 }); 

@@ -4,24 +4,38 @@ import path from 'path'
 
 export default defineConfig({
   plugins: [react()],
-  base: './',
-  resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './src'),
-    },
-  },
+  base: process.env.NODE_ENV === 'production' ? './' : '/',
   server: {
-    port: 5173,
+    port: 3000,
+    strictPort: true,
+    host: true, // needed for Electron
+    fs: {
+      strict: false,
+      allow: ['..']
+    },
     proxy: {
-      '/api': {
-        target: 'http://localhost:8000',
+      '/v1': {
+        target: 'http://localhost:1234',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, ''),
+        secure: false,
+        ws: true,
+        configure: (proxy, _options) => {
+          proxy.on('error', (err, _req, _res) => {
+            console.log('proxy error', err);
+          });
+          proxy.on('proxyReq', (proxyReq, req, _res) => {
+            console.log('Sending Request to the Target:', req.method, req.url);
+          });
+          proxy.on('proxyRes', (proxyRes, req, _res) => {
+            console.log('Received Response from the Target:', proxyRes.statusCode, req.url);
+          });
+        },
       },
     }
   },
   optimizeDeps: {
-    exclude: ['monaco-editor'],
+    include: ['monaco-editor'],
+    exclude: ['electron']
   },
   build: {
     outDir: 'dist',
@@ -30,9 +44,18 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          'monaco-editor': ['monaco-editor'],
+          jsonWorker: ['monaco-editor/esm/vs/language/json/json.worker'],
+          cssWorker: ['monaco-editor/esm/vs/language/css/css.worker'],
+          htmlWorker: ['monaco-editor/esm/vs/language/html/html.worker'],
+          tsWorker: ['monaco-editor/esm/vs/language/typescript/ts.worker'],
+          editorWorker: ['monaco-editor/esm/vs/editor/editor.worker'],
         },
       },
     },
   },
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, 'src')
+    }
+  }
 }) 

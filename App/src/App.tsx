@@ -14,7 +14,6 @@ import { ChatService, ChatSession } from './services/ChatService';
 import { v4 as uuidv4 } from 'uuid';
 import Terminal from './components/Terminal';
 import { DiffViewer } from './components/DiffViewer';
-import TitleBar from './components/TitleBar';
 
 // Initialize language support
 initializeLanguageSupport();
@@ -61,10 +60,6 @@ declare global {
     editor?: monaco.editor.IStandaloneCodeEditor;
     reloadFileContent?: (fileId: string) => Promise<void>;
     fileSystem?: Record<string, FileSystemItem>;
-    electron: {
-      send: (channel: string, ...args: any[]) => void;
-      invoke: (channel: string, ...args: any[]) => Promise<any>;
-    };
   }
 }
 
@@ -443,83 +438,64 @@ const App: React.FC = () => {
     }
   }, []);
 
-  const handleOpenDirectory = async () => {
-    try {
-      if (window.electron) {
-        const path = await window.electron.invoke('open-directory-dialog');
-        if (path) {
-          const result = await FileSystemService.openSpecificDirectory(path);
-          if (result) {
-            setFileSystem(prev => ({
-              ...prev,
-              items: result.items,
-              rootId: result.rootId,
-            }));
-          }
-        }
-      } else {
-        // Fallback to existing openDirectory method
-        const result = await FileSystemService.openDirectory();
-        if (result) {
-          setFileSystem(prev => ({
-            ...prev,
-            items: result.items,
-            rootId: result.rootId,
-          }));
-        }
-      }
-    } catch (error) {
-      console.error('Error opening directory:', error);
-    }
-  };
-
   const handleOpenFile = async () => {
     try {
-      if (window.electron) {
-        const path = await window.electron.invoke('open-file-dialog');
-        if (path) {
-          // Use the existing file opening logic with the selected path
-          const result = await FileSystemService.openFile();
-          if (result) {
-            setFileSystem(prev => {
-              const newItems = { ...prev.items };
-              newItems[result.id] = {
-                id: result.id,
-                name: result.filename,
-                type: 'file',
-                content: result.content,
-                parentId: prev.rootId,
-                path: result.fullPath,
-              };
-              return {
-                ...prev,
-                items: newItems,
-                currentFileId: result.id,
-              };
-            });
-          }
+      const result = await FileSystemService.openFile();
+      if (!result) {
+        console.error('Failed to open file: No result returned');
+        return;
+      }
+
+      // Update the file system state
+      setFileSystem(prev => {
+        const newItems = { ...prev.items };
+        
+        // Create a special "Opened Files" directory if it doesn't exist
+        const openedFilesDirId = 'opened_files_dir';
+        if (!newItems[openedFilesDirId]) {
+          newItems[openedFilesDirId] = {
+            id: openedFilesDirId,
+            name: 'Opened Files',
+            type: 'directory',
+            parentId: prev.rootId,
+            path: 'opened_files',
+          };
         }
+        
+        // Add the file under the "Opened Files" directory
+        newItems[result.id] = {
+          id: result.id,
+          name: result.filename,
+          type: 'file',
+          content: result.content,
+          parentId: openedFilesDirId,
+          path: result.fullPath, // Store the full path for saving
+        };
+
+        // Update the content in the file system state
+        const updatedItems = {
+          ...newItems,
+          [result.id]: {
+            ...newItems[result.id],
+            content: result.content,
+          },
+        };
+
+        return {
+          ...prev,
+          items: updatedItems,
+          currentFileId: result.id,
+        };
+      });
+
+      // Add to open files
+      setOpenFiles(prev => [...prev, result.id]);
+
+      // Set the editor content
+      if (editor.current) {
+        editor.current.setValue(result.content);
       } else {
-        // Fallback to existing openFile method
-        const result = await FileSystemService.openFile();
-        if (result) {
-          setFileSystem(prev => {
-            const newItems = { ...prev.items };
-            newItems[result.id] = {
-              id: result.id,
-              name: result.filename,
-              type: 'file',
-              content: result.content,
-              parentId: prev.rootId,
-              path: result.fullPath,
-            };
-            return {
-              ...prev,
-              items: newItems,
-              currentFileId: result.id,
-            };
-          });
-        }
+        console.error('Editor not initialized');
       }
     } catch (error) {
       console.error('Error opening file:', error);
@@ -911,9 +887,8 @@ const App: React.FC = () => {
       height: '100vh', 
       display: 'flex', 
       flexDirection: 'column',
-      overflow: 'hidden',
+      background: 'var(--bg-primary)',
     }}>
-      <TitleBar />
       <div style={isTopBarCollapsed ? topBarCollapsedStyle : topBarStyle}>
         <button
           onClick={handleOpenFolder}
