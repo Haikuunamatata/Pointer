@@ -1,6 +1,7 @@
 # Pointer - Modern Code Editor
 
 A modern code editor built with React, TypeScript, and Python, featuring AI assistance, integrated terminal, and a VS Code-like interface.
+
 (This project will probably take a while. (please help me))
 
 ## Features
