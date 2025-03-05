@@ -1,0 +1,2726 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pointer - Coming Soon</title>
+    <link rel="icon" href="{{ url_for('static', filename='logo.png') }}" type="image/x-icon">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <style>
+        @keyframes fadeInOut {
+            0% { opacity: 0; transform: translateY(20px); }
+            20% { opacity: 1; transform: translateY(0); }
+            80% { opacity: 1; transform: translateY(0); }
+            100% { opacity: 0; transform: translateY(-20px); }
+        }
+    </style>
+</head>
+<body>
+    {% with show_pricing_link=True, show_downloads_link=False, show_text_logo=False, features_path="#features" %}
+    {% include 'navbar.html' %}
+    {% endwith %}
+    
+    <main class="hero">
+        <div class="grid-background">
+            <div class="beam-h2"></div>
+            <div class="beam-v2"></div>
+        </div>
+        <div class="hero-content">
+            <h1><span class="your-text">Your</span> AI Code Editor</h1>
+            <p style="font-family: 'Fira Code', monospace;">Powered by local LLMs for lightning-fast responses,<br>
+               Pointer brings AI-assisted coding right to your editor,<br>
+               with zero latency and complete privacy.</p>
+            <div class="button-container">
+                <a onclick="alert('Coming soon!')" style="text-decoration: none;" class="download-windows-btn">
+                    <i class="fas fa-download"></i>
+                    <span>COMING SOON</span>
+                </a>
+
+                <button class="download-windows-btn" onclick="window.open('https://github.com/f1shyondrugs/Pointer', '_blank')">
+                    <i class="fab fa-github"></i>
+                    You're welcome to contribute
+                </button>
+            </div>
+        </div>
+        
+        <div class="editor-preview">
+            <div class="editor-window">
+                <div class="window-controls">
+                    <span class="control close"></span>
+                    <span class="control minimize"></span>
+                    <span class="control maximize"></span>
+                </div>
+                <div class="editor-content" style="padding: 0; margin: 0;">
+                    <img src="{{ url_for('static', filename='preview.png') }}" alt="Editor Preview" style="width: 100%; height: auto; display: block; margin: 0; padding: 0;">
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <section id="community" class="features-section">
+        <h2>Join Our Growing Community</h2>
+        <div class="features-grid">
+            <div class="feature-card">
+                <i class="fas fa-code-branch fa-3x" style="color: #6366f1;"></i>
+                <p style="margin-top: 20px;">Open Source Project</p>
+            </div>
+            <div class="feature-card">
+                <i class="fas fa-users fa-3x" style="color: #6366f1;"></i>
+                <p style="margin-top: 20px;">Built by Developers, for Developers</p>
+            </div>
+            <div class="feature-card">
+                <i class="fas fa-heart fa-3x" style="color: #6366f1;"></i>
+                <p style="margin-top: 20px;">Join Us on GitHub</p>
+            </div>
+        </div>
+    </section>
+
+    <section id="features" class="core-section">
+        <h2 class="core-title">The Core
+            <span class="cpu-line-top"></span>
+            <span class="cpu-line-bottom"></span>
+            <span class="cpu-line-right"></span>
+            <span class="cpu-line-left"></span>
+            <span class="circuit-node node-top-right"></span>
+            <span class="circuit-node node-bottom-left"></span>
+            <span class="circuit-node node-top-left"></span>
+            <span class="circuit-node node-bottom-right"></span>
+            <span class="circuit-branch branch-top-right"></span>
+            <span class="circuit-branch branch-top-left"></span>
+            <span class="circuit-branch branch-bottom-right"></span>
+            <span class="circuit-branch branch-bottom-left"></span>
+            <span class="resistor"></span>
+            <span class="capacitor"></span>
+            <span class="diode"></span>
+            <span class="led"></span>
+        </h2>
+        <div class="circuit-board-background">
+            <!-- Original traces -->
+            <div class="circuit-trace trace-1">
+                <div class="data-particle particle-1"></div>
+                <div class="data-particle particle-2"></div>
+                <div class="data-particle particle-3"></div>
+            </div>
+            <div class="circuit-trace trace-2">
+                <div class="data-particle particle-4"></div>
+                <div class="data-particle particle-5"></div>
+            </div>
+            <div class="circuit-trace trace-3">
+                <div class="data-particle particle-6"></div>
+                <div class="data-particle particle-7"></div>
+                <div class="data-particle particle-8"></div>
+            </div>
+            <div class="circuit-trace trace-4">
+                <div class="data-particle particle-9"></div>
+                <div class="data-particle particle-10"></div>
+            </div>
+            <div class="circuit-trace trace-5">
+                <div class="data-particle particle-11"></div>
+                <div class="data-particle particle-12"></div>
+            </div>
+            <div class="circuit-trace trace-6">
+                <div class="data-particle particle-13"></div>
+                <div class="data-particle particle-14"></div>
+            </div>
+            
+            <!-- Additional traces -->
+            <div class="circuit-trace trace-7">
+                <div class="data-particle particle-15"></div>
+                <div class="data-particle particle-16"></div>
+            </div>
+            <div class="circuit-trace trace-8">
+                <div class="data-particle particle-17"></div>
+                <div class="data-particle particle-18"></div>
+            </div>
+            <div class="circuit-trace trace-9">
+                <div class="data-particle particle-19"></div>
+                <div class="data-particle particle-20"></div>
+            </div>
+            <div class="circuit-trace trace-10">
+                <div class="data-particle particle-21"></div>
+                <div class="data-particle particle-22"></div>
+            </div>
+            <div class="circuit-trace trace-11">
+                <div class="data-particle particle-23"></div>
+                <div class="data-particle particle-24"></div>
+            </div>
+            <div class="circuit-trace trace-12">
+                <div class="data-particle particle-25"></div>
+                <div class="data-particle particle-26"></div>
+            </div>
+            <div class="circuit-trace trace-13">
+                <div class="data-particle particle-27"></div>
+                <div class="data-particle particle-28"></div>
+            </div>
+            <div class="circuit-trace trace-14">
+                <div class="data-particle particle-29"></div>
+                <div class="data-particle particle-30"></div>
+            </div>
+            <div class="circuit-trace trace-15">
+                <div class="data-particle particle-31"></div>
+                <div class="data-particle particle-32"></div>
+            </div>
+            
+            <!-- Connection traces to cards -->
+            <div class="circuit-trace card-trace-1">
+                <div class="data-particle card-particle-1"></div>
+                <div class="data-particle card-particle-2"></div>
+                <div class="data-particle card-particle-3"></div>
+            </div>
+            <div class="circuit-trace card-trace-2">
+                <div class="data-particle card-particle-4"></div>
+                <div class="data-particle card-particle-5"></div>
+                <div class="data-particle card-particle-6"></div>
+            </div>
+            <div class="circuit-trace card-trace-3">
+                <div class="data-particle card-particle-7"></div>
+                <div class="data-particle card-particle-8"></div>
+                <div class="data-particle card-particle-9"></div>
+            </div>
+            <div class="circuit-trace card-trace-4">
+                <div class="data-particle card-particle-10"></div>
+                <div class="data-particle card-particle-11"></div>
+                <div class="data-particle card-particle-12"></div>
+            </div>
+            <div class="circuit-trace card-trace-5">
+                <div class="data-particle card-particle-13"></div>
+                <div class="data-particle card-particle-14"></div>
+                <div class="data-particle card-particle-15"></div>
+            </div>
+            
+            <!-- Cross-connections between card traces -->
+            <div class="circuit-trace cross-trace-1">
+                <div class="data-particle cross-particle-1"></div>
+            </div>
+            <div class="circuit-trace cross-trace-2">
+                <div class="data-particle cross-particle-2"></div>
+            </div>
+            <div class="circuit-trace cross-trace-3">
+                <div class="data-particle cross-particle-3"></div>
+            </div>
+            <div class="circuit-trace cross-trace-4">
+                <div class="data-particle cross-particle-4"></div>
+            </div>
+            
+            <!-- Nodes -->
+            <div class="circuit-node node-1"></div>
+            <div class="circuit-node node-2"></div>
+            <div class="circuit-node node-3"></div>
+            <div class="circuit-node node-4"></div>
+            <div class="circuit-node node-5"></div>
+            <div class="circuit-node node-6"></div>
+            <div class="circuit-node node-7"></div>
+            <div class="circuit-node node-8 pulse"></div>
+            <div class="circuit-node node-9 pulse"></div>
+            <div class="circuit-node node-10 pulse"></div>
+            <div class="circuit-node node-11 pulse"></div>
+            <div class="circuit-node node-12 pulse"></div>
+            <div class="circuit-node node-13 pulse"></div>
+            <div class="circuit-node node-14 pulse"></div>
+            
+            <!-- Components -->
+            <div class="circuit-component resistor-1"></div>
+            <div class="circuit-component resistor-2"></div>
+            <div class="circuit-component resistor-3"></div>
+            <div class="circuit-component capacitor-1">
+                <div class="capacitor-charge"></div>
+            </div>
+            <div class="circuit-component capacitor-2">
+                <div class="capacitor-charge"></div>
+            </div>
+            <div class="circuit-component capacitor-3">
+                <div class="capacitor-charge"></div>
+            </div>
+            <div class="circuit-component ic-1">
+                <div class="processing-light"></div>
+            </div>
+            <div class="circuit-component ic-2">
+                <div class="processing-light"></div>
+            </div>
+            <div class="circuit-component diode-1"></div>
+            <div class="circuit-component diode-2"></div>
+            <div class="circuit-component led-1 blink"></div>
+            <div class="circuit-component led-2 blink-slow"></div>
+            <div class="circuit-component led-3 blink-fast"></div>
+        </div>
+        <div class="core-grid">
+            <div class="core-card div1" data-feature="autocomplete">
+                <i class="fas fa-code"></i>
+                <h3>Intelligent Autocomplete</h3>
+                <p>Advanced code suggestions that understand your project context and coding patterns, helping you write code faster and with fewer errors.</p>
+            </div>
+            <div class="core-card div2" data-feature="pair-programming">
+                <i class="fas fa-robot"></i>
+                <h3>AI Pair Programming</h3>
+                <p>Work alongside an AI assistant that understands your coding style and project needs, offering suggestions and improvements as you code.</p>
+            </div>
+            <div class="core-card div3" data-feature="explanations">
+                <i class="fas fa-comment-alt"></i>
+                <h3>Code Explanations</h3>
+                <p>Get instant, clear explanations of complex code snippets, functions, or entire files, making it easier to understand unfamiliar codebases.</p>
+            </div>
+            <div class="core-card div4" data-feature="debugging">
+                <i class="fas fa-bug"></i>
+                <h3>Smart Debugging</h3>
+                <p>Identify and fix bugs faster with AI-powered debugging suggestions that pinpoint issues and propose solutions based on best practices.</p>
+            </div>
+            <div class="core-card div6" data-feature="refactoring">
+                <i class="fas fa-sync"></i>
+                <h3>Refactoring Assistant</h3>
+                <p>Transform your code structure with intelligent refactoring suggestions that improve readability, performance, and maintainability.</p>
+            </div>
+        </div>
+
+        <!-- Feature Preview Modals -->
+        <div class="modal-container" id="modal-autocomplete">
+            <div class="modal-overlay"></div>
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3><i class="fas fa-code"></i> Intelligent Autocomplete</h3>
+                    <button class="modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="feature-preview">
+                        <div class="preview-image">
+                            <div class="code-editor-preview">
+                                <div class="code-line">function <span class="highlight">calculateTotal</span>(items) {</div>
+                                <div class="code-line">  let total = 0;</div>
+                                <div class="code-line">  for (const item of items) {</div>
+                                <div class="code-line typing-animation">    total += item.pr<span class="cursor">|</span></div>
+                                <div class="code-line suggestion">    total += item.price * item.quantity; <span class="ai-badge">AI</span></div>
+                                <div class="code-line">  }</div>
+                                <div class="code-line">  return total;</div>
+                                <div class="code-line">}</div>
+                            </div>
+                        </div>
+                        <div class="feature-description">
+                            <h4>Code Faster with Context-Aware Suggestions</h4>
+                            <p>Pointer's Intelligent Autocomplete understands your codebase at a deeper level:</p>
+                            <ul>
+                                <li>Predicts entire lines and code blocks, not just individual tokens</li>
+                                <li>Adapts to your coding style and preferences over time</li>
+                                <li>Incorporates project-specific patterns and naming conventions</li>
+                                <li>Suggests optimized implementations based on best practices</li>
+                                <li>Works completely offline with zero latency</li>
+                            </ul>
+                            <p class="feature-highlight">Our local LLM understands variable relationships, function purposes, and data structures to provide truly intelligent suggestions that feel like a senior developer looking over your shoulder.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="modal-container" id="modal-pair-programming">
+            <div class="modal-overlay"></div>
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3><i class="fas fa-robot"></i> AI Pair Programming</h3>
+                    <button class="modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="feature-preview">
+                        <div class="preview-image">
+                            <div class="chat-preview">
+                                <div class="chat-message user-message">
+                                    <span class="message-icon">👤</span>
+                                    <div class="message-content">
+                                        <p>I need a function to parse CSV data and transform it into a nested JSON structure.</p>
+                                    </div>
+                                </div>
+                                <div class="chat-message ai-message">
+                                    <span class="message-icon">🤖</span>
+                                    <div class="message-content">
+                                        <p>I'll help you create that function. Here's an implementation that handles proper CSV parsing with considerations for escaping and nested structure:</p>
+                                        <pre><code>function parseCSVToJSON(csvData, options = {}) {
+  const lines = csvData.split('\n');
+  const headers = lines[0].split(',');
+  const result = [];
+
+  for (let i = 1; i < lines.length; i++) {
+    if (!lines[i].trim()) continue;
+    
+    const values = parseCSVLine(lines[i]);
+    const entry = {};
+    
+    headers.forEach((header, index) => {
+      const path = header.split('.');
+      let current = entry;
+      
+      for (let j = 0; j < path.length - 1; j++) {
+        if (!current[path[j]]) 
+          current[path[j]] = {};
+        current = current[path[j]];
+      }
+      
+      current[path[path.length - 1]] = values[index];
+    });
+    
+    result.push(entry);
+  }
+  
+  return result;
+}</code></pre>
+                                        <p>Would you like me to explain how this works or make any adjustments?</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="feature-description">
+                            <h4>Code with an AI Partner Always Ready to Help</h4>
+                            <p>Having an AI partner means you're never stuck or coding alone:</p>
+                            <ul>
+                                <li>Ask questions in natural language about your code</li>
+                                <li>Get implementation suggestions for complex tasks</li>
+                                <li>Receive regular feedback on your code quality</li>
+                                <li>Get help understanding unfamiliar code or libraries</li>
+                                <li>Explain your requirements and get working code in seconds</li>
+                            </ul>
+                            <p class="feature-highlight">Pointer's AI assistant understands your project context and maintains conversation history, providing consistent and relevant help throughout your coding session.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="modal-container" id="modal-explanations">
+            <div class="modal-overlay"></div>
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3><i class="fas fa-comment-alt"></i> Code Explanations</h3>
+                    <button class="modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="feature-preview">
+                        <div class="preview-image">
+                            <div class="explanation-preview">
+                                <div class="code-snippet">
+                                    <pre><code>const memoize = (fn) => {
+  const cache = new Map();
+  return (...args) => {
+    const key = JSON.stringify(args);
+    if (cache.has(key)) return cache.get(key);
+    const result = fn.apply(this, args);
+    cache.set(key, result);
+    return result;
+  };
+};</code></pre>
+                                </div>
+                                <div class="explanation-content">
+                                    <h4>Code Explanation:</h4>
+                                    <p>This is a <span class="highlight">memoization function</span> that improves performance for expensive calculations:</p>
+                                    <ol>
+                                        <li>It creates a closure that maintains a cache (using Map) of previous function calls</li>
+                                        <li>When called, it converts the arguments to a string to use as a cache key</li>
+                                        <li>If the result is already cached, it returns the cached value</li>
+                                        <li>Otherwise, it calls the original function, stores the result, and returns it</li>
+                                    </ol>
+                                    <p>This technique trades memory for speed, making repeated function calls with the same inputs much faster.</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="feature-description">
+                            <h4>Understand Any Code in Seconds</h4>
+                            <p>Code explanations help you quickly grasp unfamiliar code:</p>
+                            <ul>
+                                <li>Get clear, concise explanations of complex code snippets</li>
+                                <li>Understand advanced patterns and techniques</li>
+                                <li>Learn how code works at both high and detailed levels</li>
+                                <li>Identify potential issues and optimization opportunities</li>
+                                <li>Quickly onboard to new projects or codebases</li>
+                            </ul>
+                            <p class="feature-highlight">Never waste time again trying to decipher complex code. Pointer's explanations break down any code into clear, understandable concepts with context-specific insights.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="modal-container" id="modal-debugging">
+            <div class="modal-overlay"></div>
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3><i class="fas fa-bug"></i> Smart Debugging</h3>
+                    <button class="modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="feature-preview">
+                        <div class="preview-image">
+                            <div class="debugging-preview">
+                                <div class="error-message">
+                                    <span class="error-icon">❌</span>
+                                    <div class="error-content">
+                                        <p class="error-title">TypeError: Cannot read property 'map' of undefined</p>
+                                        <p class="error-location">at UserList.js:24:23</p>
+                                    </div>
+                                </div>
+                                <div class="debug-analysis">
+                                    <h4>AI Analysis:</h4>
+                                    <p>The error occurs because <code>users</code> is undefined when you try to call <code>.map()</code> on it. This likely happens because:</p>
+                                    <ol>
+                                        <li>The API request to fetch users has not completed yet</li>
+                                        <li>The response data structure doesn't match what your code expects</li>
+                                        <li>There's an error in the API call that prevents data from being returned</li>
+                                    </ol>
+                                    <div class="solution">
+                                        <h5>Suggested Fix:</h5>
+                                        <pre><code>// Add null check before mapping
+return (
+  &lt;div className="user-list"&gt;
+    {users && users.length > 0 ? (
+      users.map(user => (
+        &lt;UserCard key={user.id} user={user} /&gt;
+      ))
+    ) : (
+      &lt;p&gt;No users found or loading...&lt;/p&gt;
+    )}
+  &lt;/div&gt;
+);</code></pre>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="feature-description">
+                            <h4>Fix Bugs in Record Time</h4>
+                            <p>Smart debugging helps you identify and solve issues quickly:</p>
+                            <ul>
+                                <li>Get instant analysis of runtime errors and exceptions</li>
+                                <li>Identify root causes rather than just symptoms</li>
+                                <li>Receive specific, actionable solutions for each bug</li>
+                                <li>Learn best practices for error prevention</li>
+                                <li>Debug complex issues across multiple files</li>
+                            </ul>
+                            <p class="feature-highlight">Pointer's debugging assistant understands the entire context of your error, including your application architecture, helping you fix bugs significantly faster than traditional debugging methods.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="modal-container" id="modal-refactoring">
+            <div class="modal-overlay"></div>
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3><i class="fas fa-sync"></i> Refactoring Assistant</h3>
+                    <button class="modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="feature-preview">
+                        <div class="preview-image">
+                            <div class="refactoring-preview">
+                                <div class="code-slider-container">
+                                    <div class="code-slider-labels">
+                                        <div class="slider-label-before">Before</div>
+                                        <div class="slider-label-after">After</div>
+                                    </div>
+                                    <div class="code-slider">
+                                        <div class="code-before">
+                                            <pre><code>function processData(data) {
+  let result = [];
+  for (let i = 0; i < data.length; i++) {
+    if (data[i].active === true) {
+      let item = data[i];
+      let processed = {
+        id: item.id,
+        name: item.name,
+        score: item.points * 2
+      };
+      result.push(processed);
+    }
+  }
+  return result;
+}</code></pre>
+                                        </div>
+                                        <div class="code-after">
+                                            <pre><code>function processData(data) {
+  return data
+    .filter(item => item.active)
+    .map(item => ({
+      id: item.id,
+      name: item.name,
+      score: item.points * 2
+    }));
+}</code></pre>
+                                        </div>
+                                        <div class="slider-handle">
+                                            <div class="slider-divider"></div>
+                                            <div class="slider-button">
+                                                <i class="fas fa-grip-lines-vertical"></i>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="refactoring-benefits">
+                                    <h5>Improvements:</h5>
+                                    <ul>
+                                        <li>Reduced code length by 64%</li>
+                                        <li>Used functional programming patterns</li>
+                                        <li>Improved readability and maintainability</li>
+                                        <li>Eliminated temporary variables</li>
+                                        <li>Removed explicit looping constructs</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="feature-description">
+                            <h4>Transform Your Code Quality</h4>
+                            <p>Refactoring assistance helps you write cleaner, better code:</p>
+                            <ul>
+                                <li>Get suggestions to improve code structure and readability</li>
+                                <li>Convert between coding styles and patterns</li>
+                                <li>Optimize performance bottlenecks</li>
+                                <li>Modernize legacy code with current best practices</li>
+                                <li>Simplify complex or verbose implementations</li>
+                            </ul>
+                            <p class="feature-highlight">Pointer analyzes your code holistically to suggest meaningful refactorings that improve code quality while maintaining functionality and your coding style preferences.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <style>
+            .core-section {
+                position: relative;
+                overflow: hidden;
+                background-color: #111;
+                padding: 4rem 2rem;
+            }
+            
+            /* Modern hover animation for "The Core" heading */
+            .core-title {
+                text-align: center;
+                position: relative;
+                display: inline-block;
+                left: 50%;
+                transform: translateX(-50%);
+                transition: all 0.3s ease;
+                cursor: pointer;
+                z-index: 4;
+                padding: 0 15px; /* Add some padding for the circuit elements */
+            }
+            
+            /* Remove underline and add CPU-like lines */
+            .core-title::before,
+            .core-title::after {
+                content: '';
+                position: absolute;
+                background-color: #64ffda;
+                height: 2px;
+                opacity: 0;
+                transition: all 0.4s cubic-bezier(0.1, 0.8, 0.2, 1);
+                box-shadow: 0 0 8px rgba(100, 255, 218, 0.8);
+            }
+            
+            /* Main horizontal lines */
+            .core-title::before {
+                width: 0;
+                top: 50%;
+                right: 100%;
+                margin-right: 5px;
+            }
+            
+            .core-title::after {
+                width: 0;
+                top: 50%;
+                left: 100%;
+                margin-left: 5px;
+            }
+            
+            /* Circuit nodes */
+            .core-title .circuit-node {
+                position: absolute;
+                width: 4px;
+                height: 4px;
+                background-color: #64ffda;
+                border-radius: 50%;
+                opacity: 0;
+                box-shadow: 0 0 8px rgba(100, 255, 218, 0.8);
+                transition: all 0.5s cubic-bezier(0.1, 0.8, 0.2, 1);
+            }
+            
+            .core-title .node-top-right {
+                top: -10px;
+                right: -50px;
+            }
+            
+            .core-title .node-bottom-left {
+                bottom: -10px;
+                left: -50px;
+            }
+            
+            .core-title .node-top-left {
+                top: -10px;
+                left: -50px;
+            }
+            
+            .core-title .node-bottom-right {
+                bottom: -10px;
+                right: -50px;
+            }
+            
+            /* CPU line branches */
+            .core-title .cpu-line-top,
+            .core-title .cpu-line-bottom,
+            .core-title .cpu-line-right,
+            .core-title .cpu-line-left {
+                position: absolute;
+                background-color: #64ffda;
+                opacity: 0;
+                box-shadow: 0 0 8px rgba(100, 255, 218, 0.8);
+                transition: all 0.5s cubic-bezier(0.1, 0.8, 0.2, 1);
+            }
+            
+            /* Vertical branches */
+            .core-title .cpu-line-top,
+            .core-title .cpu-line-bottom {
+                width: 2px;
+                height: 0;
+            }
+            
+            .core-title .cpu-line-top {
+                top: 0;
+                right: -30px;
+                transform: translateY(-100%);
+            }
+            
+            .core-title .cpu-line-bottom {
+                bottom: 0;
+                left: -30px;
+                transform: translateY(100%);
+            }
+            
+            /* Horizontal branches */
+            .core-title .cpu-line-right,
+            .core-title .cpu-line-left {
+                height: 2px;
+                width: 0;
+            }
+            
+            .core-title .cpu-line-right {
+                top: -10px;
+                right: 0;
+                transform: translateX(100%);
+            }
+            
+            .core-title .cpu-line-left {
+                bottom: -10px;
+                left: 0;
+                transform: translateX(-100%);
+            }
+            
+            /* Additional circuit branches */
+            .core-title .circuit-branch {
+                position: absolute;
+                background-color: #64ffda;
+                opacity: 0;
+                box-shadow: 0 0 8px rgba(100, 255, 218, 0.8);
+                transition: all 0.6s cubic-bezier(0.1, 0.8, 0.2, 1) 0.1s;
+            }
+            
+            .core-title .branch-top-right {
+                width: 0;
+                height: 2px;
+                top: -10px;
+                right: -50px;
+            }
+            
+            .core-title .branch-bottom-left {
+                width: 0;
+                height: 2px;
+                bottom: -10px;
+                left: -50px;
+            }
+            
+            .core-title .branch-top-left {
+                width: 2px;
+                height: 0;
+                top: -10px;
+                left: -50px;
+            }
+            
+            .core-title .branch-bottom-right {
+                width: 2px;
+                height: 0;
+                bottom: -10px;
+                right: -50px;
+            }
+            
+            /* Circuit components */
+            .core-title .resistor,
+            .core-title .capacitor,
+            .core-title .diode,
+            .core-title .led {
+                position: absolute;
+                opacity: 0;
+                transition: all 0.7s cubic-bezier(0.1, 0.8, 0.2, 1) 0.2s;
+            }
+            
+            /* Resistor */
+            .core-title .resistor {
+                width: 12px;
+                height: 5px;
+                top: -17px;
+                right: -40px;
+                background-color: #333;
+                border: 1px solid #64ffda;
+                box-shadow: 0 0 6px rgba(100, 255, 218, 0.5);
+                border-radius: 2px;
+            }
+            
+            .core-title .resistor::before {
+                content: "";
+                position: absolute;
+                top: 1px;
+                left: 1px;
+                right: 1px;
+                bottom: 1px;
+                background: repeating-linear-gradient(
+                    90deg,
+                    rgba(100, 255, 218, 0.2),
+                    rgba(100, 255, 218, 0.2) 1px,
+                    transparent 1px,
+                    transparent 2px
+                );
+            }
+            
+            /* Capacitor */
+            .core-title .capacitor {
+                width: 6px;
+                height: 6px;
+                bottom: -17px;
+                left: -40px;
+                background-color: #333;
+                border: 1px solid #64ffda;
+                box-shadow: 0 0 6px rgba(100, 255, 218, 0.5);
+                border-radius: 50%;
+                overflow: hidden;
+            }
+            
+            .core-title .capacitor::before {
+                content: "";
+                position: absolute;
+                top: 50%;
+                left: 0;
+                right: 0;
+                height: 1px;
+                background-color: rgba(100, 255, 218, 0.7);
+            }
+            
+            /* Diode */
+            .core-title .diode {
+                width: 8px;
+                height: 5px;
+                top: -17px;
+                left: -40px;
+                clip-path: polygon(0% 50%, 100% 0%, 100% 100%);
+                background-color: #333;
+                border: 1px solid #64ffda;
+                box-shadow: 0 0 6px rgba(100, 255, 218, 0.5);
+            }
+            
+            /* LED */
+            .core-title .led {
+                width: 4px;
+                height: 4px;
+                bottom: -17px;
+                right: -40px;
+                background-color: rgba(100, 255, 218, 0.8);
+                border-radius: 50%;
+                box-shadow: 0 0 10px rgba(100, 255, 218, 1);
+            }
+            
+            .core-title:hover {
+                color: transparent;
+                background: linear-gradient(90deg, #64ffda, #4df8cc, #33ccff);
+                background-clip: text;
+                -webkit-background-clip: text;
+                text-shadow: 0 0 15px rgba(100, 255, 218, 0.5);
+                transform: translateX(-50%) scale(1.05);
+                letter-spacing: 1px;
+            }
+            
+            /* Show circuit elements on hover */
+            .core-title:hover::before {
+                width: 60px;
+                opacity: 1;
+            }
+            
+            .core-title:hover::after {
+                width: 60px;
+                opacity: 1;
+            }
+            
+            /* Vertical branches animation */
+            .core-title:hover .cpu-line-top {
+                height: 30px;
+                opacity: 1;
+            }
+            
+            .core-title:hover .cpu-line-bottom {
+                height: 30px;
+                opacity: 1;
+            }
+            
+            /* Horizontal branches animation */
+            .core-title:hover .cpu-line-right {
+                width: 30px;
+                opacity: 1;
+            }
+            
+            .core-title:hover .cpu-line-left {
+                width: 30px;
+                opacity: 1;
+            }
+            
+            /* Circuit nodes animation */
+            .core-title:hover .circuit-node {
+                opacity: 1;
+            }
+            
+            .core-title:hover .node-top-right {
+                animation: pulse 2s infinite 0.3s;
+            }
+            
+            .core-title:hover .node-bottom-left {
+                animation: pulse 2s infinite 0.7s;
+            }
+            
+            .core-title:hover .node-top-left {
+                animation: pulse 2s infinite 0.5s;
+            }
+            
+            .core-title:hover .node-bottom-right {
+                animation: pulse 2s infinite 0.9s;
+            }
+            
+            /* Additional branch animations */
+            .core-title:hover .branch-top-right {
+                width: 20px;
+                opacity: 1;
+            }
+            
+            .core-title:hover .branch-bottom-left {
+                width: 20px;
+                opacity: 1;
+            }
+            
+            .core-title:hover .branch-top-left {
+                height: 15px;
+                opacity: 1;
+            }
+            
+            .core-title:hover .branch-bottom-right {
+                height: 15px;
+                opacity: 1;
+            }
+            
+            /* Component animations */
+            .core-title:hover .resistor {
+                opacity: 1;
+            }
+            
+            .core-title:hover .capacitor {
+                opacity: 1;
+            }
+            
+            .core-title:hover .diode {
+                opacity: 1;
+            }
+            
+            .core-title:hover .led {
+                opacity: 1;
+                animation: blink 1.5s infinite 0.5s;
+            }
+            
+            .circuit-board-background {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                z-index: 1;
+                opacity: 0.3;
+            }
+            
+            .circuit-trace {
+                position: absolute;
+                background-color: #64ffda;
+                box-shadow: 0 0 8px rgba(100, 255, 218, 0.8);
+                overflow: hidden;
+            }
+            
+            /* Data particles */
+            .data-particle {
+                position: absolute;
+                width: 6px;
+                height: 6px;
+                background-color: #fff;
+                border-radius: 50%;
+                z-index: 3;
+                box-shadow: 0 0 15px rgba(255, 255, 255, 1), 0 0 30px rgba(100, 255, 218, 0.8);
+                transform-origin: center;
+                animation-timing-function: cubic-bezier(0.1, 0.8, 0.2, 1) !important;
+            }
+            
+            /* Particle trail effect */
+            .data-particle::after {
+                content: '';
+                position: absolute;
+                top: 50%;
+                left: 0;
+                width: 20px;
+                height: 2px;
+                background: linear-gradient(to left, rgba(255, 255, 255, 1), rgba(255, 255, 255, 0));
+                transform: translateY(-50%);
+                border-radius: 4px;
+                z-index: -1;
+            }
+            
+            /* Horizontal trace particles */
+            .trace-1 .particle-1, .trace-1 .particle-2, .trace-1 .particle-3,
+            .trace-3 .particle-6, .trace-3 .particle-7, .trace-3 .particle-8,
+            .trace-6 .particle-13, .trace-6 .particle-14,
+            .trace-7 .particle-15, .trace-7 .particle-16,
+            .trace-9 .particle-19, .trace-9 .particle-20,
+            .trace-10 .particle-21, .trace-10 .particle-22,
+            .trace-13 .particle-27, .trace-13 .particle-28,
+            .trace-15 .particle-31, .trace-15 .particle-32 {
+                animation: move-right-intense 5s cubic-bezier(0.1, 0.8, 0.2, 1) infinite;
+                top: -1.5px;
+                left: -5px;
+            }
+            
+            /* Particle timing offsets for continuous flow effect */
+            .trace-1 .particle-2, .trace-3 .particle-7, .trace-6 .particle-14,
+            .trace-7 .particle-16, .trace-9 .particle-20, .trace-10 .particle-22,
+            .trace-13 .particle-28, .trace-15 .particle-32 {
+                animation-delay: 1.6s;
+            }
+            
+            .trace-1 .particle-3, .trace-3 .particle-8 {
+                animation-delay: 3.3s;
+            }
+            
+            /* Reverse direction particles */
+            .trace-2 .particle-4, .trace-2 .particle-5 {
+                animation: move-left-intense 5s cubic-bezier(0.1, 0.8, 0.2, 1) infinite;
+                top: -1.5px;
+                right: -5px;
+            }
+            
+            .trace-2 .particle-4::after {
+                left: auto;
+                right: 0;
+                background: linear-gradient(to right, rgba(255, 255, 255, 1), rgba(255, 255, 255, 0));
+            }
+            
+            .trace-2 .particle-5 {
+                animation-delay: 2.5s;
+            }
+            
+            .trace-2 .particle-5::after {
+                left: auto;
+                right: 0;
+                background: linear-gradient(to right, rgba(255, 255, 255, 1), rgba(255, 255, 255, 0));
+            }
+            
+            /* Vertical trace particles */
+            .trace-4 .particle-9, .trace-4 .particle-10,
+            .trace-5 .particle-11, .trace-5 .particle-12,
+            .trace-8 .particle-17, .trace-8 .particle-18,
+            .trace-11 .particle-23, .trace-11 .particle-24,
+            .trace-12 .particle-25, .trace-12 .particle-26,
+            .trace-14 .particle-29, .trace-14 .particle-30 {
+                animation: move-down-intense 5s cubic-bezier(0.1, 0.8, 0.2, 1) infinite;
+                top: -5px;
+                left: -1.5px;
+            }
+            
+            /* Vertical particle trails */
+            .trace-4 .particle-9::after, .trace-4 .particle-10::after,
+            .trace-5 .particle-11::after, .trace-5 .particle-12::after,
+            .trace-8 .particle-17::after, .trace-8 .particle-18::after,
+            .trace-11 .particle-23::after, .trace-11 .particle-24::after,
+            .trace-12 .particle-25::after, .trace-12 .particle-26::after,
+            .trace-14 .particle-29::after, .trace-14 .particle-30::after {
+                width: 2px;
+                height: 20px;
+                top: 0;
+                left: 50%;
+                transform: translateX(-50%);
+                background: linear-gradient(to top, rgba(255, 255, 255, 1), rgba(255, 255, 255, 0));
+            }
+            
+            .trace-4 .particle-10, .trace-5 .particle-12,
+            .trace-8 .particle-18, .trace-11 .particle-24,
+            .trace-12 .particle-26, .trace-14 .particle-30 {
+                animation-delay: 2.5s;
+            }
+            
+            /* Card trace particles - special flow towards cards */
+            .card-trace-1 .card-particle-1, .card-trace-1 .card-particle-2, .card-trace-1 .card-particle-3,
+            .card-trace-2 .card-particle-4, .card-trace-2 .card-particle-5, .card-trace-2 .card-particle-6,
+            .card-trace-3 .card-particle-7, .card-trace-3 .card-particle-8, .card-trace-3 .card-particle-9,
+            .card-trace-4 .card-particle-10, .card-trace-4 .card-particle-11, .card-trace-4 .card-particle-12,
+            .card-trace-5 .card-particle-13, .card-trace-5 .card-particle-14, .card-trace-5 .card-particle-15 {
+                animation: move-to-card-intense 2s cubic-bezier(0.1, 0.9, 0.2, 1) infinite;
+                top: -5px;
+                left: -1.5px;
+                box-shadow: 0 0 15px rgba(255, 255, 255, 1), 0 0 30px rgba(0, 255, 200, 0.9);
+            }
+            
+            /* Vertical particle trails for card traces */
+            .card-trace-1 .card-particle-1::after, .card-trace-1 .card-particle-2::after, .card-trace-1 .card-particle-3::after,
+            .card-trace-2 .card-particle-4::after, .card-trace-2 .card-particle-5::after, .card-trace-2 .card-particle-6::after,
+            .card-trace-3 .card-particle-7::after, .card-trace-3 .card-particle-8::after, .card-trace-3 .card-particle-9::after,
+            .card-trace-4 .card-particle-10::after, .card-trace-4 .card-particle-11::after, .card-trace-4 .card-particle-12::after,
+            .card-trace-5 .card-particle-13::after, .card-trace-5 .card-particle-14::after, .card-trace-5 .card-particle-15::after {
+                width: 2px;
+                height: 25px;
+                top: 0;
+                left: 50%;
+                transform: translateX(-50%);
+                background: linear-gradient(to top, rgba(255, 255, 255, 1), rgba(100, 255, 218, 0));
+            }
+            
+            .card-trace-1 .card-particle-2, .card-trace-2 .card-particle-5, 
+            .card-trace-3 .card-particle-8, .card-trace-4 .card-particle-11,
+            .card-trace-5 .card-particle-14 {
+                animation-delay: 0.7s;
+            }
+            
+            .card-trace-1 .card-particle-3, .card-trace-2 .card-particle-6, 
+            .card-trace-3 .card-particle-9, .card-trace-4 .card-particle-12,
+            .card-trace-5 .card-particle-15 {
+                animation-delay: 1.4s;
+            }
+            
+            /* Cross trace particles with horizontal trails */
+            .cross-trace-1 .cross-particle-1, .cross-trace-2 .cross-particle-2,
+            .cross-trace-3 .cross-particle-3, .cross-trace-4 .cross-particle-4 {
+                animation: move-horizontal-intense 4s cubic-bezier(0.1, 0.8, 0.2, 1) infinite;
+                top: -1.5px;
+                left: -5px;
+            }
+            
+            /* Circuit traces - slightly more visible */
+            .circuit-trace {
+                position: absolute;
+                background-color: #64ffda;
+                box-shadow: 0 0 12px rgba(100, 255, 218, 0.9);
+                overflow: hidden;
+                opacity: 0.7;
+            }
+            
+            /* Animations */
+            @keyframes pulse {
+                0% { transform: scale(1); opacity: 0.7; }
+                50% { transform: scale(1.3); opacity: 1; }
+                100% { transform: scale(1); opacity: 0.7; }
+            }
+            
+            @keyframes pulse-glow {
+                0% { transform: translateX(-50%) scale(1); opacity: 0.7; }
+                50% { transform: translateX(-50%) scale(1.5); opacity: 1; }
+                100% { transform: translateX(-50%) scale(1); opacity: 0.7; }
+            }
+            
+            @keyframes blink {
+                0%, 100% { opacity: 0.3; }
+                50% { opacity: 1; }
+            }
+            
+            @keyframes blink-slow {
+                0%, 100% { opacity: 0.3; }
+                50% { opacity: 1; }
+            }
+            
+            @keyframes blink-fast {
+                0%, 100% { opacity: 0.3; }
+                50% { opacity: 1; }
+            }
+            
+            @keyframes trace-glow {
+                0% { opacity: 0.3; box-shadow: 0 0 5px rgba(100, 255, 218, 0.3); }
+                50% { opacity: 1; box-shadow: 0 0 10px rgba(100, 255, 218, 0.8); }
+                100% { opacity: 0.3; box-shadow: 0 0 5px rgba(100, 255, 218, 0.3); }
+            }
+            
+            @keyframes move-right {
+                0% { left: -5px; }
+                100% { left: 110%; }
+            }
+            
+            @keyframes move-left {
+                0% { right: -5px; }
+                100% { right: 110%; }
+            }
+            
+            @keyframes move-down {
+                0% { top: -5px; }
+                100% { top: 110%; }
+            }
+            
+            @keyframes move-to-card {
+                0% { top: 0%; }
+                100% { top: 110%; }
+            }
+            
+            @keyframes move-horizontal {
+                0% { left: -5px; }
+                100% { left: 105%; }
+            }
+            
+            /* INTENSE animations */
+            @keyframes move-right-intense {
+                0% { 
+                    left: -5px; 
+                    transform: scale(0.8); 
+                }
+                2% { 
+                    transform: scale(1.2); 
+                }
+                5% { 
+                    transform: scale(1); 
+                }
+                95% {
+                    transform: scale(1);
+                }
+                98% {
+                    transform: scale(1.5);
+                }
+                100% { 
+                    left: 110%; 
+                    transform: scale(0.8);
+                }
+            }
+            
+            @keyframes move-left-intense {
+                0% { 
+                    right: -5px; 
+                    transform: scale(0.8); 
+                }
+                2% { 
+                    transform: scale(1.2); 
+                }
+                5% { 
+                    transform: scale(1); 
+                }
+                95% {
+                    transform: scale(1);
+                }
+                98% {
+                    transform: scale(1.5);
+                }
+                100% { 
+                    right: 110%; 
+                    transform: scale(0.8);
+                }
+            }
+            
+            @keyframes move-down-intense {
+                0% { 
+                    top: -5px; 
+                    transform: scale(0.8); 
+                }
+                2% { 
+                    transform: scale(1.2); 
+                }
+                5% { 
+                    transform: scale(1); 
+                }
+                95% {
+                    transform: scale(1);
+                }
+                98% {
+                    transform: scale(1.5);
+                }
+                100% { 
+                    top: 110%; 
+                    transform: scale(0.8);
+                }
+            }
+            
+            @keyframes move-to-card-intense {
+                0% { 
+                    top: 0%; 
+                    transform: scale(0.8); 
+                }
+                10% { 
+                    transform: scale(1.2); 
+                }
+                20% { 
+                    transform: scale(1); 
+                }
+                80% {
+                    transform: scale(1.1);
+                }
+                90% {
+                    transform: scale(1.8); 
+                    box-shadow: 0 0 20px rgba(255, 255, 255, 1), 0 0 40px rgba(0, 255, 200, 1);
+                }
+                100% { 
+                    top: 110%; 
+                    transform: scale(2);
+                    box-shadow: 0 0 25px rgba(255, 255, 255, 1), 0 0 50px rgba(0, 255, 200, 1);
+                    opacity: 0;
+                }
+            }
+            
+            @keyframes move-horizontal-intense {
+                0% { 
+                    left: -5px; 
+                    transform: scale(0.8); 
+                }
+                2% { 
+                    transform: scale(1.2); 
+                }
+                5% { 
+                    transform: scale(1); 
+                }
+                95% {
+                    transform: scale(1);
+                }
+                98% {
+                    transform: scale(1.5);
+                }
+                100% { 
+                    left: 105%; 
+                    transform: scale(0.8);
+                }
+            }
+            
+            /* Circuit board overall intensity */
+            .circuit-board-background {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                z-index: 1;
+                opacity: 0.5;
+            }
+            
+            /* Card connection traces - stronger glow when transporting particles */
+            .card-trace-1, .card-trace-2, .card-trace-3, .card-trace-4, .card-trace-5 {
+                animation: active-trace-glow 3s infinite;
+            }
+            
+            @keyframes active-trace-glow {
+                0% { opacity: 0.4; box-shadow: 0 0 8px rgba(100, 255, 218, 0.4); }
+                30% { opacity: 0.9; box-shadow: 0 0 15px rgba(100, 255, 218, 0.9); }
+                60% { opacity: 0.4; box-shadow: 0 0 8px rgba(100, 255, 218, 0.4); }
+                100% { opacity: 0.4; box-shadow: 0 0 8px rgba(100, 255, 218, 0.4); }
+            }
+            
+            @keyframes capacitor-charging {
+                0% { transform: translateY(100%); }
+                45% { transform: translateY(0%); }
+                55% { transform: translateY(0%); }
+                100% { transform: translateY(-100%); }
+            }
+            
+            @keyframes processing {
+                0% { left: 15%; }
+                100% { left: 85%; }
+            }
+            
+            .pulse {
+                animation: pulse 3s infinite;
+            }
+            
+            .blink {
+                animation: blink 2s infinite;
+            }
+            
+            .blink-slow {
+                animation: blink-slow 4s infinite;
+            }
+            
+            .blink-fast {
+                animation: blink-fast 1s infinite;
+            }
+            
+            /* Nodes */
+            .circuit-node {
+                position: absolute;
+                width: 6px;
+                height: 6px;
+                border-radius: 50%;
+                background-color: #64ffda;
+                box-shadow: 0 0 8px rgba(100, 255, 218, 0.8);
+                z-index: 2;
+            }
+            
+            .node-1 {
+                top: 15%;
+                left: 5%;
+            }
+            
+            .node-2 {
+                top: 40%;
+                right: 15%;
+            }
+            
+            .node-3 {
+                bottom: 25%;
+                left: 20%;
+            }
+            
+            .node-4 {
+                top: 60%;
+                left: 15%;
+            }
+            
+            .node-5 {
+                top: 20%;
+                left: 75%;
+            }
+            
+            .node-6 {
+                top: 80%;
+                left: 40%;
+            }
+            
+            .node-7 {
+                top: 35%;
+                left: 50%;
+            }
+            
+            .node-8 {
+                top: 12%;
+                left: 33%;
+            }
+            
+            .node-9 {
+                top: 45%;
+                left: 50%;
+            }
+            
+            .node-10 {
+                top: 65%;
+                left: 28%;
+            }
+            
+            .node-11 {
+                top: 33%;
+                left: 63%;
+            }
+            
+            .node-12 {
+                top: 76%;
+                left: 72%;
+            }
+            
+            .node-13 {
+                top: 18%;
+                left: 42%;
+            }
+            
+            .node-14 {
+                top: 25%;
+                left: 80%;
+            }
+            
+            /* Circuit components */
+            .circuit-component {
+                position: absolute;
+                z-index: 2;
+                border: 1px solid #64ffda;
+                box-shadow: 0 0 6px rgba(100, 255, 218, 0.5);
+                background-color: #333;
+            }
+            
+            .resistor-1 {
+                top: 28%;
+                left: 35%;
+                width: 20px;
+                height: 8px;
+                border-radius: 3px;
+            }
+            
+            .resistor-1:before {
+                content: "";
+                position: absolute;
+                top: 2px;
+                left: 2px;
+                right: 2px;
+                bottom: 2px;
+                background: repeating-linear-gradient(
+                    90deg,
+                    rgba(100, 255, 218, 0.2),
+                    rgba(100, 255, 218, 0.2) 2px,
+                    transparent 2px,
+                    transparent 4px
+                );
+            }
+            
+            .resistor-2 {
+                top: 58%;
+                left: 68%;
+                width: 16px;
+                height: 6px;
+                border-radius: 2px;
+                transform: rotate(45deg);
+            }
+            
+            .resistor-2:before {
+                content: "";
+                position: absolute;
+                top: 1px;
+                left: 1px;
+                right: 1px;
+                bottom: 1px;
+                background: repeating-linear-gradient(
+                    90deg,
+                    rgba(100, 255, 218, 0.2),
+                    rgba(100, 255, 218, 0.2) 1px,
+                    transparent 1px,
+                    transparent 3px
+                );
+            }
+            
+            .resistor-3 {
+                top: 72%;
+                left: 30%;
+                width: 15px;
+                height: 6px;
+                border-radius: 2px;
+                transform: rotate(-30deg);
+            }
+            
+            .capacitor-1 {
+                top: 65%;
+                left: 65%;
+                width: 12px;
+                height: 12px;
+                border-radius: 50%;
+                overflow: hidden;
+            }
+            
+            .capacitor-charge {
+                position: absolute;
+                width: 100%;
+                height: 100%;
+                background: linear-gradient(to bottom, rgba(100, 255, 218, 0), rgba(100, 255, 218, 0.5));
+                animation: capacitor-charging 3s ease-in-out infinite;
+            }
+            
+            .capacitor-1:before {
+                content: "";
+                position: absolute;
+                top: 3px;
+                left: 3px;
+                right: 3px;
+                bottom: 3px;
+                border-radius: 50%;
+                border: 1px dashed rgba(100, 255, 218, 0.5);
+                z-index: 2;
+            }
+            
+            .capacitor-2 {
+                top: 15%;
+                left: 55%;
+                width: 10px;
+                height: 10px;
+                border-radius: 3px;
+                transform: rotate(45deg);
+                overflow: hidden;
+            }
+            
+            .capacitor-2 .capacitor-charge {
+                animation: capacitor-charging 4s ease-in-out infinite 1s;
+            }
+            
+            .capacitor-3 {
+                top: 48%;
+                left: 18%;
+                width: 8px;
+                height: 8px;
+                border-radius: 2px;
+                overflow: hidden;
+            }
+            
+            .capacitor-3 .capacitor-charge {
+                animation: capacitor-charging 5s ease-in-out infinite 2s;
+            }
+            
+            .processing-light {
+                position: absolute;
+                width: 3px;
+                height: 3px;
+                background-color: rgba(100, 255, 218, 0.8);
+                border-radius: 50%;
+                top: 50%;
+                left: 30%;
+                transform: translate(-50%, -50%);
+                animation: processing 0.8s steps(4) infinite;
+            }
+            
+            .ic-1 {
+                top: 45%;
+                left: 25%;
+                width: 30px;
+                height: 15px;
+                border-radius: 2px;
+            }
+            
+            .ic-1:before {
+                content: "";
+                position: absolute;
+                top: 2px;
+                left: 2px;
+                right: 2px;
+                bottom: 2px;
+                background: repeating-linear-gradient(
+                    0deg,
+                    transparent,
+                    transparent 2px,
+                    rgba(100, 255, 218, 0.2) 2px,
+                    rgba(100, 255, 218, 0.2) 4px
+                );
+            }
+            
+            .ic-1:after {
+                content: "";
+                position: absolute;
+                top: -1px;
+                left: 3px;
+                width: 2px;
+                height: 2px;
+                background-color: #64ffda;
+                box-shadow: 5px 0 0 #64ffda, 10px 0 0 #64ffda, 15px 0 0 #64ffda, 
+                           22px 0 0 #64ffda, 
+                           0 15px 0 #64ffda, 5px 15px 0 #64ffda, 10px 15px 0 #64ffda, 
+                           15px 15px 0 #64ffda, 22px 15px 0 #64ffda;
+            }
+            
+            .ic-2 {
+                top: 22%;
+                left: 70%;
+                width: 25px;
+                height: 12px;
+                border-radius: 2px;
+                transform: rotate(-10deg);
+            }
+            
+            .ic-2 .processing-light {
+                animation: processing 1.2s steps(6) infinite 0.4s;
+            }
+            
+            .diode-1 {
+                top: 32%;
+                left: 80%;
+                width: 10px;
+                height: 6px;
+                clip-path: polygon(0% 50%, 100% 0%, 100% 100%);
+            }
+            
+            .diode-2 {
+                top: 75%;
+                left: 55%;
+                width: 8px;
+                height: 5px;
+                transform: rotate(90deg);
+                clip-path: polygon(0% 50%, 100% 0%, 100% 100%);
+            }
+            
+            .led-1 {
+                top: 25%;
+                left: 20%;
+                width: 6px;
+                height: 6px;
+                border-radius: 50%;
+                background-color: rgba(100, 255, 218, 0.8);
+            }
+            
+            .led-2 {
+                top: 25%;
+                left: 50%;
+                width: 6px;
+                height: 6px;
+                border-radius: 50%;
+                background-color: rgba(100, 255, 218, 0.8);
+            }
+            
+            .led-3 {
+                top: 25%;
+                left: 80%;
+                width: 6px;
+                height: 6px;
+                border-radius: 50%;
+                background-color: rgba(100, 255, 218, 0.8);
+            }
+            
+            /* Connector glow for cards */
+            .connector-glow {
+                display: none;
+                position: absolute;
+                top: -8px;
+                left: 50%;
+                transform: translateX(-50%);
+                width: 16px;
+                height: 16px;
+                background: radial-gradient(circle, rgba(100, 255, 218, 0.6) 0%, rgba(100, 255, 218, 0) 70%);
+                border-radius: 50%;
+                z-index: 2;
+                opacity: 0;
+                transition: opacity 0.3s ease;
+            }
+            
+            .core-card:hover .connector-glow {
+                opacity: 0;
+                animation: none;
+            }
+            
+            /* Animations */
+            @keyframes pulse {
+                0% { transform: scale(1); opacity: 0.7; }
+                50% { transform: scale(1.3); opacity: 1; }
+                100% { transform: scale(1); opacity: 0.7; }
+            }
+            
+            @keyframes pulse-glow {
+                0% { transform: translateX(-50%) scale(1); opacity: 0.7; }
+                50% { transform: translateX(-50%) scale(1.5); opacity: 1; }
+                100% { transform: translateX(-50%) scale(1); opacity: 0.7; }
+            }
+            
+            @keyframes blink {
+                0%, 100% { opacity: 0.3; }
+                50% { opacity: 1; }
+            }
+            
+            @keyframes blink-slow {
+                0%, 100% { opacity: 0.3; }
+                50% { opacity: 1; }
+            }
+            
+            @keyframes blink-fast {
+                0%, 100% { opacity: 0.3; }
+                50% { opacity: 1; }
+            }
+            
+            @keyframes trace-glow {
+                0% { opacity: 0.3; box-shadow: 0 0 5px rgba(100, 255, 218, 0.3); }
+                50% { opacity: 1; box-shadow: 0 0 10px rgba(100, 255, 218, 0.8); }
+                100% { opacity: 0.3; box-shadow: 0 0 5px rgba(100, 255, 218, 0.3); }
+            }
+            
+            @keyframes move-right {
+                0% { left: -5px; }
+                100% { left: 110%; }
+            }
+            
+            @keyframes move-left {
+                0% { right: -5px; }
+                100% { right: 110%; }
+            }
+            
+            @keyframes move-down {
+                0% { top: -5px; }
+                100% { top: 110%; }
+            }
+            
+            @keyframes move-to-card {
+                0% { top: 0%; }
+                100% { top: 110%; }
+            }
+            
+            @keyframes move-horizontal {
+                0% { left: -5px; }
+                100% { left: 105%; }
+            }
+            
+            @keyframes capacitor-charging {
+                0% { transform: translateY(100%); }
+                45% { transform: translateY(0%); }
+                55% { transform: translateY(0%); }
+                100% { transform: translateY(-100%); }
+            }
+            
+            @keyframes processing {
+                0% { left: 15%; }
+                100% { left: 85%; }
+            }
+            
+            .pulse {
+                animation: pulse 3s infinite;
+            }
+            
+            .blink {
+                animation: blink 2s infinite;
+            }
+            
+            .blink-slow {
+                animation: blink-slow 4s infinite;
+            }
+            
+            .blink-fast {
+                animation: blink-fast 1s infinite;
+            }
+            
+            /* Data flow animation */
+            @keyframes data-flow {
+                0% { opacity: 0; transform: translateY(0); }
+                50% { opacity: 1; }
+                100% { opacity: 0; transform: translateY(20px); }
+            }
+            
+            .core-grid {
+                position: relative;
+                z-index: 3;
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+                gap: 2rem;
+                margin-top: 2rem;
+            }
+            
+            .core-card {
+                position: relative;
+                background-color: #1a1a1a;
+                border: 1px solid #333;
+                border-radius: 8px;
+                padding: 1.5rem;
+                transition: all 0.3s ease;
+                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            }
+            
+            .core-card:hover {
+                transform: translateY(-5px);
+                box-shadow: 0 10px 20px rgba(100, 255, 218, 0.2);
+                border-color: #64ffda;
+            }
+            
+            .core-card:hover .card-connector {
+                box-shadow: 0 -4px 10px rgba(100, 255, 218, 0.6);
+                border-color: #64ffda;
+            }
+            
+            .card-connector {
+                position: absolute;
+                top: -10px;
+                left: 50%;
+                transform: translateX(-50%);
+                width: 20px;
+                height: 10px;
+                background-color: #1a1a1a;
+                border-left: 1px solid #64ffda;
+                border-right: 1px solid #64ffda;
+                border-top: 1px solid #64ffda;
+                box-shadow: 0 -4px 6px rgba(100, 255, 218, 0.2);
+                transition: all 0.3s ease;
+            }
+            
+            .core-card i {
+                font-size: 2rem;
+                color: #64ffda !important;
+                background: none !important;
+                -webkit-text-fill-color: #64ffda !important;
+                margin-bottom: 1rem;
+                display: inline-block;
+                text-shadow: 0 0 10px rgba(100, 255, 218, 0.5);
+            }
+
+            /* Adding icon animation on hover */
+            .core-card:hover i {
+                transform: scale(1.2);
+                transition: transform 0.3s ease, color 0.3s ease;
+            }
+
+            /* Modal Styles */
+            .modal-container {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                z-index: 100;
+                display: none;
+                align-items: center;
+                justify-content: center;
+            }
+            
+            .modal-container.active {
+                display: flex;
+                animation: fadeIn 0.3s ease forwards;
+            }
+            
+            .modal-overlay {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background-color: rgba(0, 0, 0, 0.7);
+                backdrop-filter: blur(4px);
+            }
+            
+            .modal-content {
+                position: relative;
+                width: 90%;
+                max-width: 1000px;
+                max-height: 90vh;
+                background-color: #121212;
+                border-radius: 10px;
+                border: 1px solid #333;
+                box-shadow: 0 15px 40px rgba(0, 0, 0, 0.5), 0 0 20px rgba(100, 255, 218, 0.3);
+                overflow: hidden;
+                z-index: 101;
+                animation: modalSlideIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+            }
+            
+            .modal-header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                padding: 1rem 1.5rem;
+                background-color: #1a1a1a;
+                border-bottom: 1px solid #333;
+            }
+            
+            .modal-header h3 {
+                display: flex;
+                align-items: center;
+                gap: 0.5rem;
+                margin: 0;
+                color: #64ffda;
+                text-shadow: 0 0 10px rgba(100, 255, 218, 0.3);
+            }
+            
+            .modal-header i {
+                font-size: 1.2rem;
+            }
+            
+            .modal-close {
+                background: none;
+                border: none;
+                color: #aaa;
+                font-size: 1.5rem;
+                cursor: pointer;
+                padding: 0.25rem 0.5rem;
+                line-height: 1;
+                transition: all 0.2s ease;
+                border-radius: 4px;
+            }
+            
+            .modal-close:hover {
+                color: #fff;
+                background-color: rgba(255, 255, 255, 0.1);
+            }
+            
+            .modal-body {
+                padding: 1.5rem;
+                overflow-y: auto;
+                max-height: calc(90vh - 4rem);
+            }
+            
+            .feature-preview {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 2rem;
+            }
+            
+            @media (max-width: 768px) {
+                .feature-preview {
+                    grid-template-columns: 1fr;
+                }
+            }
+            
+            .preview-image {
+                background-color: #1a1a1a;
+                border-radius: 8px;
+                overflow: hidden;
+            }
+            
+            .feature-description {
+                display: flex;
+                flex-direction: column;
+                gap: 1rem;
+            }
+            
+            .feature-description h4 {
+                margin-top: 0;
+                color: #fff;
+                font-size: 1.3rem;
+            }
+            
+            .feature-description ul {
+                margin: 0;
+                padding-left: 1.5rem;
+            }
+            
+            .feature-description li {
+                margin-bottom: 0.5rem;
+                position: relative;
+            }
+            
+            .feature-description li::before {
+                content: '▸';
+                color: #64ffda;
+                position: absolute;
+                left: -1.2rem;
+            }
+            
+            .feature-highlight {
+                background-color: rgba(100, 255, 218, 0.1);
+                border-left: 3px solid #64ffda;
+                padding: 1rem;
+                border-radius: 0 6px 6px 0;
+                margin-top: 1rem;
+            }
+            
+            /* Preview Contents Styling */
+            /* Code Editor Preview */
+            .code-editor-preview {
+                width: 100%;
+                padding: 1rem;
+                background-color: #1e1e1e;
+                font-family: 'Fira Code', monospace;
+                color: #d4d4d4;
+                line-height: 1.5;
+                border-radius: 4px;
+            }
+            
+            .code-line {
+                margin-bottom: 0.25rem;
+                white-space: pre;
+            }
+            
+            .highlight {
+                color: #569cd6;
+            }
+            
+            .cursor {
+                display: inline-block;
+                width: 2px;
+                height: 1.2em;
+                background-color: #64ffda;
+                animation: blink 1s infinite;
+                vertical-align: middle;
+            }
+            
+            .typing-animation {
+                position: relative;
+            }
+            
+            .suggestion {
+                color: rgba(255, 255, 255, 0.6);
+                background-color: rgba(100, 255, 218, 0.05);
+                padding: 0.15rem 0.5rem;
+                border-radius: 4px;
+                border-left: 2px solid #64ffda;
+                margin-left: 0.5rem;
+                display: inline-block;
+            }
+            
+            .ai-badge {
+                background-color: #64ffda;
+                color: #121212;
+                font-size: 0.7rem;
+                padding: 0.1rem 0.3rem;
+                border-radius: 4px;
+                margin-left: 0.5rem;
+                font-weight: bold;
+                vertical-align: middle;
+            }
+            
+            /* Chat Preview */
+            .chat-preview {
+                display: flex;
+                flex-direction: column;
+                gap: 1rem;
+                width: 100%;
+                padding: 1rem;
+            }
+            
+            .chat-message {
+                display: flex;
+                gap: 0.5rem;
+                max-width: 100%;
+            }
+            
+            .user-message {
+                align-self: flex-end;
+            }
+            
+            .ai-message {
+                align-self: flex-start;
+            }
+            
+            .message-icon {
+                font-size: 1.5rem;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                min-width: 2.5rem;
+                height: 2.5rem;
+                background-color: #2a2a2a;
+                border-radius: 50%;
+            }
+            
+            .user-message .message-icon {
+                background-color: #333;
+            }
+            
+            .ai-message .message-icon {
+                background-color: rgba(100, 255, 218, 0.2);
+            }
+            
+            .message-content {
+                background-color: #2a2a2a;
+                padding: 0.75rem 1rem;
+                border-radius: 8px;
+                max-width: calc(100% - 3rem);
+            }
+            
+            .user-message .message-content {
+                background-color: #333;
+            }
+            
+            .ai-message .message-content {
+                background-color: rgba(100, 255, 218, 0.1);
+                border: 1px solid rgba(100, 255, 218, 0.2);
+            }
+            
+            .message-content p {
+                margin: 0 0 0.5rem 0;
+            }
+            
+            .message-content p:last-child {
+                margin-bottom: 0;
+            }
+            
+            .message-content pre {
+                background-color: #1e1e1e;
+                padding: 0.5rem;
+                border-radius: 4px;
+                overflow-x: auto;
+                font-size: 0.9rem;
+                margin: 0.5rem 0;
+            }
+            
+            /* Explanation Preview */
+            .explanation-preview {
+                width: 100%;
+                padding: 1rem;
+            }
+            
+            .code-snippet {
+                background-color: #1e1e1e;
+                padding: 1rem;
+                border-radius: 6px;
+                margin-bottom: 1rem;
+                overflow-x: auto;
+            }
+            
+            .code-snippet pre {
+                margin: 0;
+                font-family: 'Fira Code', monospace;
+                font-size: 0.9rem;
+            }
+            
+            .explanation-content {
+                background-color: rgba(100, 255, 218, 0.05);
+                border-radius: 6px;
+                padding: 1rem;
+                border: 1px solid rgba(100, 255, 218, 0.2);
+            }
+            
+            .explanation-content h4 {
+                margin-top: 0;
+                color: #64ffda;
+            }
+            
+            .explanation-content p {
+                margin-top: 0;
+            }
+            
+            .explanation-content ol {
+                padding-left: 1.2rem;
+            }
+            
+            .explanation-content li {
+                margin-bottom: 0.5rem;
+            }
+            
+            /* Debugging Preview */
+            .debugging-preview {
+                width: 100%;
+                padding: 1rem;
+            }
+            
+            .error-message {
+                background-color: rgba(255, 70, 70, 0.2);
+                border: 1px solid rgba(255, 70, 70, 0.3);
+                padding: 0.75rem;
+                border-radius: 6px;
+                margin-bottom: 1rem;
+                display: flex;
+                align-items: flex-start;
+                gap: 0.5rem;
+            }
+            
+            .error-icon {
+                background-color: rgba(255, 70, 70, 0.3);
+                width: 1.5rem;
+                height: 1.5rem;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                border-radius: 50%;
+                font-size: 0.8rem;
+            }
+            
+            .error-content {
+                flex: 1;
+            }
+            
+            .error-title {
+                color: #ff6b6b;
+                margin: 0 0 0.25rem 0;
+                font-family: 'Fira Code', monospace;
+                font-weight: 600;
+            }
+            
+            .error-location {
+                color: #aaa;
+                font-size: 0.9rem;
+                margin: 0;
+                font-family: 'Fira Code', monospace;
+            }
+            
+            .debug-analysis {
+                background-color: rgba(100, 255, 218, 0.05);
+                border: 1px solid rgba(100, 255, 218, 0.2);
+                border-radius: 6px;
+                padding: 1rem;
+            }
+            
+            .debug-analysis h4 {
+                margin-top: 0;
+                color: #64ffda;
+            }
+            
+            .debug-analysis p {
+                margin-top: 0;
+            }
+            
+            .debug-analysis code {
+                background-color: rgba(0, 0, 0, 0.2);
+                padding: 0.1rem 0.3rem;
+                border-radius: 3px;
+                font-family: 'Fira Code', monospace;
+                font-size: 0.9em;
+            }
+            
+            .solution {
+                background-color: rgba(0, 0, 0, 0.2);
+                padding: 1rem;
+                border-radius: 6px;
+                margin-top: 1rem;
+            }
+            
+            .solution h5 {
+                margin-top: 0;
+                color: #64ffda;
+            }
+            
+            .solution pre {
+                margin: 0.5rem 0 0 0;
+                background-color: #1e1e1e;
+                padding: 0.75rem;
+                border-radius: 4px;
+                overflow-x: auto;
+                font-size: 0.9rem;
+            }
+            
+            /* Refactoring Preview */
+            .refactoring-preview {
+                width: 100%;
+                padding: 1rem;
+            }
+            
+            .code-comparison {
+                display: none; /* Hide the original comparison */
+            }
+            
+            .code-slider-container {
+                position: relative;
+                margin-bottom: 1.5rem;
+                border-radius: 6px;
+                overflow: hidden;
+                box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            }
+            
+            .code-slider-labels {
+                display: flex;
+                justify-content: space-between;
+                padding: 8px 12px;
+                background-color: #252525;
+                font-size: 0.9rem;
+                border-bottom: 1px solid #333;
+            }
+            
+            .slider-label-before, .slider-label-after {
+                font-weight: bold;
+                padding: 4px 8px;
+                border-radius: 4px;
+            }
+            
+            .slider-label-before {
+                background-color: rgba(170, 170, 170, 0.2);
+                color: #aaa;
+            }
+            
+            .slider-label-after {
+                background-color: rgba(100, 255, 218, 0.2);
+                color: #64ffda;
+            }
+            
+            .code-slider {
+                position: relative;
+                height: 275px;
+                overflow: hidden;
+                background-color: #1e1e1e;
+            }
+            
+            .code-before,
+            .code-after {
+                position: absolute;
+                top: 0;
+                height: 100%;
+                width: 100%;
+                overflow: auto;
+                padding: 16px;
+                box-sizing: border-box;
+                border-left: none;
+                background-color: #1e1e1e;
+            }
+            
+            .code-before {
+                left: 0;
+                z-index: 1;
+                border-right: none;
+                background-color: #1e1e1e;
+            }
+            
+            .code-after {
+                left: 0;
+                z-index: 2;
+                background-color: #1e1e1e;
+                clip-path: polygon(50% 0, 100% 0, 100% 100%, 50% 100%);
+            }
+            
+            .slider-handle {
+                position: absolute;
+                top: 0;
+                bottom: 0;
+                left: 50%;
+                z-index: 3;
+                width: 2px;
+                transform: translateX(-50%);
+                cursor: ew-resize;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            
+            .slider-divider {
+                position: absolute;
+                width: 2px;
+                height: 100%;
+                background-color: #64ffda;
+                box-shadow: 0 0 10px rgba(100, 255, 218, 0.8);
+            }
+            
+            .slider-button {
+                position: absolute;
+                width: 30px;
+                height: 30px;
+                background-color: #64ffda;
+                border-radius: 50%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                color: #121212;
+                box-shadow: 0 0 10px rgba(100, 255, 218, 0.8);
+                font-size: 14px;
+            }
+            
+            .slider-button i {
+                margin-top: 1px;
+            }
+            
+            /* Make sure the code blocks have the same styling */
+            .code-before pre, .code-after pre {
+                margin: 0;
+                font-family: 'Fira Code', monospace;
+                font-size: 0.85rem;
+                width: 100%;
+                height: 100%;
+            }
+            
+            .refactoring-benefits {
+                background-color: rgba(100, 255, 218, 0.05);
+                border: 1px solid rgba(100, 255, 218, 0.2);
+                border-radius: 6px;
+                padding: 1rem;
+            }
+            
+            .refactoring-benefits h5 {
+                margin-top: 0;
+                color: #64ffda;
+                margin-bottom: 0.5rem;
+            }
+            
+            .refactoring-benefits ul {
+                margin: 0;
+                padding-left: 1.5rem;
+            }
+            
+            .refactoring-benefits li {
+                margin-bottom: 0.25rem;
+            }
+            
+            /* Animations */
+            @keyframes fadeIn {
+                from { opacity: 0; }
+                to { opacity: 1; }
+            }
+            
+            @keyframes modalSlideIn {
+                from { transform: translateY(30px); opacity: 0; }
+                to { transform: translateY(0); opacity: 1; }
+            }
+            
+            @keyframes blink {
+                0%, 49% { opacity: 1; }
+                50%, 100% { opacity: 0; }
+            }
+            
+            /* Core cards hover enhancements */
+            .core-card {
+                cursor: pointer;
+            }
+            
+            .core-card:hover::after {
+                content: 'Click for details';
+                position: absolute;
+                bottom: 10px;
+                right: 10px;
+                background-color: rgba(0, 0, 0, 0.6);
+                color: #64ffda;
+                padding: 0.2rem 0.5rem;
+                border-radius: 4px;
+                font-size: 0.8rem;
+                opacity: 0.7;
+            }
+        </style>
+        <script>
+            document.addEventListener('DOMContentLoaded', function() {
+                // Get all core cards and modals
+                const coreCards = document.querySelectorAll('.core-card');
+                const modals = document.querySelectorAll('.modal-container');
+                const closeButtons = document.querySelectorAll('.modal-close');
+                const overlays = document.querySelectorAll('.modal-overlay');
+                
+                // Add click event to each core card
+                coreCards.forEach(card => {
+                    card.addEventListener('click', function() {
+                        const feature = this.getAttribute('data-feature');
+                        const modal = document.getElementById(`modal-${feature}`);
+                        if (modal) {
+                            modal.classList.add('active');
+                            document.body.style.overflow = 'hidden'; // Prevent scrolling when modal is open
+                        }
+                    });
+                });
+                
+                // Function to close modal
+                function closeModal(modal) {
+                    modal.classList.remove('active');
+                    document.body.style.overflow = ''; // Restore scrolling
+                }
+                
+                // Add click event to close buttons
+                closeButtons.forEach(button => {
+                    button.addEventListener('click', function() {
+                        const modal = this.closest('.modal-container');
+                        closeModal(modal);
+                    });
+                });
+                
+                // Add click event to overlays (close when clicking outside modal)
+                overlays.forEach(overlay => {
+                    overlay.addEventListener('click', function() {
+                        const modal = this.closest('.modal-container');
+                        closeModal(modal);
+                    });
+                });
+                
+                // Close modal with Escape key
+                document.addEventListener('keydown', function(event) {
+                    if (event.key === 'Escape') {
+                        const activeModal = document.querySelector('.modal-container.active');
+                        if (activeModal) {
+                            closeModal(activeModal);
+                        }
+                    }
+                });
+
+                // Code Slider functionality
+                initCodeSlider();
+            });
+
+            function initCodeSlider() {
+                const slider = document.querySelector('.code-slider');
+                const sliderHandle = document.querySelector('.slider-handle');
+                const codeAfter = document.querySelector('.code-after');
+                
+                if (!slider || !sliderHandle || !codeAfter) return;
+                
+                let isDragging = false;
+                
+                // Set initial position
+                let position = 50; // Percentage
+                updateSliderPosition(position);
+                
+                // Mouse events
+                sliderHandle.addEventListener('mousedown', startDrag);
+                document.addEventListener('mousemove', drag);
+                document.addEventListener('mouseup', stopDrag);
+                
+                // Touch events for mobile
+                sliderHandle.addEventListener('touchstart', startDrag);
+                document.addEventListener('touchmove', drag);
+                document.addEventListener('touchend', stopDrag);
+                
+                function startDrag(e) {
+                    e.preventDefault();
+                    isDragging = true;
+                }
+                
+                function drag(e) {
+                    if (!isDragging) return;
+                    e.preventDefault();
+                    
+                    const sliderRect = slider.getBoundingClientRect();
+                    const x = (e.clientX || (e.touches && e.touches[0].clientX)) - sliderRect.left;
+                    
+                    // Calculate percentage position
+                    position = Math.min(Math.max((x / sliderRect.width) * 100, 0), 100);
+                    updateSliderPosition(position);
+                }
+                
+                function stopDrag() {
+                    isDragging = false;
+                }
+                
+                function updateSliderPosition(position) {
+                    sliderHandle.style.left = `${position}%`;
+                    codeAfter.style.clipPath = `polygon(${position}% 0, 100% 0, 100% 100%, ${position}% 100%)`;
+                }
+            }
+        </script>
+    </section>
+
+    <!-- Scrolling reviews section -->
+    <section class="reviews-section">
+        <div class="container">
+            <h2 class="reviews-title">What Our Users Say</h2>
+            <div class="review-container">
+                <div class="review-track review-track-top">
+                    <!-- Top row review cards -->
+                    <div class="review-card">
+                        <div class="review-content">
+                            <p class="review-text"><span class="quote">"</span>Pointer has completely transformed my coding workflow. The AI assistance is incredibly accurate and the privacy features give me peace of mind.<span class="quote">"</span></p>
+                            <div class="reviewer">
+                                <div class="reviewer-name">Alex Johnson</div>
+                                <div class="reviewer-title">Senior Developer</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="review-card">
+                        <div class="review-content">
+                            <p class="review-text"><span class="quote">"</span>I'm impressed by how fast Pointer runs on my machine. No more waiting for cloud-based LLMs to respond - it's all instant and local!<span class="quote">"</span></p>
+                            <div class="reviewer">
+                                <div class="reviewer-name">Maria Garcia</div>
+                                <div class="reviewer-title">Full Stack Engineer</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="review-card">
+                        <div class="review-content">
+                            <p class="review-text"><span class="quote">"</span>The code suggestions are remarkably accurate. It's like having a senior developer looking over my shoulder, but without the awkwardness.<span class="quote">"</span></p>
+                            <div class="reviewer">
+                                <div class="reviewer-name">David Kim</div>
+                                <div class="reviewer-title">Software Architect</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="review-card">
+                        <div class="review-content">
+                            <p class="review-text"><span class="quote">"</span>I was skeptical at first, but after trying Pointer for a week, I can't imagine coding without it. The local LLM performance is impressive.<span class="quote">"</span></p>
+                            <div class="reviewer">
+                                <div class="reviewer-name">Lisa Thompson</div>
+                                <div class="reviewer-title">Frontend Developer</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="review-card">
+                        <div class="review-content">
+                            <p class="review-text"><span class="quote">"</span>As someone who values privacy, I appreciate that Pointer keeps all my code local. Plus, the performance is better than any cloud solution I've tried.<span class="quote">"</span></p>
+                            <div class="reviewer">
+                                <div class="reviewer-name">James Wilson</div>
+                                <div class="reviewer-title">Security Engineer</div>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Duplicate cards for continuous scrolling effect -->
+                    <div class="review-card">
+                        <div class="review-content">
+                            <p class="review-text"><span class="quote">"</span>Pointer has completely transformed my coding workflow. The AI assistance is incredibly accurate and the privacy features give me peace of mind.<span class="quote">"</span></p>
+                            <div class="reviewer">
+                                <div class="reviewer-name">Alex Johnson</div>
+                                <div class="reviewer-title">Senior Developer</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="review-card">
+                        <div class="review-content">
+                            <p class="review-text"><span class="quote">"</span>I'm impressed by how fast Pointer runs on my machine. No more waiting for cloud-based LLMs to respond - it's all instant and local!<span class="quote">"</span></p>
+                            <div class="reviewer">
+                                <div class="reviewer-name">Maria Garcia</div>
+                                <div class="reviewer-title">Full Stack Engineer</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="review-track review-track-bottom">
+                    <!-- Bottom row review cards -->
+                    <div class="review-card">
+                        <div class="review-content">
+                            <p class="review-text"><span class="quote">"</span>The autocomplete suggestions save me so much time. Pointer seems to understand my coding style and anticipates what I'm going to write next.<span class="quote">"</span></p>
+                            <div class="reviewer">
+                                <div class="reviewer-name">Michael Chen</div>
+                                <div class="reviewer-title">Backend Developer</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="review-card">
+                        <div class="review-content">
+                            <p class="review-text"><span class="quote">"</span>Having my code stay on my machine instead of being sent to the cloud gives me confidence when working with sensitive projects.<span class="quote">"</span></p>
+                            <div class="reviewer">
+                                <div class="reviewer-name">Sarah Miller</div>
+                                <div class="reviewer-title">Security Specialist</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="review-card">
+                        <div class="review-content">
+                            <p class="review-text"><span class="quote">"</span>Pointer's documentation generation feature is magical. It saves me hours of tedious work and creates thorough, accurate docs.<span class="quote">"</span></p>
+                            <div class="reviewer">
+                                <div class="reviewer-name">Robert Taylor</div>
+                                <div class="reviewer-title">Technical Lead</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="review-card">
+                        <div class="review-content">
+                            <p class="review-text"><span class="quote">"</span>I love how Pointer integrates seamlessly with my existing development workflow. It feels like a natural extension of my IDE.<span class="quote">"</span></p>
+                            <div class="reviewer">
+                                <div class="reviewer-name">Emma Rodriguez</div>
+                                <div class="reviewer-title">DevOps Engineer</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="review-card">
+                        <div class="review-content">
+                            <p class="review-text"><span class="quote">"</span>The bug-fixing suggestions are incredibly helpful. Pointer often spots issues before I even run the code.<span class="quote">"</span></p>
+                            <div class="reviewer">
+                                <div class="reviewer-name">Thomas Wright</div>
+                                <div class="reviewer-title">QA Engineer</div>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Duplicate cards for continuous scrolling effect -->
+                    <div class="review-card">
+                        <div class="review-content">
+                            <p class="review-text"><span class="quote">"</span>The autocomplete suggestions save me so much time. Pointer seems to understand my coding style and anticipates what I'm going to write next.<span class="quote">"</span></p>
+                            <div class="reviewer">
+                                <div class="reviewer-name">Michael Chen</div>
+                                <div class="reviewer-title">Backend Developer</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="review-card">
+                        <div class="review-content">
+                            <p class="review-text"><span class="quote">"</span>Having my code stay on my machine instead of being sent to the cloud gives me confidence when working with sensitive projects.<span class="quote">"</span></p>
+                            <div class="reviewer">
+                                <div class="reviewer-name">Sarah Miller</div>
+                                <div class="reviewer-title">Security Specialist</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <footer class="site-footer">
+        <div class="footer-content">
+            <div class="footer-section">
+                <h4>Pointer</h4>
+                <p>Making AI-assisted coding accessible, private, and lightning-fast.</p>
+            </div>
+            <div class="footer-section">
+                <h4>Links</h4>
+                <ul>
+                    <li><a href="#features">Features</a></li>
+                    <li><a href="#pricing">Pricing</a></li>
+                    <li><a href="https://github.com/f1shyondrugs/Pointer" target="_blank">GitHub</a></li>
+                </ul>
+            </div>
+            <div class="footer-section">
+                <h4>Connect</h4>
+                <div class="social-links">
+                    <a href="mailto:info@f1shy312.com" target="_blank"><i class="fas fa-envelope"></i></a>
+                    <a href="https://github.com/f1shyondrugs" target="_blank"><i class="fab fa-github"></i></a>
+                    <a href="#" onclick="copyDiscordUsername(); return false;"><i class="fab fa-discord"></i></a>
+                </div>
+            </div>
+        </div>
+        <div class="footer-bottom">
+            <p class="copyright-text">
+                <span class="copyright-default">&copy; 2025 Das_F1sHy312. All rights reserved.</span>
+                <a href="https://f1shy312.com" class="copyright-hover">Made with ❤️ by Das_F1sHy312 (and AI)</a>
+            </p>
+        </div>
+    </footer>
+    <script>
+        function copyDiscordUsername() {
+            navigator.clipboard.writeText('f1shyondrugs312');
+            const notification = document.createElement('div');
+            notification.textContent = 'Discord username copied!';
+            notification.style.cssText = `
+                position: fixed;
+                bottom: 20px;
+                right: 20px;
+                background: #5865F2;
+                color: white;
+                padding: 10px 20px;
+                border-radius: 5px;
+                animation: fadeInOut 2s ease-in-out forwards;
+                z-index: 1000;
+            `;
+            document.body.appendChild(notification);
+            setTimeout(() => notification.remove(), 2000);
+        }
+    </script>
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/navbar.js') }}"></script>
+</body>
+</html> 

@@ -1,0 +1,27 @@
+<!-- navbar.html - Reusable navbar template for Pointer website -->
+<nav class="floating-navbar">
+    <div class="navbar-container">
+        <div class="navbar-logo">
+            <a href="/">
+                <img src="{{ url_for('static', filename='logo.png') }}" alt="Pointer Logo">
+                {% if show_text_logo %}
+                <span>Pointer</span>
+                {% endif %}
+            </a>
+        </div>
+        <div class="navbar-links">
+            <a href="/#">Home</a>
+            <a href="{{ features_path | default('#features') }}">Features</a>
+            {% if show_downloads_link %}
+            <a href="/downloads">Downloads</a>
+            {% endif %}
+            <a href="https://github.com/f1shyondrugs/Pointer" target="_blank">GitHub</a>
+            {% if show_pricing_link %}
+            <a onclick="alert('Bruv its free')">Pricing</a>
+            {% endif %}
+        </div>
+        <div class="navbar-mobile-toggle">
+            <i class="fas fa-bars"></i>
+        </div>
+    </div>
+</nav> 
