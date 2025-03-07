@@ -67,9 +67,13 @@ const FileExplorerItem: React.FC<{
 
   const handleFolderHover = useCallback(async () => {
     setIsHovered(true);
+    // Disable automatic loading on hover to prevent the editor reload issue
+    // We'll only load folders when they're explicitly clicked
+    /*
     if (item.type === 'directory' && !isExpanded && !FileSystemService.isFolderLoaded(item.path)) {
       await loadFolderContents(item.path);
     }
+    */
   }, [item.type, isExpanded]);
 
   const loadFolderContents = async (path: string) => {
@@ -430,6 +434,9 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
 
   const handleFolderHover = useCallback(async (folderId: string | null) => {
     setHoveredFolder(folderId);
+    // Disable automatic loading on hover to prevent the editor reload issue
+    // We'll only load folders when they're explicitly clicked
+    /*
     if (folderId && !expandedFolders.has(folderId)) {
       const folder = items[folderId];
       if (folder && folder.type === 'directory' && !FileSystemService.isFolderLoaded(folder.path)) {
@@ -441,6 +448,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
         await loadFolderContents(folder.path, folderId);
       }
     }
+    */
   }, [items, expandedFolders]);
 
   const loadFolderContents = async (path: string, folderId: string) => {

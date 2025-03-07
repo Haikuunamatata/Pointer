@@ -685,20 +685,27 @@ const App: React.FC = () => {
   // Add a function to update file system items
   const handleFolderContentsLoaded = (newItems: Record<string, FileSystemItem>) => {
     setFileSystem(prev => {
+      // Don't update file system if it would affect currently open files
+      const currentlyOpenFile = prev.currentFileId ? prev.items[prev.currentFileId] : null;
+      
       // Get the root item from the new items if it exists
       const rootItem = Object.values(newItems).find(item => item.parentId === null);
       
+      // Make sure we're preserving all existing open files without modifications
+      const updatedItems = { ...prev.items };
+      
+      // Only add new items that don't replace existing items with the same ID
+      Object.entries(newItems).forEach(([id, item]) => {
+        if (!updatedItems[id]) {
+          updatedItems[id] = item;
+        }
+      });
+      
       return {
         ...prev,
-        items: {
-          ...prev.items,
-          ...newItems,
-          // Update root item name if we found one
-          [prev.rootId]: rootItem ? {
-            ...prev.items[prev.rootId],
-            name: rootItem.name
-          } : prev.items[prev.rootId]
-        }
+        items: updatedItems,
+        // Update root item name if we found one
+        rootId: prev.rootId
       };
     });
   };

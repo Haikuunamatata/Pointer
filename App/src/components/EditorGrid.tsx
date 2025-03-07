@@ -17,6 +17,7 @@ const EditorPane: React.FC<EditorPaneProps> = ({ fileId, file, onEditorReady }) 
   const contentRef = useRef<string>('');  // Add this to track content changes
   const [showPromptInput, setShowPromptInput] = useState(false);
   const [prompt, setPrompt] = useState('');
+  const editorInitializedRef = useRef(false);
 
   // Normalize content once when file changes
   useEffect(() => {
@@ -26,7 +27,8 @@ const EditorPane: React.FC<EditorPaneProps> = ({ fileId, file, onEditorReady }) 
   }, [file?.content]);
 
   useEffect(() => {
-    if (!editorRef.current || !file) return;
+    // Only create editor once, don't recreate it on every render
+    if (!editorRef.current || !file || editorInitializedRef.current) return;
 
     if (!editor.current) {
       const language = getLanguageFromFileName(file.name);
@@ -75,16 +77,30 @@ const EditorPane: React.FC<EditorPaneProps> = ({ fileId, file, onEditorReady }) 
       });
 
       if (editor.current) {
+        editorInitializedRef.current = true;
         onEditorReady(editor.current);
       }
     } else {
       // If editor exists, just update the model's value if it's different
       const model = editor.current.getModel();
       if (model && model.getValue() !== contentRef.current) {
+        const position = editor.current.getPosition();
         model.setValue(contentRef.current);
+        if (position) {
+          editor.current.setPosition(position);
+          editor.current.revealPositionInCenter(position);
+        }
       }
     }
 
+    // Don't dispose the editor on every render to maintain state
+    return () => {
+      // No cleanup required for normal renders
+    };
+  }, [fileId, file, onEditorReady]);
+
+  // Complete cleanup only when component is unmounted
+  useEffect(() => {
     return () => {
       if (editor.current) {
         const model = editor.current.getModel();
@@ -93,9 +109,10 @@ const EditorPane: React.FC<EditorPaneProps> = ({ fileId, file, onEditorReady }) 
         if (model && !model.isDisposed()) {
           model.dispose();
         }
+        editorInitializedRef.current = false;
       }
     };
-  }, [fileId, file, onEditorReady]);
+  }, []);
 
   const handlePromptSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
