@@ -12,4 +12,5 @@ export interface FileSystemState {
   items: Record<string, FileSystemItem>;
   currentFileId: string | null;
   rootId: string;
+  terminalOpen: boolean;
 } 

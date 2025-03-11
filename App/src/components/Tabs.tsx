@@ -49,93 +49,95 @@ const Tabs: React.FC<TabsProps> = ({
   };
 
   const handleTabClose = (e: React.MouseEvent, fileId: string) => {
-    e.preventDefault();
     e.stopPropagation();
-    console.log('Tab close clicked:', fileId);
     if (onTabClose) {
       onTabClose(fileId);
     }
   };
 
+  // Filter out files that don't exist in the items record
+  // Special case for 'welcome' file which might be restored later
+  const validOpenFiles = openFiles.filter(fileId => 
+    fileId === 'welcome' || items[fileId]
+  );
+
   return (
     <div style={tabsContainerStyle}>
-      {openFiles.map(fileId => {
+      {validOpenFiles.map((fileId) => {
         const file = items[fileId];
-        if (!file) {
-          console.log('Missing file for id:', fileId);
-          return null;
-        }
-
-        const tabStyle = {
-          padding: '0 12px',
-          height: '100%',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          cursor: 'pointer',
-          borderRight: '1px solid var(--border-color)',
-          background: currentFileId === fileId ? 'var(--bg-primary)' : 'transparent',
-          color: 'var(--text-primary)',
-          userSelect: 'none' as const,
-          minWidth: 0,
-          position: 'relative' as const,
-          transition: 'background-color 0.1s ease',
-        };
-
-        const closeButtonStyle = {
-          padding: '4px',
-          background: 'none',
-          border: 'none',
-          color: 'var(--text-secondary)',
-          cursor: 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          borderRadius: '4px',
-          opacity: 0.7,
-          transition: 'opacity 0.1s ease, background-color 0.1s ease',
-        };
-
+        const isActive = fileId === currentFileId;
+        
+        // Handle special case for welcome file
+        const fileName = fileId === 'welcome' && !file 
+          ? 'Welcome' 
+          : file?.name || 'Unknown File';
+        
         return (
           <div
             key={fileId}
             onClick={() => handleTabClick(fileId)}
-            style={tabStyle}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = currentFileId === fileId 
-                ? 'var(--bg-primary)' 
-                : 'var(--bg-hover)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = currentFileId === fileId 
-                ? 'var(--bg-primary)' 
-                : 'transparent';
+            style={{
+              padding: '0 10px',
+              height: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              cursor: 'pointer',
+              borderRight: '1px solid var(--border-color)',
+              background: isActive ? 'var(--bg-selected)' : 'transparent',
+              color: isActive ? 'var(--text-active)' : 'var(--text-primary)',
+              fontWeight: isActive ? 500 : 'normal',
+              fontSize: '13px',
+              position: 'relative',
+              whiteSpace: 'nowrap',
+              userSelect: 'none',
+              minWidth: 0,
             }}
           >
-            {getIconForFile(file.name)}
-            <span style={{
-              whiteSpace: 'nowrap',
+            <div style={{ 
+              marginRight: '8px', 
+              display: 'flex', 
+              alignItems: 'center',
+              flexShrink: 0,
+            }}>
+              {file ? getIconForFile(file.name) : null}
+            </div>
+            <div style={{
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               maxWidth: '150px',
-              fontSize: '13px',
             }}>
-              {file.name}
-            </span>
-            <button
-              onClick={(e) => handleTabClose(e, fileId)}
-              style={closeButtonStyle}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.opacity = '1';
-                e.currentTarget.style.background = 'var(--bg-hover)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.opacity = '0.7';
-                e.currentTarget.style.background = 'none';
-              }}
-            >
-              ×
-            </button>
+              {fileName}
+            </div>
+            {fileId !== 'welcome' && onTabClose && (
+              <div
+                onClick={(e) => handleTabClose(e, fileId)}
+                style={{
+                  marginLeft: '8px',
+                  opacity: 0.6,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: '16px',
+                  height: '16px',
+                  borderRadius: '50%',
+                  flexShrink: 0,
+                }}
+                onMouseOver={(e) => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.background = 'var(--bg-hover)'; }}
+                onMouseOut={(e) => { e.currentTarget.style.opacity = '0.6'; e.currentTarget.style.background = 'transparent'; }}
+              >
+                ✕
+              </div>
+            )}
+            {isActive && (
+              <div style={{
+                position: 'absolute',
+                bottom: 0,
+                left: 0,
+                right: 0,
+                height: '2px',
+                background: 'var(--accent-color)',
+              }} />
+            )}
           </div>
         );
       })}

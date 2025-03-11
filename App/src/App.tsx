@@ -56,7 +56,7 @@ const topBarButtonStyle = {
 // Add this near the top of App.tsx, after the imports
 declare global {
   interface Window {
-    getCurrentFile: () => { path: string } | null;
+    getCurrentFile: () => { path: string; } | null;
     editor?: monaco.editor.IStandaloneCodeEditor;
     reloadFileContent?: (fileId: string) => Promise<void>;
     fileSystem?: Record<string, FileSystemItem>;
@@ -68,7 +68,6 @@ const App: React.FC = () => {
   const editor = useRef<IEditor | null>(null);
   const [fileSystem, setFileSystem] = useState<FileSystemState>(() => {
     const rootId = 'root';
-    const welcomeFileId = 'welcome';
     return {
       items: {
         [rootId]: {
@@ -78,8 +77,8 @@ const App: React.FC = () => {
           parentId: null,
           path: '',
         },
-        [welcomeFileId]: {
-          id: welcomeFileId,
+        'welcome': {
+          id: 'welcome',
           name: 'notes.js',
           type: 'file',
           content: "// Welcome to your new code editor!\n// Start typing here...\n\n// By the way you can't delete or save this file. (future updates (maybe (if i have motivation)))",
@@ -87,13 +86,13 @@ const App: React.FC = () => {
           path: 'notes.js',
         },
       },
-      currentFileId: welcomeFileId,
+      currentFileId: null,
       rootId,
       terminalOpen: false,
     };
   });
 
-  const [openFiles, setOpenFiles] = useState<string[]>([fileSystem.currentFileId!]);
+  const [openFiles, setOpenFiles] = useState<string[]>([]);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   const [modalState, setModalState] = useState<{
@@ -284,6 +283,12 @@ const App: React.FC = () => {
   }, [fileSystem.currentFileId]);
 
   const handleFileSelect = async (fileId: string) => {
+    // Check if file exists in the current file system state
+    if (!fileSystem.items[fileId]) {
+      console.error(`Attempted to select non-existent file with id: ${fileId}`);
+      return;
+    }
+
     const file = fileSystem.items[fileId];
     if (file.type === 'file') {
       if (!openFiles.includes(fileId)) {
@@ -320,20 +325,54 @@ const App: React.FC = () => {
 
   const handleTabSelect = async (tabId: string) => {
     console.log('handleTabSelect called with:', tabId);
-    try {
-      // Don't try to load content for welcome screen
-      if (tabId === 'welcome') {
-        setFileSystem(prev => ({ ...prev, currentFileId: 'welcome' }));
+    
+    // Special handling for welcome tab
+    if (tabId === 'welcome') {
+      // Make sure welcome file exists in the state
+      if (!fileSystem.items['welcome']) {
+        // If welcome file doesn't exist, recreate it
+        setFileSystem(prev => ({
+          ...prev,
+          currentFileId: 'welcome',
+          items: {
+            ...prev.items,
+            'welcome': {
+              id: 'welcome',
+              name: 'notes.js',
+              type: 'file',
+              content: "// Welcome to your new code editor!\n// Start typing here...\n\n// By the way you can't delete or save this file. (future updates (maybe (if i have motivation)))",
+              parentId: prev.rootId,
+              path: 'notes.js',
+            }
+          }
+        }));
+        
         if (editor.current) {
-          editor.current.setValue('');
+          editor.current.setValue(fileSystem.items['welcome']?.content || '');
         }
         return;
       }
-
-      // First update the UI to show the selected tab
-      setFileSystem(prev => ({ ...prev, currentFileId: tabId }));
       
-      // Then load the file content
+      setFileSystem(prev => ({ ...prev, currentFileId: 'welcome' }));
+      if (editor.current) {
+        editor.current.setValue(fileSystem.items['welcome']?.content || '');
+      }
+      return;
+    }
+
+    // Check if regular file exists
+    if (!fileSystem.items[tabId]) {
+      console.error(`Attempted to select non-existent tab with id: ${tabId}`);
+      // Fall back to welcome file
+      handleTabSelect('welcome');
+      return;
+    }
+
+    // First update the UI to show the selected tab
+    setFileSystem(prev => ({ ...prev, currentFileId: tabId }));
+    
+    // Then load the file content
+    try {
       const content = await FileSystemService.readFile(tabId);
       console.log('File content loaded:', content ? 'success' : 'null');
       
@@ -349,21 +388,13 @@ const App: React.FC = () => {
             },
           },
         }));
-
-        // Update editor content
+        
         if (editor.current) {
-          const model = editor.current.getModel();
-          if (model) {
-            model.setValue(content);
-          } else {
-            editor.current.setValue(content);
-          }
-        } else {
-          console.warn('Editor ref is null');
+          editor.current.setValue(content);
         }
       }
     } catch (error) {
-      console.error('Error in handleTabSelect:', error);
+      console.error('Error loading file content:', error);
     }
   };
 
@@ -701,9 +732,22 @@ const App: React.FC = () => {
         }
       });
       
+      // Always ensure the 'welcome' file is preserved
+      if (!updatedItems['welcome'] && prev.items['welcome']) {
+        updatedItems['welcome'] = prev.items['welcome'];
+      }
+      
+      // Make sure currentFileId is pointing to an existing file
+      let currentFileId = prev.currentFileId;
+      if (currentFileId && !updatedItems[currentFileId]) {
+        // If current file no longer exists, default to welcome file
+        currentFileId = 'welcome';
+      }
+      
       return {
         ...prev,
         items: updatedItems,
+        currentFileId,
         // Update root item name if we found one
         rootId: prev.rootId
       };
@@ -848,25 +892,16 @@ const App: React.FC = () => {
         if (lastDir) {
           const result = await FileSystemService.openSpecificDirectory(lastDir);
           if (result) {
-            setFileSystem({
+            setFileSystem(prevState => ({
+              ...prevState,
               items: result.items,
               rootId: result.rootId,
-              currentFileId: null,
-            });
-          } else {
-            // If failed to open last directory, show welcome state
-            setFileSystem(prev => ({
-              ...prev,
-              currentFileId: 'welcome',
+              currentFileId: null, // Don't open the welcome tab
             }));
           }
-        } else {
-          // No saved directory, show welcome state
-          setFileSystem(prev => ({
-            ...prev,
-            currentFileId: 'welcome',
-          }));
+          // Don't set welcome tab even if directory open fails
         }
+        // Don't set welcome tab when no saved directory exists
       } catch (error) {
         console.error('Error initializing app:', error);
         setLoadingError('Failed to initialize app');

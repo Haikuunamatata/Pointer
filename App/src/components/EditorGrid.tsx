@@ -23,74 +23,66 @@ const EditorPane: React.FC<EditorPaneProps> = ({ fileId, file, onEditorReady }) 
   useEffect(() => {
     if (file?.content) {
       contentRef.current = file.content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    } else if (fileId === 'welcome') {
+      // Default content for welcome file if it doesn't have content
+      contentRef.current = "// Welcome to your new code editor!\n// Start typing here...\n\n// By the way you can't delete or save this file. (future updates (maybe (if i have motivation)))"
+    } else {
+      contentRef.current = '';
     }
-  }, [file?.content]);
+  }, [file?.content, fileId]);
 
   useEffect(() => {
     // Only create editor once, don't recreate it on every render
-    if (!editorRef.current || !file || editorInitializedRef.current) return;
+    if (!editorRef.current || editorInitializedRef.current) return;
 
-    if (!editor.current) {
-      const language = getLanguageFromFileName(file.name);
-      const uri = monaco.Uri.parse(file.path);
+    const language = file ? getLanguageFromFileName(file.name) : 'javascript';
+    const uri = monaco.Uri.parse(file?.path || `file:///${fileId}.js`);
 
-      // Check if a model already exists for this file
-      let model = monaco.editor.getModel(uri);
-      
-      // If model exists, update its value
-      if (model) {
-        if (model.getValue() !== contentRef.current) {
-          model.setValue(contentRef.current);
-        }
-      } else {
-        // Create new model only if it doesn't exist
-        model = monaco.editor.createModel(
-          contentRef.current,
-          language,
-          uri
-        );
-        model.setEOL(monaco.editor.EndOfLineSequence.LF);
-      }
-
-      // Create editor with the model
-      editor.current = monaco.editor.create(editorRef.current, {
-        model: model,
-        theme: 'vs-dark',
-        automaticLayout: true,
-        minimap: {
-          enabled: true,
-        },
-        lineNumbers: 'on',
-        wordWrap: 'off',
-        renderWhitespace: 'selection',
-        scrollBeyondLastLine: false,
-        cursorStyle: 'line',
-        lineHeight: 19,
-        renderFinalNewline: true,
-        detectIndentation: true,
-        trimAutoWhitespace: true,
-      });
-
-      // Add keyboard event handler for Ctrl+I
-      editor.current.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyI, () => {
-        setShowPromptInput(true);
-      });
-
-      if (editor.current) {
-        editorInitializedRef.current = true;
-        onEditorReady(editor.current);
+    // Check if a model already exists for this file
+    let model = monaco.editor.getModel(uri);
+    
+    // If model exists, update its value
+    if (model) {
+      if (model.getValue() !== contentRef.current) {
+        model.setValue(contentRef.current);
       }
     } else {
-      // If editor exists, just update the model's value if it's different
-      const model = editor.current.getModel();
-      if (model && model.getValue() !== contentRef.current) {
-        const position = editor.current.getPosition();
-        model.setValue(contentRef.current);
-        if (position) {
-          editor.current.setPosition(position);
-          editor.current.revealPositionInCenter(position);
-        }
-      }
+      // Create new model only if it doesn't exist
+      model = monaco.editor.createModel(
+        contentRef.current,
+        language,
+        uri
+      );
+      model.setEOL(monaco.editor.EndOfLineSequence.LF);
+    }
+
+    // Create editor with the model
+    editor.current = monaco.editor.create(editorRef.current, {
+      model: model,
+      theme: 'vs-dark',
+      automaticLayout: true,
+      minimap: {
+        enabled: true,
+      },
+      lineNumbers: 'on',
+      wordWrap: 'off',
+      renderWhitespace: 'selection',
+      scrollBeyondLastLine: false,
+      cursorStyle: 'line',
+      lineHeight: 19,
+      renderFinalNewline: true,
+      detectIndentation: true,
+      trimAutoWhitespace: true,
+    });
+
+    // Add keyboard event handler for Ctrl+I
+    editor.current.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyI, () => {
+      setShowPromptInput(true);
+    });
+
+    if (editor.current) {
+      editorInitializedRef.current = true;
+      onEditorReady(editor.current);
     }
 
     // Don't dispose the editor on every render to maintain state
@@ -98,6 +90,25 @@ const EditorPane: React.FC<EditorPaneProps> = ({ fileId, file, onEditorReady }) 
       // No cleanup required for normal renders
     };
   }, [fileId, file, onEditorReady]);
+
+  // Update model when file changes
+  useEffect(() => {
+    if (editor.current && file) {
+      const model = editor.current.getModel();
+      if (model && model.getValue() !== contentRef.current) {
+        const position = editor.current.getPosition();
+        const selections = editor.current.getSelections();
+        model.setValue(contentRef.current);
+        // Restore cursor position and selections
+        if (position) {
+          editor.current.setPosition(position);
+        }
+        if (selections) {
+          editor.current.setSelections(selections);
+        }
+      }
+    }
+  }, [file?.content]);
 
   // Complete cleanup only when component is unmounted
   useEffect(() => {
@@ -411,6 +422,13 @@ const EditorGrid: React.FC<EditorGridProps> = ({
     >
       {layouts.map(layout => {
         const isVisible = isGridLayout || layout.fileId === currentFileId;
+        const fileExists = !!items[layout.fileId];
+        
+        // Check if file exists before rendering
+        if (!fileExists) {
+          console.warn(`Missing file for id: ${layout.fileId}`);
+        }
+        
         return isVisible ? (
           <div
             key={layout.id}
@@ -433,12 +451,25 @@ const EditorGrid: React.FC<EditorGridProps> = ({
               height: isGridLayout ? 'calc(100% - 24px)' : '100%', 
               marginTop: isGridLayout ? '24px' : '0',
             }}>
-              {items[layout.fileId] && (
+              {fileExists ? (
                 <EditorPane
                   fileId={layout.fileId}
                   file={items[layout.fileId]}
                   onEditorReady={onEditorChange}
                 />
+              ) : (
+                <div style={{
+                  height: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'var(--text-secondary)',
+                  padding: '20px',
+                  textAlign: 'center',
+                  fontSize: '14px'
+                }}>
+                  File not found. The file may have been moved or deleted.
+                </div>
               )}
             </div>
           </div>

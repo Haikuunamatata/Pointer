@@ -22,6 +22,12 @@ export class FileSystemService {
     return normalized.replace(/^\/+/, '');
   }
 
+  // Helper method to generate consistent file IDs
+  private static generateFileId(path: string): string {
+    const normalizedPath = this.normalizePath(path);
+    return `file_${normalizedPath}`;
+  }
+
   static async fetchFolderContents(path: string): Promise<{ 
     items: Record<string, FileSystemItem>; 
     rootId: string; 
@@ -173,7 +179,41 @@ export class FileSystemService {
       // Clear the cache for this specific file
       this.fileCache.delete(fileId);
       
-      const filePath = this.filePaths.get(fileId);
+      let filePath = this.filePaths.get(fileId);
+      
+      // If we can't find the path directly, try a fallback strategy
+      if (!filePath) {
+        console.warn(`No direct path found for file ID: ${fileId}, trying fallback methods`);
+        
+        // If it starts with 'file_', try to extract the path
+        if (fileId.startsWith('file_')) {
+          const extractedPath = fileId.substring(5); // Remove 'file_' prefix
+          console.log(`Extracted path from ID: ${extractedPath}`);
+          
+          // Try to normalize the extracted path
+          const normalizedPath = this.normalizePath(extractedPath);
+          
+          // Check if this path exists on disk or is accessible
+          try {
+            // Let's try to use it directly
+            filePath = normalizedPath;
+            
+            // Also store this mapping for future use
+            this.filePaths.set(fileId, filePath);
+            console.log(`Created new mapping for ID ${fileId} -> ${filePath}`);
+            
+            // Also add mapping with consistent ID for future use
+            const consistentId = this.generateFileId(normalizedPath);
+            if (consistentId !== fileId) {
+              console.log(`Adding alternative mapping: ${consistentId} -> ${filePath}`);
+              this.filePaths.set(consistentId, filePath);
+            }
+          } catch (err) {
+            console.error(`Failed to validate path ${normalizedPath}:`, err);
+          }
+        }
+      }
+      
       if (!filePath) {
         console.error(`No path found for file ID: ${fileId}`);
         return null;
@@ -199,10 +239,23 @@ export class FileSystemService {
   static async saveFile(path: string, content: string): Promise<{ success: boolean, content: string }> {
     try {
       await this.refreshStructure();
-      const normalizedPath = this.normalizePath(path);
       
-      // Don't require currentDirectory for root paths
-      const isRootPath = path.startsWith('/') || path.startsWith('\\');
+      // Handle both file IDs and regular paths
+      // If this is a file ID that we already know about, use the stored path
+      let pathToUse = path;
+      if (path.startsWith('file_')) {
+        const storedPath = this.filePaths.get(path);
+        if (storedPath) {
+          console.log(`Using stored path for file ID ${path}: ${storedPath}`);
+          pathToUse = storedPath;
+        }
+      } else {
+        // Regular path, normalize it
+        pathToUse = this.normalizePath(path);
+      }
+      
+      // Don't require currentDirectory for root paths or absolute paths
+      const isRootPath = pathToUse.startsWith('/') || pathToUse.startsWith('\\');
       if (!this.currentDirectory && !isRootPath) {
         throw new Error('No directory opened');
       }
@@ -213,7 +266,7 @@ export class FileSystemService {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ 
-          path: normalizedPath,
+          path: pathToUse,
           content,
           currentDir: isRootPath ? null : this.currentDirectory
         })
@@ -321,14 +374,13 @@ export class FileSystemService {
         return null;
       }
 
-      // Generate a unique ID for the file
-      const id = `file_${Date.now()}`;
+      // Generate a consistent file ID based on the path using our helper
+      const id = this.generateFileId(fullPath);
       
-      // Store the normalized full path in our map
-      const normalizedPath = this.normalizePath(fullPath);
-      this.filePaths.set(id, normalizedPath);
+      // Store the original full path in our map
+      this.filePaths.set(id, fullPath);
       
-      console.log('Stored file path:', { id, path: normalizedPath, original: fullPath });
+      console.log('Stored file path:', { id, path: fullPath });
       
       return { content, filename, fullPath, id };
     } catch (error) {
@@ -413,6 +465,9 @@ export class FileSystemService {
     }
 
     try {
+      // Store the old file paths before clearing
+      const oldFilePaths = new Map(this.filePaths);
+      
       // Clear all caches
       this.loadedFolders.clear();
       this.fileCache.clear();
@@ -437,7 +492,22 @@ export class FileSystemService {
       // Update file paths after refresh
       Object.values(data.items).forEach((item: FileSystemItem) => {
         if (item.type === 'file') {
-          this.filePaths.set(item.id, this.normalizePath(item.path));
+          // Store both normalized and original paths for more robust lookup
+          const normalizedPath = this.normalizePath(item.path);
+          this.filePaths.set(item.id, normalizedPath);
+          
+          // Also create an alternative ID entry for any externally opened files
+          // This helps handle files opened directly from disk
+          const alternativeId = this.generateFileId(normalizedPath);
+          if (alternativeId !== item.id) {
+            console.log(`Adding alternative mapping: ${alternativeId} -> ${normalizedPath} (original ID: ${item.id})`);
+            this.filePaths.set(alternativeId, normalizedPath);
+          }
+          
+          // Restore any old mappings to maintain compatibility with existing file IDs
+          if (oldFilePaths.has(item.id)) {
+            this.filePaths.set(item.id, oldFilePaths.get(item.id)!);
+          }
         }
       });
 

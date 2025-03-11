@@ -84,11 +84,11 @@ def is_text_file(filename: str) -> bool:
 
 def generate_id(prefix: str, path: str) -> str:
     """Generate a unique ID for a file or directory."""
-    # Only sanitize the path part, not the filename
-    base_name = os.path.basename(path)
-    dir_path = os.path.dirname(path)
-    sanitized_dir = "_".join(c if c.isalnum() else "_" for c in dir_path)
-    return f"{prefix}_{sanitized_dir}_{base_name}" if sanitized_dir else f"{prefix}_{base_name}"
+    # Normalize path to use forward slashes
+    normalized_path = path.replace('\\', '/')
+    # Remove any leading slashes
+    normalized_path = normalized_path.lstrip('/')
+    return f"{prefix}_{normalized_path}"
 
 def scan_directory(path: str, parent_id: str | None = None) -> dict:
     """Scan a directory and return its contents."""
@@ -128,6 +128,10 @@ def scan_directory(path: str, parent_id: str | None = None) -> dict:
                 'dir' if entry.is_dir() else 'file',
                 relative_path
             )
+            
+            # Print file IDs for debugging
+            if not entry.is_dir():
+                print(f"Generated file ID: {entry_id} for path: {relative_path}")
             
             if entry.is_dir():
                 items[entry_id] = FileInfo(
@@ -229,17 +233,31 @@ async def save_file(request: SaveFileRequest):
         raise HTTPException(status_code=400, detail="No directory opened")
 
     try:
-        full_path = os.path.abspath(os.path.join(base_directory, request.path))
+        # For paths starting with 'file_', this is a file ID format
+        # Extract the actual path from the ID if needed
+        path = request.path
+        if path.startswith('file_'):
+            # The path is everything after 'file_'
+            path = path[5:]
+            print(f"Extracted path from file ID: {path}")
+
+        # Use the path as is, it should be an absolute path or relative to base_directory
+        if os.path.isabs(path):
+            full_path = path
+        else:
+            full_path = os.path.abspath(os.path.join(base_directory, path))
+            
         print(f"Saving file to: {full_path}")
         
-        # Security check - make sure the path is within base directory
-        if not full_path.startswith(base_directory):
+        # Security check - make sure the path is within base directory if it's a relative path
+        # For absolute paths, skip this check as the user explicitly selected the file
+        if not os.path.isabs(request.path) and not full_path.startswith(base_directory):
             raise HTTPException(status_code=403, detail="Access denied")
 
         # Create directories if they don't exist
         os.makedirs(os.path.dirname(full_path), exist_ok=True)
         
-        with open(full_path.replace('file_', ''), 'w', encoding='utf-8') as f:
+        with open(full_path, 'w', encoding='utf-8') as f:
             f.write(request.content)
 
         # Update the cache if the file is cached
