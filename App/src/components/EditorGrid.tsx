@@ -4,6 +4,7 @@ import { FileSystemItem } from '../types';
 import { getLanguageFromFileName } from '../utils/languageUtils';
 import { AIFileService } from '../services/AIFileService';
 import { lmStudio } from '../services/LMStudioService';
+import { FileSystemService } from '../services/FileSystemService';
 
 interface EditorPaneProps {
   fileId: string;
@@ -14,10 +15,19 @@ interface EditorPaneProps {
 const EditorPane: React.FC<EditorPaneProps> = ({ fileId, file, onEditorReady }) => {
   const editorRef = useRef<HTMLDivElement>(null);
   const editor = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
-  const contentRef = useRef<string>('');  // Add this to track content changes
+  const contentRef = useRef<string>('');
   const [showPromptInput, setShowPromptInput] = useState(false);
   const [prompt, setPrompt] = useState('');
   const editorInitializedRef = useRef(false);
+  const completionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastPositionRef = useRef<monaco.Position | null>(null);
+  const inlineCompletionWidgetRef = useRef<any>(null);
+  // Always enabled, but keep the flag for future configuration
+  const [completionEnabled, setCompletionEnabled] = useState(true);
+  // Add auto-save timeout ref
+  const autoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Track if content has changed since last save
+  const contentChangedRef = useRef<boolean>(false);
 
   // Normalize content once when file changes
   useEffect(() => {
@@ -31,6 +41,7 @@ const EditorPane: React.FC<EditorPaneProps> = ({ fileId, file, onEditorReady }) 
     }
   }, [file?.content, fileId]);
 
+  // Setup editor with ghost text completion
   useEffect(() => {
     // Only create editor once, don't recreate it on every render
     if (!editorRef.current || editorInitializedRef.current) return;
@@ -56,13 +67,13 @@ const EditorPane: React.FC<EditorPaneProps> = ({ fileId, file, onEditorReady }) 
       model.setEOL(monaco.editor.EndOfLineSequence.LF);
     }
 
-    // Create editor with the model
-    editor.current = monaco.editor.create(editorRef.current, {
+    // Define editor options with proper typing
+    const editorOptions: monaco.editor.IStandaloneEditorConstructionOptions = {
       model: model,
       theme: 'vs-dark',
       automaticLayout: true,
       minimap: {
-        enabled: true,
+        enabled: false
       },
       lineNumbers: 'on',
       wordWrap: 'off',
@@ -72,7 +83,34 @@ const EditorPane: React.FC<EditorPaneProps> = ({ fileId, file, onEditorReady }) 
       lineHeight: 19,
       renderFinalNewline: true,
       detectIndentation: true,
-      trimAutoWhitespace: true,
+      trimAutoWhitespace: true
+    };
+
+    // Create editor with the model
+    editor.current = monaco.editor.create(editorRef.current, editorOptions);
+
+    // Handle all keyboard events in one place for consistency
+    editor.current.onKeyDown((e) => {
+      // Tab key to accept ghost text
+      if (e.keyCode === monaco.KeyCode.Tab && inlineCompletionWidgetRef.current) {
+        acceptGhostText();
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+      
+      // Keys that should dismiss ghost text
+      const dismissKeyCodes = [
+        monaco.KeyCode.Escape,
+        monaco.KeyCode.Enter,
+        monaco.KeyCode.Backspace,
+        monaco.KeyCode.Delete
+      ];
+      
+      if (inlineCompletionWidgetRef.current && dismissKeyCodes.includes(e.keyCode)) {
+        removeGhostText();
+        // Default behavior continues naturally
+      }
     });
 
     // Add keyboard event handler for Ctrl+I
@@ -80,16 +118,274 @@ const EditorPane: React.FC<EditorPaneProps> = ({ fileId, file, onEditorReady }) 
       setShowPromptInput(true);
     });
 
+    // Add Ctrl+Space command for manual code completion
+    editor.current.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Space, () => {
+      console.log("Manual code completion triggered");
+      const currentPosition = editor.current?.getPosition();
+      if (currentPosition) {
+        lastPositionRef.current = currentPosition;
+        requestCodeCompletion();
+      }
+      return null;
+    });
+
+    // Add keyboard shortcut to toggle auto-completion (Ctrl+Shift+Space)
+    editor.current.addCommand(
+      monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Space, 
+      () => {
+        setCompletionEnabled(!completionEnabled);
+        console.log(completionEnabled ? "Auto-completion disabled" : "Auto-completion enabled");
+        return null;
+      }
+    );
+
+    // Add content change listener for code completion
+    if (editor.current && model) {
+      model.onDidChangeContent((e) => {
+        // Clear any existing timeouts
+        if (completionTimeoutRef.current) {
+          clearTimeout(completionTimeoutRef.current);
+          completionTimeoutRef.current = null;
+        }
+        
+        if (autoSaveTimeoutRef.current) {
+          clearTimeout(autoSaveTimeoutRef.current);
+          autoSaveTimeoutRef.current = null;
+        }
+
+        // Flag that content has changed and needs saving
+        contentChangedRef.current = true;
+
+        // Remove any existing ghost text
+        removeGhostText();
+
+        // Skip auto-completion if disabled
+        if (!completionEnabled) return;
+
+        // Only request completion if the change was due to typing (not programmatic)
+        // and there are actual text changes (not just line breaks)
+        const hasTextChanges = e.changes.some(change => 
+          change.text && change.text.trim().length > 0);
+          
+        // Don't trigger completion after deleting text
+        const isDeletion = e.changes.some(change => 
+          change.text.length === 0 && change.rangeLength > 0);
+        
+        if (hasTextChanges && !isDeletion) {
+          console.log("Setting up completion timeout (200ms)");
+          // Setup a new timeout
+          completionTimeoutRef.current = setTimeout(() => {
+            console.log("Timeout fired, requesting completion");
+            completionTimeoutRef.current = null;
+            const currentPosition = editor.current?.getPosition();
+            if (currentPosition) {
+              lastPositionRef.current = currentPosition;
+              requestCodeCompletion();
+            }
+          }, 200); // 200ms delay as specified
+        }
+
+        // Set up auto-save timeout
+        autoSaveTimeoutRef.current = setTimeout(() => {
+          autoSaveTimeoutRef.current = null;
+          saveCurrentFile();
+        }, 100); // 100ms delay as specified
+      });
+    }
+
     if (editor.current) {
       editorInitializedRef.current = true;
       onEditorReady(editor.current);
     }
 
-    // Don't dispose the editor on every render to maintain state
+    // Handle cursor position changes
+    editor.current.onDidChangeCursorPosition((e) => {
+      // If the cursor position changes significantly, remove ghost text
+      if (inlineCompletionWidgetRef.current && lastPositionRef.current) {
+        const lastPos = lastPositionRef.current;
+        const currentPos = e.position;
+        
+        // Remove ghost text if cursor moved to a different line or column
+        if (lastPos.lineNumber !== currentPos.lineNumber || 
+            Math.abs(lastPos.column - currentPos.column) > 1) {
+          removeGhostText();
+        }
+        
+        // Update the last position
+        lastPositionRef.current = currentPos;
+      }
+    });
+
+    // Clean up on unmount
     return () => {
-      // No cleanup required for normal renders
+      if (completionTimeoutRef.current) {
+        clearTimeout(completionTimeoutRef.current);
+      }
+      if (autoSaveTimeoutRef.current) {
+        clearTimeout(autoSaveTimeoutRef.current);
+      }
+      // Try to save once more before unmounting
+      saveCurrentFile();
+      removeGhostText();
     };
-  }, [fileId, file, onEditorReady]);
+  }, [fileId, file, onEditorReady, completionEnabled]);
+
+  // Request code completion from LM Studio 
+  const requestCodeCompletion = async () => {
+    if (!editor.current || !lastPositionRef.current) return;
+    
+    try {
+      console.log("Requesting code completion");
+      
+      const model = editor.current.getModel();
+      if (!model) return;
+
+      const position = lastPositionRef.current;
+      
+      // Get text before the cursor for context
+      const content = model.getValue();
+      const textBeforeCursor = content.substring(0, model.getOffsetAt(position));
+      
+      // Get line content (but don't use it to exclude comments/empty lines anymore)
+      const lineContent = model.getLineContent(position.lineNumber);
+      const lineBeforeCursor = lineContent.substring(0, position.column - 1);
+      
+      // Get file extension for better language context
+      const fileExt = file?.name ? file.name.split('.').pop()?.toLowerCase() : '';
+      const language = getLanguageFromFileName(file?.name || '');
+      
+      // Build stop sequences based on language
+      const stopSequences = ['\n\n'];
+      if (language === 'javascript' || language === 'typescript') {
+        stopSequences.push(';\n', '}\n');
+      } else if (language === 'python') {
+        stopSequences.push('\ndef ', '\nclass ');
+      } else if (language === 'html') {
+        stopSequences.push('>\n');
+      }
+      
+      console.log("Sending completion API request to LM Studio");
+      
+      // Request completion
+      const response = await lmStudio.createCompletion({
+        model: 'local-model', // Use your model name
+        prompt: textBeforeCursor,
+        max_tokens: 100,
+        temperature: 0.2,
+        stop: stopSequences
+      });
+
+      console.log("Completion API response received", response);
+      
+      // Display completion as ghost text
+      if (response.choices && response.choices.length > 0) {
+        const completionText = response.choices[0].text;
+        if (completionText && completionText.trim().length > 0) {
+          console.log("Showing ghost text with completion:", completionText);
+          showGhostText(completionText);
+        } else {
+          console.log("Empty completion received, not showing ghost text");
+        }
+      }
+    } catch (error) {
+      console.error('Error getting code completion:', error);
+    }
+  };
+
+  // Show ghost text in the editor
+  const showGhostText = (text: string) => {
+    if (!editor.current || !lastPositionRef.current) return;
+    
+    // First, remove any existing ghost text
+    removeGhostText();
+    
+    // Clean up the completion text
+    const position = lastPositionRef.current;
+    const model = editor.current.getModel();
+    if (!model) return;
+    
+    const lineContent = model.getLineContent(position.lineNumber);
+    const columnTextBefore = lineContent.substring(0, position.column - 1);
+    
+    let displayText = text;
+    
+    // If we're at the beginning of a line, trim any leading whitespace
+    if (columnTextBefore.trim() === '') {
+      displayText = text.trimStart();
+    }
+    
+    // If the completion is empty or only whitespace, don't show it
+    if (!displayText || displayText.trim() === '') {
+      return;
+    }
+    
+    // Create the ghost text widget
+    const contentWidget = {
+      getId: () => 'ghost-text-widget',
+      getDomNode: () => {
+        const node = document.createElement('div');
+        node.className = 'ghost-text-widget';
+        node.textContent = displayText;
+        return node;
+      },
+      getPosition: () => {
+        // Get the current position every time to ensure it's accurate
+        const currentPosition = editor.current?.getPosition() || position;
+        return {
+          position: currentPosition,
+          preference: [monaco.editor.ContentWidgetPositionPreference.EXACT]
+        };
+      }
+    };
+    
+    // Store the widget reference before adding it to the editor
+    inlineCompletionWidgetRef.current = contentWidget;
+    editor.current.addContentWidget(contentWidget);
+  };
+
+  // Remove ghost text from the editor
+  const removeGhostText = () => {
+    try {
+      if (editor.current && inlineCompletionWidgetRef.current) {
+        // Get the widget before clearing the reference
+        const widget = inlineCompletionWidgetRef.current;
+        
+        // Clear the reference first to prevent race conditions
+        inlineCompletionWidgetRef.current = null;
+        
+        // Now remove the widget from the editor
+        editor.current.removeContentWidget(widget);
+      }
+    } catch (error) {
+      console.error('Error removing ghost text widget:', error);
+      // Reset the reference even if there was an error
+      inlineCompletionWidgetRef.current = null;
+    }
+  };
+
+  // Accept the ghost text and insert it into the editor
+  const acceptGhostText = () => {
+    if (!editor.current || !inlineCompletionWidgetRef.current || !lastPositionRef.current) return;
+    
+    const widget = inlineCompletionWidgetRef.current;
+    const text = widget.getDomNode().textContent;
+    
+    if (text) {
+      const position = lastPositionRef.current;
+      editor.current.executeEdits('ghostText', [{
+        range: new monaco.Range(
+          position.lineNumber,
+          position.column,
+          position.lineNumber,
+          position.column
+        ),
+        text: text,
+        forceMoveMarkers: true
+      }]);
+    }
+    
+    removeGhostText();
+  };
 
   // Update model when file changes
   useEffect(() => {
@@ -171,32 +467,39 @@ const EditorPane: React.FC<EditorPaneProps> = ({ fileId, file, onEditorReady }) 
     setShowPromptInput(false);
   };
 
+  // Function to save the current file
+  const saveCurrentFile = async () => {
+    if (!editor.current || !contentChangedRef.current || !fileId || fileId === 'welcome') return;
+    
+    try {
+      const content = editor.current.getValue();
+      
+      // Only save if file path is valid and content has changed
+      if (file?.path && contentChangedRef.current) {
+        console.log(`Auto-saving file: ${file.path}`);
+        await FileSystemService.saveFile(fileId, content);
+        contentChangedRef.current = false;
+        console.log(`File saved: ${file.path}`);
+      }
+    } catch (error) {
+      console.error('Error auto-saving file:', error);
+    }
+  };
+
   if (!file) {
     return <div>No file loaded</div>;
   }
 
   return (
-    <div 
-      ref={editorRef} 
-      style={{ 
-        width: '100%', 
-        height: '100%',
-        position: 'relative',
-      }} 
-    >
+    <div className="editor-pane">
+      <div 
+        ref={editorRef} 
+        className="monaco-editor-container" 
+        style={{ width: '100%', height: '100%' }}
+      />
+      
       {showPromptInput && (
-        <div style={{
-          position: 'absolute',
-          top: '50%',
-          left: '50%',
-          transform: 'translate(-50%, -50%)',
-          background: 'var(--bg-secondary)',
-          padding: '20px',
-          borderRadius: '8px',
-          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.2)',
-          zIndex: 1000,
-          minWidth: '300px',
-        }}>
+        <div className="prompt-overlay">
           <form onSubmit={handlePromptSubmit}>
             <input
               type="text"

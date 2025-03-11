@@ -36,6 +36,23 @@ interface StreamingChatCompletionOptions {
   onUpdate: (content: string) => void;
 }
 
+interface CompletionOptions {
+  model: string;
+  prompt: string;
+  temperature?: number;
+  max_tokens?: number;
+  stop?: string[];
+  suffix?: string;
+}
+
+interface CompletionResponse {
+  choices: {
+    text: string;
+    index: number;
+    finish_reason: string;
+  }[];
+}
+
 class LMStudioService {
   private baseUrl = '/v1';
 
@@ -187,6 +204,47 @@ class LMStudioService {
       }
     } catch (error) {
       console.error('Error in createStreamingChatCompletion:', error);
+      throw error;
+    }
+  }
+
+  async createCompletion(options: CompletionOptions): Promise<CompletionResponse> {
+    try {
+      console.log(`LM Studio: Sending completion request to ${this.baseUrl}/completions`);
+      console.log('Request options:', {
+        model: options.model,
+        prompt: options.prompt.substring(0, 100) + '...', // Log the first 100 chars for debugging
+        temperature: options.temperature ?? 0.2,
+        max_tokens: options.max_tokens ?? 100,
+        stop: options.stop
+      });
+
+      const response = await fetch(`${this.baseUrl}/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: options.model,
+          prompt: options.prompt,
+          temperature: options.temperature ?? 0.2,
+          max_tokens: options.max_tokens ?? 100,
+          stop: options.stop,
+          suffix: options.suffix
+        })
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        console.error(`LM Studio API error (${response.status}):`, text);
+        throw new Error(`LM Studio API error (${response.status}): ${text}`);
+      }
+
+      const data = await response.json();
+      console.log('LM Studio: Completion response received:', data);
+      return data;
+    } catch (error) {
+      console.error('Error in createCompletion:', error);
       throw error;
     }
   }
