@@ -14,6 +14,7 @@ import { ChatService, ChatSession } from './services/ChatService';
 import { v4 as uuidv4 } from 'uuid';
 import Terminal from './components/Terminal';
 import { DiffViewer } from './components/DiffViewer';
+import LoadingScreen from './components/LoadingScreen';
 
 // Initialize language support
 initializeLanguageSupport();
@@ -110,6 +111,9 @@ const App: React.FC = () => {
   // Add loading state
   const [isLoading, setIsLoading] = useState(false);
   const [loadingError, setLoadingError] = useState<string | null>(null);
+  // Add connection loading state
+  const [isConnecting, setIsConnecting] = useState(true);
+  const [connectionMessage, setConnectionMessage] = useState('Establishing connection...');
 
   // Add save status state
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error' | null>(null);
@@ -204,7 +208,20 @@ const App: React.FC = () => {
           showWords: true,
           preview: true,
           showIcons: true,
+          snippetsPreventQuickSuggestions: false, // Allow quick suggestions even when snippets are active
+          localityBonus: true, // Favor nearby words in suggestions
+          shareSuggestSelections: true, // Remember selections across widgets
         },
+        // Add more robust trigger suggestion settings
+        quickSuggestions: {
+          other: true,
+          comments: false, 
+          strings: false
+        },
+        acceptSuggestionOnCommitCharacter: true,
+        acceptSuggestionOnEnter: 'on',
+        suggestOnTriggerCharacters: true,
+        tabCompletion: 'on',
         scrollbar: {
           verticalScrollbarSize: 10,
           horizontalScrollbarSize: 10,
@@ -270,6 +287,23 @@ const App: React.FC = () => {
       editor.current.onDidChangeModelContent(() => {
         updateContent();
       });
+
+      // Set up editor global settings for suggestions to be automatic
+      try {
+        // Configure Monaco's global settings to ensure suggestions are shown automatically 
+        monaco.languages.registerCompletionItemProvider('*', {
+          provideCompletionItems: () => {
+            return { suggestions: [] };
+          },
+          // Remove trigger characters since we're using timeout-based autocompletion instead
+          triggerCharacters: [],
+        });
+        
+        // Remove the onKeyUp handler that was triggering on specific characters
+        // We'll rely solely on the timeout-based triggering in EditorGrid.tsx
+      } catch (err) {
+        console.error("Error setting up auto-suggestions:", err);
+      }
 
       // Make editor globally available
       window.editor = editor.current;
@@ -903,16 +937,21 @@ const App: React.FC = () => {
   const [currentChatId, setCurrentChatId] = useState<string>(uuidv4());
 
   useEffect(() => {
-    let mounted = true;  // Add mounted flag to prevent multiple calls
-
+    let mounted = true;
+    
     const initializeApp = async () => {
       try {
+        // Set connecting state
+        setIsConnecting(true);
+        setConnectionMessage('Initializing application...');
+        
         // Only try to open directory if we're mounted
         if (!mounted) return;
 
         // Try to open directory only if we have a saved path
         const lastDir = localStorage.getItem('lastDirectory');
         if (lastDir) {
+          setConnectionMessage('Loading project...');
           const result = await FileSystemService.openSpecificDirectory(lastDir);
           if (result) {
             setFileSystem(prevState => ({
@@ -925,9 +964,18 @@ const App: React.FC = () => {
           // Don't set welcome tab even if directory open fails
         }
         // Don't set welcome tab when no saved directory exists
+        
+        // Connection is established
+        setTimeout(() => {
+          setIsConnecting(false);
+        }, 1000); // Small delay to ensure UI is ready
       } catch (error) {
         console.error('Error initializing app:', error);
         setLoadingError('Failed to initialize app');
+        setConnectionMessage('Failed to initialize application. Please try again.');
+        setTimeout(() => {
+          setIsConnecting(false);
+        }, 3000);
       }
     };
 
@@ -948,376 +996,384 @@ const App: React.FC = () => {
   };
 
   return (
-    <div style={{ 
-      height: '100vh', 
-      display: 'flex', 
-      flexDirection: 'column',
-      background: 'var(--bg-primary)',
-    }}>
-      <div style={isTopBarCollapsed ? topBarCollapsedStyle : topBarStyle}>
-        <button
-          onClick={handleOpenFolder}
-          style={topBarButtonStyle}
-        >
-          Open Folder
-        </button>
-        <button
-          onClick={handleOpenFile}
-          style={topBarButtonStyle}
-        >
-          Open File
-        </button>
-        <div style={{ width: '1px', height: '16px', background: 'var(--border-color)', margin: '0 4px' }} />
-        <div style={{ position: 'relative' }}>
-          
-          
-          {isChatListVisible && (
-            <div
-              style={{
-                position: 'absolute',
-                top: '100%',
-                right: 0,
-                background: 'var(--bg-primary)',
-                border: '1px solid var(--border-primary)',
-                borderRadius: '4px',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-                zIndex: 1000,
-                minWidth: '200px',
-                maxHeight: '400px',
-                overflowY: 'auto',
-              }}
+    <>
+      {/* Show loading screen while connecting */}
+      {isConnecting && <LoadingScreen message={connectionMessage} />}
+      
+      {/* Main app content */}
+      <div className="app-container">
+        <div style={{ 
+          height: '100vh', 
+          display: 'flex', 
+          flexDirection: 'column',
+          background: 'var(--bg-primary)',
+        }}>
+          <div style={isTopBarCollapsed ? topBarCollapsedStyle : topBarStyle}>
+            <button
+              onClick={handleOpenFolder}
+              style={topBarButtonStyle}
             >
-              <div
-                style={{
-                  padding: '8px',
-                  borderBottom: '1px solid var(--border-primary)',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                }}
-              >
-                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Recent Chats</span>
-                <button
-                  onClick={() => {
-                    setCurrentChatId(uuidv4());
-                    setIsChatListVisible(false);
-                  }}
+              Open Folder
+            </button>
+            <button
+              onClick={handleOpenFile}
+              style={topBarButtonStyle}
+            >
+              Open File
+            </button>
+            <div style={{ width: '1px', height: '16px', background: 'var(--border-color)', margin: '0 4px' }} />
+            <div style={{ position: 'relative' }}>
+              
+              
+              {isChatListVisible && (
+                <div
                   style={{
-                    background: 'none',
-                    border: 'none',
-                    color: 'var(--text-primary)',
-                    cursor: 'pointer',
-                    fontSize: '12px',
-                    padding: '4px 8px',
+                    position: 'absolute',
+                    top: '100%',
+                    right: 0,
+                    background: 'var(--bg-primary)',
+                    border: '1px solid var(--border-primary)',
+                    borderRadius: '4px',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                    zIndex: 1000,
+                    minWidth: '200px',
+                    maxHeight: '400px',
+                    overflowY: 'auto',
                   }}
                 >
-                  New Chat
-                </button>
+                  <div
+                    style={{
+                      padding: '8px',
+                      borderBottom: '1px solid var(--border-primary)',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Recent Chats</span>
+                    <button
+                      onClick={() => {
+                        setCurrentChatId(uuidv4());
+                        setIsChatListVisible(false);
+                      }}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--text-primary)',
+                        cursor: 'pointer',
+                        fontSize: '12px',
+                        padding: '4px 8px',
+                      }}
+                    >
+                      New Chat
+                    </button>
+                  </div>
+                  {chats.map(chat => (
+                    <button
+                      key={chat.id}
+                      onClick={() => {
+                        setCurrentChatId(chat.id);
+                        setIsChatListVisible(false);
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '8px 12px',
+                        background: 'none',
+                        border: 'none',
+                        borderBottom: '1px solid var(--border-primary)',
+                        color: 'var(--text-primary)',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        fontSize: '12px',
+                        ':hover': {
+                          background: 'var(--bg-hover)',
+                        },
+                      }}
+                    >
+                      <div style={{ fontSize: '13px' }}>{chat.name}</div>
+                      <div style={{ 
+                        fontSize: '11px', 
+                        color: 'var(--text-secondary)',
+                        marginTop: '2px' 
+                      }}>
+                        {new Date(chat.createdAt).toLocaleString()}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
+            {/* Activity Bar */}
+            <div style={{ width: '48px', background: 'var(--bg-secondary)', display: 'flex', flexDirection: 'column' }}>
+              <button
+                style={{
+                  ...activityBarButtonStyle,
+                  opacity: !isSidebarCollapsed ? 1 : 0.7,
+                }}
+                onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+                title="Toggle Sidebar"
+              >
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M17.5 3H6.5C5.67157 3 5 3.67157 5 4.5V19.5C5 20.3284 5.67157 21 6.5 21H17.5C18.3284 21 19 20.3284 19 19.5V4.5C19 3.67157 18.3284 3 17.5 3Z"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                  />
+                  <path d="M9 3V21" stroke="currentColor" strokeWidth="1.5" />
+                </svg>
+              </button>
+              <button
+                style={{
+                  ...activityBarButtonStyle,
+                  opacity: isLLMChatVisible ? 1 : 0.7,
+                }}
+                onClick={() => setIsLLMChatVisible(!isLLMChatVisible)}
+                title="Toggle LLM Chat"
+              >
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M4 12C4 7.58172 7.58172 4 12 4C16.4183 4 20 7.58172 20 12C20 16.4183 16.4183 20 12 20H4L8 16"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
+            </div>
+
+            {/* Sidebar */}
+            <div style={{ display: 'flex' }}>
+              {!isSidebarCollapsed && (
+                <Resizable
+                  defaultWidth={300}
+                  minWidth={170}
+                  maxWidth={850}
+                  isCollapsed={isSidebarCollapsed}
+                  onCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+                  shortcutKey="sidebar"
+                >
+                  {isLoading ? (
+                    <div style={{
+                      padding: '16px',
+                      color: 'var(--text-primary)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '8px',
+                    }}>
+                      <div>Loading folder contents...</div>
+                      {loadingError && (
+                        <div style={{ color: 'var(--error-color)' }}>
+                          {loadingError}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <FileExplorer
+                      items={fileSystem.items}
+                      rootId={fileSystem.rootId}
+                      currentFileId={fileSystem.currentFileId}
+                      onFileSelect={handleFileSelect}
+                      onCreateFile={createFile}
+                      onCreateFolder={createFolder}
+                      onFolderContentsLoaded={handleFolderContentsLoaded}
+                      onDeleteItem={handleDeleteItem}
+                      onRenameItem={handleRenameItem}
+                    />
+                  )}
+                </Resizable>
+              )}
+            </div>
+
+            {/* Main Editor Area */}
+            <div 
+              className="editor-area"
+              style={{ 
+                flex: 1, 
+                display: 'flex', 
+                flexDirection: 'column',
+                marginRight: isLLMChatVisible ? `${width}px` : '0',
+                transition: 'margin-right 0.2s ease-in-out'
+              }}>
+              <Tabs
+                openFiles={openFiles}
+                currentFileId={fileSystem.currentFileId}
+                items={fileSystem.items}
+                onTabSelect={handleTabSelect}
+                onTabClose={handleTabClose}
+                onToggleGrid={() => setIsGridLayout(!isGridLayout)}
+                isGridLayout={isGridLayout}
+                onToggleTerminal={toggleTerminal}
+                terminalOpen={fileSystem.terminalOpen}
+              />
+              <EditorGrid
+                openFiles={openFiles}
+                currentFileId={fileSystem.currentFileId}
+                items={fileSystem.items}
+                onEditorChange={(newEditor) => {
+                  editor.current = newEditor;
+                }}
+                onTabClose={handleTabClose}
+                isGridLayout={isGridLayout}
+                onToggleGrid={() => setIsGridLayout(prev => !prev)}
+              />
+            </div>
+
+            {/* LLMChat */}
+            {isLLMChatVisible && (
+              <LLMChat
+                isVisible={isLLMChatVisible}
+                onClose={() => setIsLLMChatVisible(false)}
+                onResize={(width) => {
+                  window.dispatchEvent(new Event('resize'));
+                  setWidth(width);
+                }}
+                currentChatId={currentChatId}
+                onSelectChat={(chatId) => setCurrentChatId(chatId)}
+              />
+            )}
+          </div>
+
+          {/* Status Bar */}
+          <div style={{
+            height: '22px',
+            background: 'var(--statusbar-bg)',
+            borderTop: '1px solid var(--border-color)',
+            display: 'flex',
+            alignItems: 'center',
+            padding: '0 8px',
+            fontSize: '12px',
+            color: 'var(--text-secondary)',
+            gap: '16px',
+          }}>
+            {/* File name */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <span>{getCurrentFileName()}</span>
+            </div>
+
+            {/* Syntax - Only show if we have a valid file */}
+            {fileSystem.currentFileId && 
+             fileSystem.items[fileSystem.currentFileId] && 
+             fileSystem.items[fileSystem.currentFileId].type === 'file' && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <span>
+                  {getLanguageFromFileName(fileSystem.items[fileSystem.currentFileId].name)}
+                </span>
               </div>
-              {chats.map(chat => (
-                <button
-                  key={chat.id}
-                  onClick={() => {
-                    setCurrentChatId(chat.id);
-                    setIsChatListVisible(false);
-                  }}
+            )}
+
+            {/* Line and Column */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <span>Ln {cursorPosition.line}, Col {cursorPosition.column}</span>
+            </div>
+
+            {/* Encoding and Line Ending */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <span>UTF-8</span>
+              <span>LF</span>
+            </div>
+
+            {/* Indentation */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <span>Spaces: 2</span>
+            </div>
+
+            {/* Save status */}
+            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              {saveStatus === 'saving' && (
+                <span>Saving...</span>
+              )}
+              {saveStatus === 'saved' && (
+                <span>Saved</span>
+              )}
+              {saveStatus === 'error' && (
+                <span style={{ color: 'var(--error-color)' }}>Error saving file</span>
+              )}
+            </div>
+          </div>
+
+          {modalState.isOpen && (
+            <div style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: 'rgba(0, 0, 0, 0.5)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 1000,
+            }}>
+              <div style={{
+                background: 'var(--bg-primary)',
+                padding: '20px',
+                borderRadius: '4px',
+                minWidth: '300px',
+              }}>
+                <h3 style={{ margin: '0 0 16px 0', color: 'var(--text-primary)' }}>
+                  Create New {modalState.type === 'file' ? 'File' : 'Folder'}
+                </h3>
+                <input
+                  type="text"
+                  value={modalState.name}
+                  onChange={(e) => setModalState(prev => ({ ...prev, name: e.target.value }))}
+                  placeholder={`Enter ${modalState.type} name`}
                   style={{
                     width: '100%',
-                    padding: '8px 12px',
-                    background: 'none',
-                    border: 'none',
-                    borderBottom: '1px solid var(--border-primary)',
+                    padding: '8px',
+                    marginBottom: '16px',
+                    background: 'var(--bg-secondary)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '4px',
                     color: 'var(--text-primary)',
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                    fontSize: '12px',
-                    ':hover': {
-                      background: 'var(--bg-hover)',
-                    },
                   }}
-                >
-                  <div style={{ fontSize: '13px' }}>{chat.name}</div>
-                  <div style={{ 
-                    fontSize: '11px', 
-                    color: 'var(--text-secondary)',
-                    marginTop: '2px' 
-                  }}>
-                    {new Date(chat.createdAt).toLocaleString()}
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
-        {/* Activity Bar */}
-        <div style={{ width: '48px', background: 'var(--bg-secondary)', display: 'flex', flexDirection: 'column' }}>
-          <button
-            style={{
-              ...activityBarButtonStyle,
-              opacity: !isSidebarCollapsed ? 1 : 0.7,
-            }}
-            onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-            title="Toggle Sidebar"
-          >
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-              <path
-                d="M17.5 3H6.5C5.67157 3 5 3.67157 5 4.5V19.5C5 20.3284 5.67157 21 6.5 21H17.5C18.3284 21 19 20.3284 19 19.5V4.5C19 3.67157 18.3284 3 17.5 3Z"
-                stroke="currentColor"
-                strokeWidth="1.5"
-              />
-              <path d="M9 3V21" stroke="currentColor" strokeWidth="1.5" />
-            </svg>
-          </button>
-          <button
-            style={{
-              ...activityBarButtonStyle,
-              opacity: isLLMChatVisible ? 1 : 0.7,
-            }}
-            onClick={() => setIsLLMChatVisible(!isLLMChatVisible)}
-            title="Toggle LLM Chat"
-          >
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-              <path
-                d="M4 12C4 7.58172 7.58172 4 12 4C16.4183 4 20 7.58172 20 12C20 16.4183 16.4183 20 12 20H4L8 16"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </button>
-        </div>
-
-        {/* Sidebar */}
-        <div style={{ display: 'flex' }}>
-          {!isSidebarCollapsed && (
-            <Resizable
-              defaultWidth={300}
-              minWidth={170}
-              maxWidth={850}
-              isCollapsed={isSidebarCollapsed}
-              onCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-              shortcutKey="sidebar"
-            >
-              {isLoading ? (
-                <div style={{
-                  padding: '16px',
-                  color: 'var(--text-primary)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '8px',
-                }}>
-                  <div>Loading folder contents...</div>
-                  {loadingError && (
-                    <div style={{ color: 'var(--error-color)' }}>
-                      {loadingError}
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <FileExplorer
-                  items={fileSystem.items}
-                  rootId={fileSystem.rootId}
-                  currentFileId={fileSystem.currentFileId}
-                  onFileSelect={handleFileSelect}
-                  onCreateFile={createFile}
-                  onCreateFolder={createFolder}
-                  onFolderContentsLoaded={handleFolderContentsLoaded}
-                  onDeleteItem={handleDeleteItem}
-                  onRenameItem={handleRenameItem}
+                  autoFocus
                 />
-              )}
-            </Resizable>
-          )}
-        </div>
-
-        {/* Main Editor Area */}
-        <div 
-          className="editor-area"
-          style={{ 
-            flex: 1, 
-            display: 'flex', 
-            flexDirection: 'column',
-            marginRight: isLLMChatVisible ? `${width}px` : '0',
-            transition: 'margin-right 0.2s ease-in-out'
-          }}>
-          <Tabs
-            openFiles={openFiles}
-            currentFileId={fileSystem.currentFileId}
-            items={fileSystem.items}
-            onTabSelect={handleTabSelect}
-            onTabClose={handleTabClose}
-            onToggleGrid={() => setIsGridLayout(!isGridLayout)}
-            isGridLayout={isGridLayout}
-            onToggleTerminal={toggleTerminal}
-            terminalOpen={fileSystem.terminalOpen}
-          />
-          <EditorGrid
-            openFiles={openFiles}
-            currentFileId={fileSystem.currentFileId}
-            items={fileSystem.items}
-            onEditorChange={(newEditor) => {
-              editor.current = newEditor;
-            }}
-            onTabClose={handleTabClose}
-            isGridLayout={isGridLayout}
-            onToggleGrid={() => setIsGridLayout(prev => !prev)}
-          />
-        </div>
-
-        {/* LLMChat */}
-        {isLLMChatVisible && (
-          <LLMChat
-            isVisible={isLLMChatVisible}
-            onClose={() => setIsLLMChatVisible(false)}
-            onResize={(width) => {
-              window.dispatchEvent(new Event('resize'));
-              setWidth(width);
-            }}
-            currentChatId={currentChatId}
-            onSelectChat={(chatId) => setCurrentChatId(chatId)}
-          />
-        )}
-      </div>
-
-      {/* Status Bar */}
-      <div style={{
-        height: '22px',
-        background: 'var(--statusbar-bg)',
-        borderTop: '1px solid var(--border-color)',
-        display: 'flex',
-        alignItems: 'center',
-        padding: '0 8px',
-        fontSize: '12px',
-        color: 'var(--text-secondary)',
-        gap: '16px',
-      }}>
-        {/* File name */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <span>{getCurrentFileName()}</span>
-        </div>
-
-        {/* Syntax - Only show if we have a valid file */}
-        {fileSystem.currentFileId && 
-         fileSystem.items[fileSystem.currentFileId] && 
-         fileSystem.items[fileSystem.currentFileId].type === 'file' && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <span>
-              {getLanguageFromFileName(fileSystem.items[fileSystem.currentFileId].name)}
-            </span>
-          </div>
-        )}
-
-        {/* Line and Column */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <span>Ln {cursorPosition.line}, Col {cursorPosition.column}</span>
-        </div>
-
-        {/* Encoding and Line Ending */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <span>UTF-8</span>
-          <span>LF</span>
-        </div>
-
-        {/* Indentation */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <span>Spaces: 2</span>
-        </div>
-
-        {/* Save status */}
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '4px' }}>
-          {saveStatus === 'saving' && (
-            <span>Saving...</span>
-          )}
-          {saveStatus === 'saved' && (
-            <span>Saved</span>
-          )}
-          {saveStatus === 'error' && (
-            <span style={{ color: 'var(--error-color)' }}>Error saving file</span>
-          )}
-        </div>
-      </div>
-
-      {modalState.isOpen && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: 'rgba(0, 0, 0, 0.5)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 1000,
-        }}>
-          <div style={{
-            background: 'var(--bg-primary)',
-            padding: '20px',
-            borderRadius: '4px',
-            minWidth: '300px',
-          }}>
-            <h3 style={{ margin: '0 0 16px 0', color: 'var(--text-primary)' }}>
-              Create New {modalState.type === 'file' ? 'File' : 'Folder'}
-            </h3>
-            <input
-              type="text"
-              value={modalState.name}
-              onChange={(e) => setModalState(prev => ({ ...prev, name: e.target.value }))}
-              placeholder={`Enter ${modalState.type} name`}
-              style={{
-                width: '100%',
-                padding: '8px',
-                marginBottom: '16px',
-                background: 'var(--bg-secondary)',
-                border: '1px solid var(--border-color)',
-                borderRadius: '4px',
-                color: 'var(--text-primary)',
-              }}
-              autoFocus
-            />
-            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-              <button
-                onClick={() => setModalState({ isOpen: false, type: null, parentId: null, name: '' })}
-                style={{
-                  padding: '6px 12px',
-                  background: 'transparent',
-                  border: '1px solid var(--border-color)',
-                  borderRadius: '4px',
-                  color: 'var(--text-primary)',
-                  cursor: 'pointer',
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleModalSubmit}
-                style={{
-                  padding: '6px 12px',
-                  background: 'var(--accent-color)',
-                  border: 'none',
-                  borderRadius: '4px',
-                  color: 'white',
-                  cursor: 'pointer',
-                }}
-              >
-                Create
-              </button>
+                <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                  <button
+                    onClick={() => setModalState({ isOpen: false, type: null, parentId: null, name: '' })}
+                    style={{
+                      padding: '6px 12px',
+                      background: 'transparent',
+                      border: '1px solid var(--border-color)',
+                      borderRadius: '4px',
+                      color: 'var(--text-primary)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleModalSubmit}
+                    style={{
+                      padding: '6px 12px',
+                      background: 'var(--accent-color)',
+                      border: 'none',
+                      borderRadius: '4px',
+                      color: 'white',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Create
+                  </button>
+                </div>
+              </div>
             </div>
-          </div>
+          )}
+
+          {/* Terminal */}
+          {fileSystem.terminalOpen && (
+            <Terminal isVisible={fileSystem.terminalOpen} />
+          )}
+
+          <DiffViewer />
         </div>
-      )}
-
-      {/* Terminal */}
-      {fileSystem.terminalOpen && (
-        <Terminal isVisible={fileSystem.terminalOpen} />
-      )}
-
-      <DiffViewer />
-    </div>
+      </div>
+    </>
   );
 };
 

@@ -3,7 +3,7 @@ import { RecentProjectsService } from './RecentProjectsService';
 import { FileReaderService } from './FileReaderService';
 
 export class FileSystemService {
-  private static readonly API_URL = 'http://localhost:8000';
+  private static readonly API_URL = 'http://localhost:23816';
   private static filePaths = new Map<string, string>();
   private static loadedFolders = new Set<string>();
   private static currentDirectory: string | null = null;

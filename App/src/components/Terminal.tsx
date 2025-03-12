@@ -112,7 +112,7 @@ const Terminal: React.FC<TerminalProps> = ({ isVisible }) => {
         xterm.focus();
 
         // Connect to WebSocket
-        const socket = new WebSocket('ws://localhost:8000/ws/terminal');
+        const socket = new WebSocket('ws://localhost:23816/ws/terminal');
         socketRef.current = socket;
 
         socket.onopen = () => {

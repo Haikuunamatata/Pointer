@@ -191,6 +191,11 @@ def scan_directory(path: str, parent_id: str | None = None) -> dict:
         "path": path
     }
 
+@app.get("/test-backend")
+async def test_backend():
+    """Test backend connection."""
+    return {"message": "Backend is running"}
+
 @app.post("/open-directory")
 async def open_directory():
     """Open a directory using dialog and return its contents."""

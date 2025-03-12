@@ -162,7 +162,7 @@ const InsertButton: React.FC<{ content: string }> = ({ content }) => {
       }
 
       // Call the backend endpoint
-      const response = await fetch('http://localhost:8000/insert-code', {
+      const response = await fetch('http://localhost:23816/insert-code', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -190,7 +190,7 @@ const InsertButton: React.FC<{ content: string }> = ({ content }) => {
       } else {
         console.log('Using fallback file read');
         // Fallback to direct file read if we can't find the ID
-        const contentResponse = await fetch(`http://localhost:8000/read-file?path=${encodeURIComponent(currentFile.path)}`);
+        const contentResponse = await fetch(`http://localhost:23816/read-file?path=${encodeURIComponent(currentFile.path)}`);
         if (contentResponse.ok) {
           const updatedContent = await contentResponse.text();
           console.log('Got updated content:', updatedContent.slice(0, 100) + '...');
@@ -284,7 +284,7 @@ const ProcessFilesButton: React.FC<{ content: string }> = ({ content }) => {
       // Refresh editor content if available
       const currentFile = window.getCurrentFile?.();
       if (currentFile && window.editor?.setValue) {
-        const response = await fetch(`http://localhost:8000/read-file?path=${encodeURIComponent(currentFile.path)}`);
+        const response = await fetch(`http://localhost:23816/read-file?path=${encodeURIComponent(currentFile.path)}`);
         if (response.ok) {
           const updatedContent = await response.text();
           window.editor.setValue(updatedContent);
@@ -447,7 +447,7 @@ const processFileReferences = async (text: string): Promise<string> => {
         const queryParams = new URLSearchParams();
         queryParams.append('currentDir', currentDir);
 
-        const response = await fetch(`http://localhost:8000/files?${queryParams}`);
+        const response = await fetch(`http://localhost:23816/files?${queryParams}`);
         if (!response.ok) {
           throw new Error(await response.text());
         }
@@ -493,11 +493,11 @@ const processFileReferences = async (text: string): Promise<string> => {
         filePath,
         currentDir,
         fullQueryString: queryParams.toString(),
-        baseUrl: `http://localhost:8000/read-file?${queryParams}`
+        baseUrl: `http://localhost:23816/read-file?${queryParams}`
       });
 
       // Get the file content through the backend
-      const response = await fetch(`http://localhost:8000/read-file?${queryParams}`);
+      const response = await fetch(`http://localhost:23816/read-file?${queryParams}`);
       
       if (!response.ok) {
         const errorData = await response.json().catch(() => null);
@@ -955,7 +955,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
 
   const getRelevantFiles = async (query: string): Promise<RelevantFilesResponse> => {
     try {
-      const response = await fetch('http://localhost:8000/get-relevant-files', {
+      const response = await fetch('http://localhost:23816/get-relevant-files', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -993,7 +993,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       setKeywords(relevantFilesResponse.keywords);
 
       // Then, get the contents of the relevant files
-      const fileContents = await fetch('http://localhost:8000/get-file-contents', {
+      const fileContents = await fetch('http://localhost:23816/get-file-contents', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1104,7 +1104,7 @@ FINAL REMINDER:
   const loadChats = async () => {
     console.log('Loading chats...');
     try {
-      const response = await fetch('http://localhost:8000/chats');
+      const response = await fetch('http://localhost:23816/chats');
       if (!response.ok) {
         throw new Error('Failed to load chats');
       }
@@ -1120,7 +1120,7 @@ FINAL REMINDER:
   const handleSelectChat = async (chatId: string) => {
     console.log('handleSelectChat called with ID:', chatId);
     try {
-      const response = await fetch(`http://localhost:8000/chats/${chatId}`);
+      const response = await fetch(`http://localhost:23816/chats/${chatId}`);
       console.log('Response status:', response.status);
       
       if (!response.ok) {
@@ -1213,7 +1213,7 @@ FINAL REMINDER:
 
   const getFileCompletions = async (partial: string) => {
     try {
-      const response = await fetch(`http://localhost:8000/completions?partial=${encodeURIComponent(partial)}`);
+      const response = await fetch(`http://localhost:23816/completions?partial=${encodeURIComponent(partial)}`);
       if (!response.ok) throw new Error('Failed to get completions');
       const items = await response.json();
       return items;
@@ -1294,7 +1294,7 @@ FINAL REMINDER:
               : msg.content
           }));
 
-          const response = await fetch(`http://localhost:8000/chats/${currentChatId}`, {
+          const response = await fetch(`http://localhost:23816/chats/${currentChatId}`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',

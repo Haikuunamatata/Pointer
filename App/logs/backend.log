@@ -1,5 +1,5 @@
 INFO:     Will watch for changes in these directories: ['G:\\Pointer\\App\\backend']
-INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     Uvicorn running on http://127.0.0.1:23816 (Press CTRL+C to quit)
 INFO:     Started reloader process [11688] using StatReload
 ERROR:    Error loading ASGI app. Attribute "app" not found in module "run".
 INFO:     Stopping reloader process [11688]

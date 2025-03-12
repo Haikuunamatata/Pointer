@@ -58,7 +58,7 @@ Return ONLY the file extension.`;
       const currentDir = FileSystemService.getCurrentDirectory();
       if (!currentDir) return null;
 
-      const response = await fetch(`http://localhost:8000/files?${new URLSearchParams({
+      const response = await fetch(`http://localhost:23816/files?${new URLSearchParams({
         currentDir
       })}`);
 
@@ -104,7 +104,7 @@ Return ONLY the file extension.`;
       // Check each file for matching identifiers
       for (const file of files) {
         try {
-          const fileContent = await fetch(`http://localhost:8000/read-file?path=${encodeURIComponent(file.path)}`).then(r => r.text());
+          const fileContent = await fetch(`http://localhost:23816/read-file?path=${encodeURIComponent(file.path)}`).then(r => r.text());
           
           // Count how many identifiers match
           let matches = 0;
@@ -234,7 +234,7 @@ Return ONLY the file extension.`;
 
   private static async fileExists(path: string): Promise<boolean> {
     try {
-      const response = await fetch(`http://localhost:8000/file-exists`, {
+      const response = await fetch(`http://localhost:23816/file-exists`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -257,7 +257,7 @@ Return ONLY the file extension.`;
     const directoryPath = filePath.split('/').slice(0, -1).join('/');
     if (directoryPath) {
       try {
-        await fetch('http://localhost:8000/create-directory', {
+        await fetch('http://localhost:23816/create-directory', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -290,7 +290,7 @@ Return ONLY the file extension.`;
         return "No directory opened.";
       }
 
-      const response = await fetch(`http://localhost:8000/files?${new URLSearchParams({
+      const response = await fetch(`http://localhost:23816/files?${new URLSearchParams({
         currentDir
       })}`);
 
@@ -465,7 +465,7 @@ Return ONLY the final formatted code without any explanations. The code should b
             await window.reloadFileContent(fileId);
           } else {
             // Fallback to direct file read
-            const response = await fetch(`http://localhost:8000/read-file?path=${encodeURIComponent(currentFile.path)}`);
+            const response = await fetch(`http://localhost:23816/read-file?path=${encodeURIComponent(currentFile.path)}`);
             if (response.ok) {
               const updatedContent = await response.text();
               if (window.editor?.setValue) {
@@ -505,7 +505,7 @@ Return ONLY the final formatted code without any explanations. The code should b
             params.append('currentDir', currentDir);
           }
           
-          const response = await fetch(`http://localhost:8000/read-file?${params}`);
+          const response = await fetch(`http://localhost:23816/read-file?${params}`);
           
           if (!response.ok) {
             console.error(`Failed to read existing file: ${normalizedPath}`);

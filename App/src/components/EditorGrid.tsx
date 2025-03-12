@@ -22,7 +22,7 @@ const EditorPane: React.FC<EditorPaneProps> = ({ fileId, file, onEditorReady }) 
   const completionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastPositionRef = useRef<monaco.Position | null>(null);
   const inlineCompletionWidgetRef = useRef<any>(null);
-  // Always enabled, but keep the flag for future configuration
+  // Always enabled by default (was previously set to true but might have been changed by users)
   const [completionEnabled, setCompletionEnabled] = useState(true);
   // Add auto-save timeout ref
   const autoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -159,7 +159,7 @@ const EditorPane: React.FC<EditorPaneProps> = ({ fileId, file, onEditorReady }) 
         // Remove any existing ghost text
         removeGhostText();
 
-        // Skip auto-completion if disabled
+        // Skip auto-completion if explicitly disabled by user
         if (!completionEnabled) return;
 
         // Only request completion if the change was due to typing (not programmatic)
@@ -171,18 +171,33 @@ const EditorPane: React.FC<EditorPaneProps> = ({ fileId, file, onEditorReady }) 
         const isDeletion = e.changes.some(change => 
           change.text.length === 0 && change.rangeLength > 0);
         
+        console.log("Content changed:", { hasTextChanges, isDeletion, completionEnabled });
+        
         if (hasTextChanges && !isDeletion) {
           console.log("Setting up completion timeout (200ms)");
-          // Setup a new timeout
+          // Setup a new timeout with proper delay
           completionTimeoutRef.current = setTimeout(() => {
-            console.log("Timeout fired, requesting completion");
+            console.log("Timeout fired, triggering suggestions");
             completionTimeoutRef.current = null;
+            
+            // Get current position for both Monaco suggestions and our custom completions
             const currentPosition = editor.current?.getPosition();
-            if (currentPosition) {
+            if (currentPosition && editor.current) {
+              // Store position for our custom ghost text completion
               lastPositionRef.current = currentPosition;
+              
+              // First trigger Monaco's native suggestions (built-in autocomplete)
+              try {
+                console.log("Triggering Monaco built-in suggestions");
+                editor.current.trigger('keyboard', 'editor.action.triggerSuggest', {});
+              } catch (err) {
+                console.error("Error triggering Monaco suggestions:", err);
+              }
+              
+              // Then trigger our custom AI-powered completions
               requestCodeCompletion();
             }
-          }, 200); // 200ms delay as specified
+          }, 200); // Changed to 200ms as requested
         }
 
         // Set up auto-save timeout
@@ -235,12 +250,15 @@ const EditorPane: React.FC<EditorPaneProps> = ({ fileId, file, onEditorReady }) 
     if (!editor.current || !lastPositionRef.current) return;
     
     try {
-      console.log("Requesting code completion");
+      console.log("Requesting AI code completion");
       
       const model = editor.current.getModel();
       if (!model) return;
 
       const position = lastPositionRef.current;
+      
+      // We're already triggering Monaco's suggestions in the timeout handler,
+      // so we don't need to do it again here.
       
       // Get text before the cursor for context
       const content = model.getValue();

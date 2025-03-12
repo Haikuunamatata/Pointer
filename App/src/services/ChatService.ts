@@ -8,7 +8,7 @@ export interface ChatSession {
 }
 
 export class ChatService {
-  private static API_URL = 'http://localhost:8000';
+  private static API_URL = 'http://localhost:23816';
 
   static async saveChat(chatId: string, messages: Message[]) {
     try {

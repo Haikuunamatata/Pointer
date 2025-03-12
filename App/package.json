@@ -10,7 +10,8 @@
     "dev:server": "vite",
     "dev:electron": "electron .",
     "electron:dev": "concurrently \"yarn start\" \"wait-on http://localhost:3000 && electron .\"",
-    "electron:start": "electron ."
+    "electron:start": "electron .",
+    "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
@@ -44,13 +45,16 @@
   "build": {
     "appId": "com.pointer",
     "mac": {
-      "category": "public.app-category.developer-tools"
+      "category": "public.app-category.developer-tools",
+      "icon": "electron/logo.png"
     },
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "electron/logo.png"
     },
     "linux": {
-      "target": "AppImage"
+      "target": "AppImage",
+      "icon": "electron/logo.png"
     },
     "files": [
       "dist/**/*",

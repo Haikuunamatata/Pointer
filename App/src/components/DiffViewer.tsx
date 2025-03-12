@@ -196,12 +196,13 @@ export const DiffViewer: React.FC = () => {
   const [isHovering, setIsHovering] = useState<{[key: string]: boolean}>({});
   const diffEditorRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     const unsubscribe = FileChangeEventService.subscribe(async (filePath, oldContent, newContent) => {
       // First try to get the actual current content of the file
       try {
-        const response = await fetch(`http://localhost:8000/read-file?path=${encodeURIComponent(filePath)}`);
+        const response = await fetch(`http://localhost:23816/read-file?path=${encodeURIComponent(filePath)}`);
         if (response.ok) {
           oldContent = await response.text();
         }
@@ -383,7 +384,27 @@ export const DiffViewer: React.FC = () => {
         diffEditorRef.current?.getModifiedEditor().setScrollTop(0);
       }, 50);
     }
-  }, [isModalOpen, currentDiffIndex]);
+  }, [isModalOpen, currentDiffIndex, diffs, refreshKey]);
+
+  const refreshDiffView = (newDiffs: DiffChange[], newIndex: number) => {
+    // Force cleanup of the editor
+    cleanupEditor();
+    
+    // Update the diffs array first
+    setDiffs(newDiffs);
+    
+    // If there are no more diffs, close the modal
+    if (newDiffs.length === 0) {
+      setIsModalOpen(false);
+      return;
+    }
+    
+    // Update the current index
+    setCurrentDiffIndex(newIndex);
+    
+    // Force a re-render by updating the refresh key
+    setRefreshKey(prev => prev + 1);
+  };
 
   const handleAccept = async () => {
     if (diffs.length === 0 || isProcessing) return;
@@ -395,25 +416,27 @@ export const DiffViewer: React.FC = () => {
       const modifiedContent = diffEditorRef.current?.getModifiedEditor().getValue() || '';
       await FileSystemService.saveFile(currentDiff.filePath, modifiedContent);
       
-      setDiffs(prev => prev.filter((_, i) => i !== currentDiffIndex));
+      // Create a new array without the current diff
+      const newDiffs = diffs.filter((_, i) => i !== currentDiffIndex);
       
+      // Update the current open file if this is the file being changed
       const currentFile = window.getCurrentFile?.();
       if (currentFile?.path === currentDiff.filePath && window.editor) {
         window.editor.setValue(modifiedContent);
       }
 
+      // Reload the file in the file system
       const fileId = Object.entries(window.fileSystem?.items || {})
         .find(([_, item]) => item.path === currentDiff.filePath)?.[0];
       if (fileId && window.reloadFileContent) {
         await window.reloadFileContent(fileId);
       }
 
-      if (diffs.length <= 1) {
-        setIsModalOpen(false);
-      } else {
-        // Move to the next diff if available
-        setCurrentDiffIndex(prev => prev >= diffs.length - 1 ? 0 : prev);
-      }
+      // Calculate the new index for the diffs array after removing the current item
+      const newIndex = currentDiffIndex >= newDiffs.length ? 0 : currentDiffIndex;
+      
+      // Refresh the diff view with the new state
+      refreshDiffView(newDiffs, newIndex);
     } catch (error) {
       console.error('Error accepting changes:', error);
     } finally {
@@ -423,16 +446,15 @@ export const DiffViewer: React.FC = () => {
 
   const handleReject = () => {
     if (isProcessing) return;
-    setDiffs(prev => {
-      const newDiffs = prev.filter((_, i) => i !== currentDiffIndex);
-      if (newDiffs.length === 0) {
-        setIsModalOpen(false);
-      } else {
-        // Move to the next diff if available
-        setCurrentDiffIndex(prev => prev >= newDiffs.length ? 0 : prev);
-      }
-      return newDiffs;
-    });
+    
+    // Create a new array without the current diff
+    const newDiffs = diffs.filter((_, i) => i !== currentDiffIndex);
+    
+    // Calculate the new index for the diffs array after removing the current item
+    const newIndex = currentDiffIndex >= newDiffs.length ? 0 : currentDiffIndex;
+    
+    // Refresh the diff view with the new state
+    refreshDiffView(newDiffs, newIndex);
   };
 
   const getLanguageFromExtension = (ext: string): string => {

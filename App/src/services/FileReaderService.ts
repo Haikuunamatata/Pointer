@@ -1,6 +1,6 @@
 import { FileSystemService } from './FileSystemService';
 
-const API_URL = 'http://localhost:8000';
+const API_URL = 'http://localhost:23816';
 
 export class FileReaderService {
   static async readFile(filePath: string): Promise<string | null> {
