@@ -398,7 +398,25 @@ const App: React.FC = () => {
     }
   };
 
-  const handleTabClose = (tabId: string) => {
+  const handleTabClose = async (tabId: string) => {
+    // First save the file if it exists and is not the welcome file
+    if (tabId !== 'welcome' && tabId && fileSystem.items[tabId]) {
+      try {
+        // Get the file content from the editor if it's the current file,
+        // otherwise use the content from fileSystem state
+        const content = tabId === fileSystem.currentFileId && editor.current 
+          ? editor.current.getValue() 
+          : fileSystem.items[tabId].content || '';
+
+        // Only save if there's actual content and a valid path
+        if (content && fileSystem.items[tabId].path) {
+          await FileSystemService.saveFile(tabId, content);
+        }
+      } catch (error) {
+        console.error(`Error saving file before closing tab: ${tabId}`, error);
+      }
+    }
+
     setOpenFiles(prev => {
       const newOpenFiles = prev.filter(id => id !== tabId);
       
@@ -414,8 +432,13 @@ const App: React.FC = () => {
             ...prev, 
             currentFileId: 'welcome'  // Set to welcome instead of null
           }));
-          if (editor.current) {
-            editor.current.setValue('');
+          
+          // Don't clear the editor if we still have the content in fileSystem
+          if (editor.current && fileSystem.items['welcome']) {
+            // Set to welcome message instead of empty string
+            const welcomeContent = fileSystem.items['welcome'].content ||
+              "// Welcome to your new code editor!\n// Start typing here...\n\n// By the way you can't delete or save this file.";
+            editor.current.setValue(welcomeContent);
           }
         }
       }
