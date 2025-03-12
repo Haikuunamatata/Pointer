@@ -1,0 +1,19 @@
+User-agent: *
+Allow: /
+Disallow: /downloads
+Disallow: /download/
+
+User-agent: Googlebot
+Allow: /
+Disallow: /downloads
+Disallow: /download/
+
+User-agent: Bingbot
+Allow: /
+Disallow: /downloads
+Disallow: /download/
+
+User-agent: Slurp
+Allow: /
+Disallow: /downloads
+Disallow: /download/

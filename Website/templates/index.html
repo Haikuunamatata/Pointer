@@ -3,10 +3,55 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pointer - Coming Soon</title>
+    <title>Pointer - Your AI Code Editor</title>
+    
+    <!-- SEO Meta Tags -->
+    <meta name="description" content="Pointer is an AI-powered code editor featuring local LLMs for lightning-fast responses with zero latency and complete privacy. The ultimate AI-assisted coding experience.">
+    <meta name="keywords" content="AI code editor, coding assistant, local LLM, programming, software development, code completion, AI assistant">
+    <meta name="author" content="Pointer">
+    <meta name="robots" content="index, follow">
+    
+    <!-- Open Graph / Facebook Meta Tags -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="{{ request.url }}">
+    <meta property="og:title" content="Pointer - Your AI Code Editor">
+    <meta property="og:description" content="AI-powered code editor with local LLMs for lightning-fast responses, zero latency, and complete privacy.">
+    <meta property="og:image" content="{{ url_for('static', filename='logo.png', _external=True) }}">
+    
+    <!-- Twitter Meta Tags -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Pointer - Your AI Code Editor">
+    <meta name="twitter:description" content="AI-powered code editor with local LLMs for lightning-fast responses, zero latency, and complete privacy.">
+    <meta name="twitter:image" content="{{ url_for('static', filename='logo.png', _external=True) }}">
+    
+    <!-- Favicon -->
     <link rel="icon" href="{{ url_for('static', filename='logo.png') }}" type="image/x-icon">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='logo.png') }}">
+    
+    <!-- Canonical URL -->
+    <link rel="canonical" href="{{ request.url }}">
+    
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    
+    <!-- Structured Data - JSON-LD -->
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "Pointer",
+        "applicationCategory": "DeveloperApplication",
+        "operatingSystem": "Windows",
+        "offers": {
+            "@type": "Offer",
+            "price": "0",
+            "priceCurrency": "USD"
+        },
+        "description": "AI-powered code editor with local LLMs for lightning-fast responses, zero latency, and complete privacy.",
+        "image": "{{ url_for('static', filename='logo.png', _external=True) }}"
+    }
+    </script>
+    
     <style>
         @keyframes fadeInOut {
             0% { opacity: 0; transform: translateY(20px); }
