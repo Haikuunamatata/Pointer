@@ -603,6 +603,18 @@ const CodeBlock: React.FC<{
     fontStyle: 'italic'
   };
   
+  const lineCountStyles: React.CSSProperties = {
+    color: '#666',
+    fontSize: '12px',
+    fontStyle: 'italic',
+    padding: '4px 12px',
+    paddingTop: '0',
+    backgroundColor: '#1e1e1e',
+    borderTop: 'none',
+    display: 'flex',
+    alignItems: 'center'
+  };
+  
   const codeContainerStyles: React.CSSProperties = {
     position: 'relative',
     maxHeight: '500px',  // Set a max height for long code blocks
@@ -622,6 +634,11 @@ const CodeBlock: React.FC<{
   
   // First line of code for preview
   const previewLine = code.trim().split('\n')[0];
+  
+  // Calculate the number of lines in the code
+  const codeLines = code.trim().split('\n');
+  const totalLines = codeLines.length;
+  const remainingLines = totalLines > 1 ? totalLines - 1 : 0;
   
   // Cast SyntaxHighlighter as any to avoid typing issues
   const SyntaxHighlighterComponent = SyntaxHighlighter as any;
@@ -670,9 +687,16 @@ const CodeBlock: React.FC<{
       
       {/* Show a preview when collapsed and not generating */}
       {!isExpanded && !isGenerating && previewLine && (
-        <div style={codePreviewStyles}>
-          {previewLine.length > 80 ? previewLine.substring(0, 77) + '...' : previewLine}
-        </div>
+        <>
+          <div style={codePreviewStyles}>
+            {previewLine.length > 80 ? previewLine.substring(0, 77) + '...' : previewLine}
+          </div>
+          {remainingLines > 0 && (
+            <div style={lineCountStyles}>
+              <span style={{ marginLeft: '2px' }}>... ({remainingLines} line{remainingLines !== 1 ? 's' : ''} remaining)</span>
+            </div>
+          )}
+        </>
       )}
       
       {/* Show the full code when expanded */}

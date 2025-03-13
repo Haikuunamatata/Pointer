@@ -113,7 +113,7 @@ const App: React.FC = () => {
   const [loadingError, setLoadingError] = useState<string | null>(null);
   // Add connection loading state
   const [isConnecting, setIsConnecting] = useState(true);
-  const [connectionMessage, setConnectionMessage] = useState('Establishing connection...');
+  const [connectionMessage, setConnectionMessage] = useState('');
 
   // Add save status state
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error' | null>(null);
@@ -943,7 +943,7 @@ const App: React.FC = () => {
       try {
         // Set connecting state
         setIsConnecting(true);
-        setConnectionMessage('Initializing application...');
+        setConnectionMessage('');
         
         // Only try to open directory if we're mounted
         if (!mounted) return;
@@ -951,7 +951,7 @@ const App: React.FC = () => {
         // Try to open directory only if we have a saved path
         const lastDir = localStorage.getItem('lastDirectory');
         if (lastDir) {
-          setConnectionMessage('Loading project...');
+          setConnectionMessage('');
           const result = await FileSystemService.openSpecificDirectory(lastDir);
           if (result) {
             setFileSystem(prevState => ({
