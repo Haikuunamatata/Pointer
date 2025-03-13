@@ -16,6 +16,7 @@ import subprocess
 import signal
 from keyword_extractor import extract_keywords
 import math
+import time
 
 app = FastAPI()
 qt_app = QApplication(sys.argv)
@@ -71,11 +72,32 @@ class RelevantFilesRequest(BaseModel):
 class CommandExecutionRequest(BaseModel):
     command: str
     timeout: int = 30  # Default timeout of 30 seconds
+    executionId: str | None = None  # Optional ID for tracking executions
 
+# Add a user workspace directory variable
 base_directory: str | None = None  # Initialize as None instead of os.getcwd()
+user_workspace_directory: str | None = None  # User's actual workspace directory
 
 # Add a file cache to track open files
 file_cache: Dict[str, str] = {}
+
+# Add function to set the user's workspace directory
+def set_user_workspace_directory(path: str):
+    """Set the user's current workspace directory."""
+    global user_workspace_directory
+    if os.path.isdir(path):
+        user_workspace_directory = os.path.abspath(path)
+        print(f"Set user workspace directory to: {user_workspace_directory}")
+        return True
+    return False
+
+# Add function to get the effective working directory
+def get_working_directory():
+    """Get the effective working directory for commands and operations.
+    Prefers user_workspace_directory if set, falls back to base_directory."""
+    if user_workspace_directory and os.path.isdir(user_workspace_directory):
+        return user_workspace_directory
+    return base_directory if base_directory else os.getcwd()
 
 def is_text_file(filename: str) -> bool:
     """Check if a file is a text file based on its extension."""
@@ -217,6 +239,9 @@ async def open_directory():
         
         path = folders[0]
         base_directory = path
+        # Also set as user workspace directory
+        set_user_workspace_directory(path)
+        print(f"Set base directory and user workspace to: {path}")
         return scan_directory(path)
     
     raise HTTPException(status_code=400, detail="No directory selected")
@@ -433,6 +458,11 @@ async def open_specific_directory(request: PathRequest):
     
     base_directory = os.path.abspath(request.path)
     print(f"Set base directory to: {base_directory}")
+    
+    # Also set this as the user workspace directory
+    set_user_workspace_directory(request.path)
+    print(f"Also set as user workspace directory: {user_workspace_directory}")
+    
     return scan_directory(request.path)
 
 @app.post("/fetch-folder-contents")
@@ -920,33 +950,91 @@ async def execute_command(request: CommandExecutionRequest):
         process = None
         output = ""
         error = None
+        execution_id = request.executionId or f"auto_{int(time.time())}"
+        
+        # Set working directory using the get_working_directory function
+        cwd = get_working_directory()
+        
+        # Log execution info
+        print(f"Executing command: {request.command} (ID: {execution_id}, timeout: {request.timeout}s, cwd: {cwd})")
         
         # Create a safe environment for running commands
         env = os.environ.copy()
+        env["PYTHONUNBUFFERED"] = "1"  # Always set this environment variable
         
         try:
-            # Set working directory to base_directory if available
-            cwd = base_directory if base_directory else os.getcwd()
-            
-            # Set up subprocess run with timeout
-            print(f"Executing command: {request.command} (timeout: {request.timeout}s)")
-            
             # Execute the command
             if sys.platform == "win32":
                 # Windows-specific command execution
-                process = subprocess.run(
-                    ["powershell.exe", "-NoProfile", "-Command", request.command],
-                    capture_output=True,
-                    text=True,
-                    timeout=request.timeout,
-                    cwd=cwd,
-                    env=env,
-                    shell=False
-                )
+                command = request.command
+                original_command = command
+                
+                # Enhanced Python detection with multiple variations
+                python_command = False
+                if any(cmd in command.lower() for cmd in ["python ", "python3 ", "py "]):
+                    python_command = True
+                    # Add -u flag if not present
+                    if "python " in command:
+                        command = command.replace("python ", "python -u ", 1)
+                    elif "python3 " in command:
+                        command = command.replace("python3 ", "python3 -u ", 1)
+                    elif "py " in command:
+                        command = command.replace("py ", "py -u ", 1)
+                
+                # For Python commands on Windows, use a special wrapper that ensures output is captured
+                if python_command:
+                    # This PowerShell approach forces output capture even when Python would normally buffer it
+                    # Fix string escaping for PowerShell path
+                    escaped_cwd = cwd.replace("'", "''")
+                    wrapped_command = f"""
+Set-Location -Path '{escaped_cwd}' 
+$env:PYTHONUNBUFFERED=1
+$output = & {command} 2>&1 | Out-String
+[Console]::Out.Flush()
+$output
+"""
+                    process = subprocess.run(
+                        ["powershell.exe", "-NoProfile", "-Command", wrapped_command],
+                        capture_output=True,
+                        text=True,
+                        timeout=request.timeout,
+                        cwd=cwd,
+                        env=env,
+                        shell=False
+                    )
+                else:
+                    # For non-Python commands, run normally
+                    # Include a command to set the working directory first
+                    # Fix string escaping for PowerShell path
+                    escaped_cwd = cwd.replace("'", "''")
+                    full_command = f"Set-Location -Path '{escaped_cwd}'; {command}"
+                    process = subprocess.run(
+                        ["powershell.exe", "-NoProfile", "-Command", full_command],
+                        capture_output=True,
+                        text=True,
+                        timeout=request.timeout,
+                        cwd=cwd,
+                        env=env,
+                        shell=False
+                    )
             else:
                 # Linux/Mac command execution
+                command = request.command
+                
+                # Enhanced Python detection with multiple variations
+                if any(cmd in command.lower() for cmd in ["python ", "python3 "]):
+                    if "python " in command:
+                        command = command.replace("python ", "python -u ", 1)
+                    elif "python3 " in command:
+                        command = command.replace("python3 ", "python3 -u ", 1)
+                
+                # Include a command to set the working directory first
+                # Fix string escaping for bash path
+                escaped_cwd = cwd.replace("'", "'\\''")
+                full_command = f"cd '{escaped_cwd}' && {command}"
+                
                 process = subprocess.run(
-                    ["bash", "-c", request.command],
+                    ["bash", "-c", full_command],
                     capture_output=True,
                     text=True,
                     timeout=request.timeout,
@@ -963,21 +1051,49 @@ async def execute_command(request: CommandExecutionRequest):
                 else:
                     # Some commands put important info in stderr even on success
                     output = output + "\n" + process.stderr if output else process.stderr
+            
+            # Special handling for Python with no output - this should NOT happen now with our changes
+            if output == "" and process.returncode == 0 and any(cmd in request.command.lower() for cmd in ["python", "python3", "py"]):
+                print(f"WARNING: Python command returned no output despite exit code 0: {request.command}")
+                # Let's not claim success with no output for Python commands - if we should have output
+                if sys.platform == "win32":
+                    output = "Note: Python output may be missing due to buffering. Try adding 'flush=True' to print statements."
+            
+            # Log completion
+            status = "error" if error else "success"
+            print(f"Command execution completed (ID: {execution_id}, status: {status}, output length: {len(output)})")
                     
         except subprocess.TimeoutExpired:
             error = f"Command timed out after {request.timeout} seconds"
+            print(f"Command execution timed out (ID: {execution_id})")
         except Exception as e:
             error = f"Error executing command: {str(e)}"
+            print(f"Command execution failed (ID: {execution_id}): {str(e)}")
             
-        # Return the result
+        # Return the result with execution ID
         if error:
-            return {"error": error}
+            return {
+                "executionId": execution_id,
+                "error": error,
+                "command": request.command,
+                "timestamp": int(time.time())
+            }
         else:
-            return {"output": output}
+            return {
+                "executionId": execution_id,
+                "output": output,
+                "command": request.command,
+                "timestamp": int(time.time())
+            }
             
     except Exception as e:
         print(f"Error in execute_command: {str(e)}")
-        return {"error": f"Server error: {str(e)}"}
+        return {
+            "executionId": request.executionId or f"error_{int(time.time())}",
+            "error": f"Server error: {str(e)}",
+            "command": request.command,
+            "timestamp": int(time.time())
+        }
 
 @app.websocket("/ws/terminal")
 async def terminal_websocket(websocket: WebSocket):
@@ -988,6 +1104,11 @@ async def terminal_websocket(websocket: WebSocket):
         startupinfo = subprocess.STARTUPINFO()
         startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         
+        # Set working directory using get_working_directory
+        cwd = get_working_directory()
+        print(f"Starting terminal with working directory: {cwd}")
+        
+        # Start PowerShell with the correct working directory
         process = subprocess.Popen(
             ["powershell.exe", "-NoLogo", "-NoExit", "-NoProfile"],
             stdin=subprocess.PIPE,
@@ -997,9 +1118,22 @@ async def terminal_websocket(websocket: WebSocket):
             startupinfo=startupinfo,
             creationflags=subprocess.CREATE_NO_WINDOW,
             bufsize=0,
-            universal_newlines=True
+            universal_newlines=True,
+            cwd=cwd  # Set the working directory
         )
+        
+        # Change to the workspace directory immediately if not already there
+        workspace_dir = get_working_directory()
+        if workspace_dir and cwd != workspace_dir:
+            # Escape single quotes for PowerShell
+            escaped_path = workspace_dir.replace("'", "''")
+            process.stdin.write(f"cd '{escaped_path}'\n")
+            process.stdin.flush()
     else:
+        # Set working directory using get_working_directory
+        cwd = get_working_directory()
+        print(f"Starting terminal with working directory: {cwd}")
+        
         process = subprocess.Popen(
             ["bash"],
             stdin=subprocess.PIPE,
@@ -1007,8 +1141,17 @@ async def terminal_websocket(websocket: WebSocket):
             stderr=subprocess.PIPE,
             shell=False,
             bufsize=0,
-            universal_newlines=True
+            universal_newlines=True,
+            cwd=cwd  # Set the working directory
         )
+        
+        # Change to the workspace directory immediately if not already there
+        workspace_dir = get_working_directory()
+        if workspace_dir and cwd != workspace_dir:
+            # Escape single quotes for bash
+            escaped_path = workspace_dir.replace("'", "'\\''")
+            process.stdin.write(f"cd '{escaped_path}'\n")
+            process.stdin.flush()
     
     try:
         async def read_stream(stream):
@@ -1063,6 +1206,41 @@ async def terminal_websocket(websocket: WebSocket):
             await websocket.close()
         except Exception as e:
             print(f"Error closing websocket: {e}")
+
+@app.post("/set-workspace-directory")
+async def set_workspace_directory(request: PathRequest):
+    """Set the user's workspace directory."""
+    try:
+        if not request.path:
+            raise HTTPException(status_code=400, detail="No directory path provided")
+            
+        if not os.path.exists(request.path):
+            raise HTTPException(status_code=404, detail="Directory not found")
+            
+        if not os.path.isdir(request.path):
+            raise HTTPException(status_code=400, detail="Path is not a directory")
+        
+        # Set the user workspace directory
+        if set_user_workspace_directory(request.path):
+            return {
+                "success": True, 
+                "workspace": user_workspace_directory
+            }
+        else:
+            raise HTTPException(status_code=400, detail="Failed to set workspace directory")
+    except Exception as e:
+        print(f"Error setting workspace directory: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/get-workspace-directory")
+async def get_workspace_directory():
+    """Get the current user workspace directory."""
+    effective_dir = get_working_directory()
+    return {
+        "workspace_directory": user_workspace_directory,
+        "effective_directory": effective_dir,
+        "base_directory": base_directory
+    }
 
 # Remove the uvicorn.run() call since we're using run.py now
 if __name__ == "__main__":

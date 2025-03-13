@@ -12,6 +12,13 @@ def test_function():
     
     return "Function executed successfully"
 
+# Flush print buffer to ensure output appears immediately
+import sys
+print("Starting test function...", flush=True)
+
 # Call the function and capture the return value
 return_value = test_function()
-print(f"Return value: {return_value}") 
+print(f"Return value: {return_value}", flush=True)
+
+# Add more flush calls to ensure output is visible
+print("Test complete!", flush=True) 

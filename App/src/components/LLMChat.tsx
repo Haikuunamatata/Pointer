@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { lmStudio } from '../services/LMStudioService';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -38,6 +38,19 @@ interface Message {
     score: number;
   }[];
   keywords?: string[];
+  executedCommands?: string[]; // Track which commands have been executed in this message
+  commandExecutions?: CommandExecution[]; // Store detailed information about command executions
+}
+
+// New interface for command execution details
+interface CommandExecution {
+  id: string;
+  command: string;
+  parameters: Record<string, any>;
+  timestamp: number;
+  status: 'pending' | 'running' | 'completed' | 'error';
+  output?: string;
+  error?: string;
 }
 
 interface LLMChatProps {
@@ -750,22 +763,83 @@ const CodeBlock: React.FC<{
   );
 };
 
+// Global registry to track already executed commands
+// This will persist across re-renders and component remounts
+const executedCommandsRegistry = new Set<string>();
+// Store detailed command execution information
+const commandExecutionsRegistry: Record<string, CommandExecution> = {};
+
+// Helper function to extract parameters from a command string
+const extractCommandParameters = (command: string): Record<string, any> => {
+  const params: Record<string, any> = {};
+  
+  // Extract command name (first word)
+  const commandName = command.trim().split(/\s+/)[0];
+  params.commandName = commandName;
+  
+  // Extract flags and arguments
+  const flagRegex = /--(\w+)(?:=([^\s"']+|"[^"]*"|'[^']*'))?|(?:^|\s)-(\w)(?:=([^\s"']+|"[^"]*"|'[^']*'))?/g;
+  let match;
+  
+  while ((match = flagRegex.exec(command)) !== null) {
+    const longFlag = match[1];
+    const longValue = match[2];
+    const shortFlag = match[3];
+    const shortValue = match[4];
+    
+    if (longFlag) {
+      // Handle --flag or --flag=value
+      params[longFlag] = longValue || true;
+    } else if (shortFlag) {
+      // Handle -f or -f=value
+      params[shortFlag] = shortValue || true;
+    }
+  }
+  
+  return params;
+};
+
+// Generate a unique ID for a command execution
+const generateCommandExecutionId = (command: string, timestamp: number): string => {
+  // Generate a simple hash of the command
+  let hash = 0;
+  for (let i = 0; i < command.length; i++) {
+    const char = command.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32bit integer
+  }
+  // Combine hash with timestamp for uniqueness
+  return `cmd_${Math.abs(hash)}_${timestamp}`;
+};
+
 // New component for displaying terminal commands
 const CommandBlock: React.FC<{
   command: string;
   mode: 'execute' | 'normal';
   message?: Message;
-}> = ({ command, mode, message }) => {
-  const [isExecuting, setIsExecuting] = useState(false);
-  const [output, setOutput] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  existingExecution?: CommandExecution;
+}> = ({ command, mode, message, existingExecution }) => {
+  // Generate a stable command ID for this command
+  const timestamp = Date.now();
+  const commandId = existingExecution?.id || generateCommandExecutionId(command, timestamp);
+  const parameters = existingExecution?.parameters || extractCommandParameters(command);
+  
+  // Check if this command was already executed
+  const messageHasExecutedCommand = message?.commandExecutions?.some(exec => exec.command === command) || false;
+  const isRegisteredCommand = commandExecutionsRegistry[commandId] || executedCommandsRegistry.has(command);
+  
+  const [isExecuting, setIsExecuting] = useState(existingExecution?.status === 'running');
+  const [output, setOutput] = useState<string | null>(existingExecution?.output || null);
+  const [error, setError] = useState<string | null>(existingExecution?.error || null);
   const [isHovered, setIsHovered] = useState(false);
-  const [isExpanded, setIsExpanded] = useState(mode === 'execute');
-  const [hasExecuted, setHasExecuted] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(mode === 'execute' || !!existingExecution);
+  const [hasExecuted, setHasExecuted] = useState(
+    !!existingExecution || messageHasExecutedCommand || isRegisteredCommand
+  );
+  const [executionId, setExecutionId] = useState<string | null>(existingExecution?.id || null);
   
   // Use a ref to track if this command has already been executed
-  // This persists across re-renders but won't trigger re-renders itself
-  const hasExecutedRef = useRef(false);
+  const hasExecutedRef = useRef(!!existingExecution || messageHasExecutedCommand || isRegisteredCommand);
   
   // Styles for the command block
   const containerStyles: React.CSSProperties = {
@@ -828,9 +902,45 @@ const CommandBlock: React.FC<{
     marginBottom: '10px'
   };
   
+  // Function to update message with executed command details
+  const updateMessageWithExecutedCommand = (cmdExecution: CommandExecution) => {
+    if (!message) return;
+    
+    // Create a copy of the current commandExecutions array or initialize it
+    const updatedExecutions = [...(message.commandExecutions || [])];
+    
+    // Check if we already have this execution
+    const existingIndex = updatedExecutions.findIndex(exec => exec.id === cmdExecution.id);
+    
+    if (existingIndex >= 0) {
+      // Update existing execution
+      updatedExecutions[existingIndex] = cmdExecution;
+    } else {
+      // Add new execution
+      updatedExecutions.push(cmdExecution);
+    }
+    
+    // Update the message with the new commandExecutions array
+    message.commandExecutions = updatedExecutions;
+    
+    // Also maintain backward compatibility with executedCommands
+    if (!message.executedCommands) {
+      message.executedCommands = [];
+    }
+    if (!message.executedCommands.includes(cmdExecution.command)) {
+      message.executedCommands.push(cmdExecution.command);
+    }
+  };
+  
   const executeCommand = async () => {
-    // Only execute if not already executing and not previously executed
-    if (isExecuting || hasExecutedRef.current) return;
+    // Generate a unique execution ID for this specific run
+    const execId = commandId;
+    setExecutionId(execId);
+    
+    // Check both local state, global registry, and message to prevent re-execution
+    if (isExecuting || hasExecutedRef.current || 
+        commandExecutionsRegistry[execId] || 
+        messageHasExecutedCommand) return;
     
     try {
       setIsExecuting(true);
@@ -838,7 +948,23 @@ const CommandBlock: React.FC<{
       setOutput(null);
       setIsExpanded(true);
       
-      console.log("Executing command:", command);
+      console.log(`Executing command (ID: ${execId}):`, command);
+      console.log("Command parameters:", parameters);
+      
+      // Create initial execution record
+      const initialExecution: CommandExecution = {
+        id: execId,
+        command,
+        parameters,
+        timestamp,
+        status: 'running'
+      };
+      
+      // Store in registry
+      commandExecutionsRegistry[execId] = initialExecution;
+      
+      // Update message with running status
+      updateMessageWithExecutedCommand(initialExecution);
       
       // Call the backend to execute the command
       const response = await fetch('http://localhost:23816/execute-command', {
@@ -848,6 +974,7 @@ const CommandBlock: React.FC<{
         },
         body: JSON.stringify({
           command,
+          executionId: execId
         }),
       });
       
@@ -856,6 +983,17 @@ const CommandBlock: React.FC<{
       }
       
       const result = await response.json();
+      
+      // Update execution record with results
+      const updatedExecution: CommandExecution = {
+        ...initialExecution,
+        status: result.error ? 'error' : 'completed',
+        output: result.output || null,
+        error: result.error || null
+      };
+      
+      // Update registry
+      commandExecutionsRegistry[execId] = updatedExecution;
       
       if (result.error) {
         setError(result.error);
@@ -866,21 +1004,59 @@ const CommandBlock: React.FC<{
       // Set both the state and ref to track execution
       setHasExecuted(true);
       hasExecutedRef.current = true;
+      executedCommandsRegistry.add(command);
+      
+      // Update the message with execution results
+      updateMessageWithExecutedCommand(updatedExecution);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      setError(errorMsg);
       console.error('Command execution error:', err);
+      
+      // Update execution record with error
+      if (execId) {
+        const errorExecution: CommandExecution = {
+          id: execId,
+          command,
+          parameters,
+          timestamp,
+          status: 'error',
+          error: errorMsg
+        };
+        
+        // Update registry
+        commandExecutionsRegistry[execId] = errorExecution;
+        
+        // Update message with error status
+        updateMessageWithExecutedCommand(errorExecution);
+      }
     } finally {
       setIsExecuting(false);
     }
   };
   
   // Sync the ref with the state when hasExecuted changes
-  // Automatically execute if mode is 'execute', but only once on mount
   useEffect(() => {
-    if (mode === 'execute' && !hasExecuted && !isExecuting) {
+    hasExecutedRef.current = hasExecuted;
+  }, [hasExecuted]);
+  
+  // Automatically execute if mode is 'execute', but only once and only if not already executed
+  useEffect(() => {
+    // Only execute if:
+    // 1. Mode is 'execute'
+    // 2. Not already executed (checking all possible sources)
+    // 3. Not currently executing
+    // 4. No existing execution data
+    if (mode === 'execute' && 
+        !hasExecutedRef.current && 
+        !isRegisteredCommand && 
+        !messageHasExecutedCommand &&
+        !isExecuting &&
+        !existingExecution) {
       executeCommand();
     }
-  }, []);  // Empty dependency array means this runs once on mount
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   
   const toggleExpand = () => {
     setIsExpanded(!isExpanded);
@@ -892,6 +1068,9 @@ const CommandBlock: React.FC<{
       console.log("Command output updated:", output.substring(0, 100) + (output.length > 100 ? "..." : ""));
     }
   }, [output]);
+  
+  // Get current execution details if available
+  const currentExecution = executionId ? commandExecutionsRegistry[executionId] : null;
   
   return (
     <div
@@ -906,6 +1085,17 @@ const CommandBlock: React.FC<{
             <line x1="9" y1="3" x2="9" y2="21"></line>
           </svg>
           <span>Terminal Command</span>
+          {executionId && (
+            <span style={{ 
+              fontSize: '10px', 
+              opacity: 0.7, 
+              marginLeft: '6px',
+              color: '#999',
+              fontFamily: 'monospace'
+            }}>
+              ID: {executionId.split('_')[1]}
+            </span>
+          )}
           {isExecuting && (
             <div style={{
               display: 'flex',
@@ -978,6 +1168,31 @@ const CommandBlock: React.FC<{
           <div style={commandStyles}>
             <div style={{ color: '#4CAF50', marginBottom: '8px' }}>$ {command}</div>
             
+            {/* Parameters section */}
+            {Object.keys(parameters).length > 0 && (
+              <div style={{ 
+                marginBottom: '12px', 
+                fontSize: '12px', 
+                color: '#aaa', 
+                background: '#222',
+                padding: '8px',
+                borderRadius: '4px',
+                fontFamily: 'monospace'
+              }}>
+                <div style={{ marginBottom: '4px', fontStyle: 'italic' }}>Parameters:</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '4px' }}>
+                  {Object.entries(parameters).map(([key, value]) => (
+                    <React.Fragment key={key}>
+                      <div>{key}:</div>
+                      <div style={{ color: typeof value === 'string' ? '#ce9178' : '#569cd6' }}>
+                        {JSON.stringify(value)}
+                      </div>
+                    </React.Fragment>
+                  ))}
+                </div>
+              </div>
+            )}
+            
             {/* For 'normal' mode, show execute button if not already executed */}
             {mode === 'normal' && !isExecuting && !hasExecuted && (
               <button 
@@ -999,6 +1214,24 @@ const CommandBlock: React.FC<{
             {/* Show output or error */}
             {hasExecuted && !isExecuting && !error && (
               <div>
+                <div style={{ 
+                  display: 'flex', 
+                  justifyContent: 'space-between', 
+                  alignItems: 'center',
+                  marginBottom: '8px',
+                  fontSize: '11px',
+                  color: '#888'
+                }}>
+                  <span>
+                    Status: <span style={{ color: '#4CAF50' }}>Completed</span>
+                  </span>
+                  {currentExecution && (
+                    <span>
+                      {new Date(currentExecution.timestamp).toLocaleTimeString()}
+                    </span>
+                  )}
+                </div>
+                
                 {output && output.trim() ? (
                   <div style={outputStyles} className="hide-scrollbar">
                     {output}
@@ -1017,8 +1250,27 @@ const CommandBlock: React.FC<{
             )}
             
             {error && (
-              <div style={{ ...outputStyles, color: '#ff5555' }} className="hide-scrollbar">
-                Error: {error}
+              <div>
+                <div style={{ 
+                  display: 'flex', 
+                  justifyContent: 'space-between', 
+                  alignItems: 'center',
+                  marginBottom: '8px',
+                  fontSize: '11px',
+                  color: '#888'
+                }}>
+                  <span>
+                    Status: <span style={{ color: '#f44336' }}>Error</span>
+                  </span>
+                  {currentExecution && (
+                    <span>
+                      {new Date(currentExecution.timestamp).toLocaleTimeString()}
+                    </span>
+                  )}
+                </div>
+                <div style={{ ...outputStyles, color: '#ff5555' }} className="hide-scrollbar">
+                  Error: {error}
+                </div>
               </div>
             )}
           </div>
@@ -1140,11 +1392,18 @@ const MessageRenderer: React.FC<{ message: Message }> = ({ message }) => {
           const commandMatch = /^language-command-(execute|normal)$/.exec(className || '');
           if (commandMatch) {
             const mode = commandMatch[1] as 'execute' | 'normal';
+            
+            // Find existing command execution data if available
+            const existingExecution = message?.commandExecutions?.find(
+              exec => exec.command === value
+            );
+            
             return (
               <CommandBlock
                 command={value}
                 mode={mode}
                 message={message}
+                existingExecution={existingExecution}
               />
             );
           }
@@ -1845,7 +2104,9 @@ FINAL REMINDER:
             // Remove content from system messages that contain file contents
             content: msg.role === 'system' && msg.content.includes('Current workspace context:') 
               ? INITIAL_SYSTEM_MESSAGE.content 
-              : msg.content
+              : msg.content,
+            // Preserve executedCommands even when cleaning content
+            executedCommands: msg.executedCommands || [] 
           }));
 
           const response = await fetch(`http://localhost:23816/chats/${currentChatId}`, {
