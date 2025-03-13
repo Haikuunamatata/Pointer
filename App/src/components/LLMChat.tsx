@@ -819,462 +819,224 @@ const CommandBlock: React.FC<{
   message?: Message;
   existingExecution?: CommandExecution;
 }> = ({ command, mode, message, existingExecution }) => {
-  // Generate a stable command ID for this command
-  const timestamp = Date.now();
-  const commandId = existingExecution?.id || generateCommandExecutionId(command, timestamp);
-  const parameters = existingExecution?.parameters || extractCommandParameters(command);
-  
-  // Check if this command was already executed
-  const messageHasExecutedCommand = message?.commandExecutions?.some(exec => exec.command === command) || false;
-  const isRegisteredCommand = commandExecutionsRegistry[commandId] || executedCommandsRegistry.has(command);
-  
-  const [isExecuting, setIsExecuting] = useState(existingExecution?.status === 'running');
+  const [isExecuting, setIsExecuting] = useState(false);
+  const [hasExecuted, setHasExecuted] = useState(!!existingExecution);
+  const [isExpanded, setIsExpanded] = useState(mode === 'execute' || !!existingExecution);
   const [output, setOutput] = useState<string | null>(existingExecution?.output || null);
   const [error, setError] = useState<string | null>(existingExecution?.error || null);
-  const [isHovered, setIsHovered] = useState(false);
-  const [isExpanded, setIsExpanded] = useState(mode === 'execute' || !!existingExecution);
-  const [hasExecuted, setHasExecuted] = useState(
-    !!existingExecution || messageHasExecutedCommand || isRegisteredCommand
-  );
   const [executionId, setExecutionId] = useState<string | null>(existingExecution?.id || null);
+  const [executionTimestamp, setExecutionTimestamp] = useState<number | null>(existingExecution?.timestamp || null);
+  const [execCount, setExecCount] = useState(0); // Track multiple executions of same command
   
-  // Use a ref to track if this command has already been executed
-  const hasExecutedRef = useRef(!!existingExecution || messageHasExecutedCommand || isRegisteredCommand);
-  
-  // Styles for the command block
-  const containerStyles: React.CSSProperties = {
-    backgroundColor: '#1e1e1e',
-    borderRadius: '4px',
-    marginBottom: '16px',
-    marginTop: '12px',
-    border: `1px solid ${isHovered ? '#555' : '#333'}`,
-    overflow: 'hidden',
-    transition: 'border-color 0.2s ease'
-  };
-  
-  const headerStyles: React.CSSProperties = {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: '8px 12px',
-    backgroundColor: isHovered ? '#2c2c2c' : '#252525',
-    cursor: 'pointer',
-    fontSize: '14px',
-    fontFamily: 'monospace',
-    userSelect: 'none',
-    transition: 'background-color 0.2s ease',
-    zIndex: 10
-  };
-  
-  const commandStyles: React.CSSProperties = {
-    padding: '12px 16px',
-    color: '#f1f1f1',
-    fontSize: '13px',
-    fontFamily: 'monospace',
-    backgroundColor: '#1e1e1e',
-    borderTop: '1px solid #333',
-    whiteSpace: 'pre-wrap',
-    overflowX: 'auto'
-  };
-  
-  const outputStyles: React.CSSProperties = {
-    padding: '12px 16px',
-    paddingTop: '8px',
-    color: '#bbb',
-    fontSize: '13px',
-    fontFamily: 'monospace',
-    backgroundColor: '#181818',
-    borderTop: '1px solid #333',
-    maxHeight: '300px',
-    overflow: 'auto',
-    whiteSpace: 'pre-wrap'
-  };
-  
-  const buttonStyles: React.CSSProperties = {
-    padding: '6px 12px',
-    borderRadius: '4px',
-    border: '1px solid #444',
-    background: 'var(--accent-color)',
-    color: 'white',
-    fontSize: '12px',
-    cursor: 'pointer',
-    marginRight: '8px',
-    marginBottom: '10px'
-  };
-  
-  // Function to update message with executed command details
-  const updateMessageWithExecutedCommand = (cmdExecution: CommandExecution) => {
-    if (!message) return;
+  // Store message reference so we can update it later
+  const messageRef = useRef(message);
+  useEffect(() => {
+    messageRef.current = message;
+  }, [message]);
+
+  // Generate a unique execution ID for this command instance
+  const generateExecutionId = useCallback(() => {
+    const timestamp = Date.now();
+    const randomId = Math.floor(Math.random() * 100000000);
+    return `cmd_${randomId}_${timestamp}`;
+  }, []);
+
+  // Update message with the executed command information
+  const updateMessageWithExecutedCommand = useCallback((cmdExecution: CommandExecution) => {
+    if (!messageRef.current) return;
     
-    // Create a copy of the current commandExecutions array or initialize it
-    const updatedExecutions = [...(message.commandExecutions || [])];
+    console.log('Updating message with executed command:', cmdExecution);
     
-    // Check if we already have this execution
-    const existingIndex = updatedExecutions.findIndex(exec => exec.id === cmdExecution.id);
+    const msg = messageRef.current;
+    const updatedMsg = { ...msg };
     
-    if (existingIndex >= 0) {
+    // Initialize arrays if they don't exist
+    if (!updatedMsg.executedCommands) {
+      updatedMsg.executedCommands = [];
+    }
+    if (!updatedMsg.commandExecutions) {
+      updatedMsg.commandExecutions = [];
+    }
+    
+    // Add command to executedCommands if not already present
+    if (!updatedMsg.executedCommands.includes(command)) {
+      updatedMsg.executedCommands.push(command);
+    }
+    
+    // Add or update execution details
+    const existingIndex = updatedMsg.commandExecutions?.findIndex(exec => exec.id === cmdExecution.id);
+    
+    if (existingIndex !== undefined && existingIndex >= 0) {
       // Update existing execution
-      updatedExecutions[existingIndex] = cmdExecution;
+      if (updatedMsg.commandExecutions) {
+        updatedMsg.commandExecutions[existingIndex] = cmdExecution;
+      }
     } else {
       // Add new execution
-      updatedExecutions.push(cmdExecution);
+      updatedMsg.commandExecutions?.push(cmdExecution);
     }
     
-    // Update the message with the new commandExecutions array
-    message.commandExecutions = updatedExecutions;
+    // TODO: Handle updating the message in state - this would require passing down a setter function
+    console.log('Updated message:', updatedMsg);
     
-    // Also maintain backward compatibility with executedCommands
-    if (!message.executedCommands) {
-      message.executedCommands = [];
-    }
-    if (!message.executedCommands.includes(cmdExecution.command)) {
-      message.executedCommands.push(cmdExecution.command);
-    }
-  };
-  
-  const executeCommand = async () => {
-    // Generate a unique execution ID for this specific run
-    const execId = commandId;
-    setExecutionId(execId);
+    // For now we just update the local state
+    // A real implementation would update the parent component's state as well
+  }, [command]);
+
+  const executeCommand = useCallback(async () => {
+    // Don't execute if already executing
+    if (isExecuting) return;
     
-    // Check both local state, global registry, and message to prevent re-execution
-    if (isExecuting || hasExecutedRef.current || 
-        commandExecutionsRegistry[execId] || 
-        messageHasExecutedCommand) return;
+    // Always increment execution count when executing
+    const newExecCount = execCount + 1;
+    setExecCount(newExecCount);
     
+    setIsExecuting(true);
+    setError(null);
+    setOutput(null);
+    setIsExpanded(true); // Always expand when executing
+    
+    const newExecutionId = generateExecutionId();
+    setExecutionId(newExecutionId);
+    setExecutionTimestamp(Date.now());
+
     try {
-      setIsExecuting(true);
-      setError(null);
-      setOutput(null);
-      setIsExpanded(true);
-      
-      console.log(`Executing command (ID: ${execId}):`, command);
-      console.log("Command parameters:", parameters);
-      
-      // Create initial execution record
-      const initialExecution: CommandExecution = {
-        id: execId,
-        command,
-        parameters,
-        timestamp,
-        status: 'running'
-      };
-      
-      // Store in registry
-      commandExecutionsRegistry[execId] = initialExecution;
-      
-      // Update message with running status
-      updateMessageWithExecutedCommand(initialExecution);
-      
-      // Call the backend to execute the command
-      const response = await fetch('http://localhost:23816/execute-command', {
+      console.log(`Executing command (count: ${newExecCount}): ${command} (mode: ${mode}, id: ${newExecutionId})`);
+      const response = await fetch('/execute-command', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          command,
-          executionId: execId
+          command: command,
+          timeout: 30, // 30 second timeout
+          executionId: newExecutionId,
         }),
       });
-      
-      if (!response.ok) {
-        throw new Error(`Error executing command: ${response.statusText}`);
+
+      const data = await response.json();
+      console.log("Command execution response:", data);
+
+      // Update execution state
+      if (data.executionId) {
+        setExecutionId(data.executionId);
       }
       
-      const result = await response.json();
+      if (data.timestamp) {
+        setExecutionTimestamp(data.timestamp);
+      }
       
-      // Update execution record with results
-      const updatedExecution: CommandExecution = {
-        ...initialExecution,
-        status: result.error ? 'error' : 'completed',
-        output: result.output || null,
-        error: result.error || null
+      if (data.error) {
+        setError(data.error);
+      } else {
+        setOutput(data.output || "");
+      }
+      
+      // Update message with command execution info
+      const cmdExecution: CommandExecution = {
+        id: data.executionId || newExecutionId,
+        command: command,
+        parameters: { execCount: newExecCount },
+        timestamp: data.timestamp || Date.now(),
+        status: data.error ? 'error' : 'completed',
+        output: data.output || "",
+        error: data.error || null,
       };
       
-      // Update registry
-      commandExecutionsRegistry[execId] = updatedExecution;
+      updateMessageWithExecutedCommand(cmdExecution);
       
-      if (result.error) {
-        setError(result.error);
-      } else {
-        setOutput(result.output);
-      }
-      
-      // Set both the state and ref to track execution
-      setHasExecuted(true);
-      hasExecutedRef.current = true;
-      executedCommandsRegistry.add(command);
-      
-      // Update the message with execution results
-      updateMessageWithExecutedCommand(updatedExecution);
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : String(err);
-      setError(errorMsg);
-      console.error('Command execution error:', err);
-      
-      // Update execution record with error
-      if (execId) {
-        const errorExecution: CommandExecution = {
-          id: execId,
-          command,
-          parameters,
-          timestamp,
-          status: 'error',
-          error: errorMsg
-        };
-        
-        // Update registry
-        commandExecutionsRegistry[execId] = errorExecution;
-        
-        // Update message with error status
-        updateMessageWithExecutedCommand(errorExecution);
-      }
+      console.error("Error executing command:", err);
+      setError(`Failed to execute command: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setIsExecuting(false);
+      setHasExecuted(true);
     }
-  };
-  
-  // Sync the ref with the state when hasExecuted changes
+  }, [command, isExecuting, mode, execCount, updateMessageWithExecutedCommand, generateExecutionId]);
+
+  // Handle automatic execution for 'execute' mode
   useEffect(() => {
-    hasExecutedRef.current = hasExecuted;
-  }, [hasExecuted]);
-  
-  // Automatically execute if mode is 'execute', but only once and only if not already executed
-  useEffect(() => {
-    // Only execute if:
-    // 1. Mode is 'execute'
-    // 2. Not already executed (checking all possible sources)
-    // 3. Not currently executing
-    // 4. No existing execution data
-    if (mode === 'execute' && 
-        !hasExecutedRef.current && 
-        !isRegisteredCommand && 
-        !messageHasExecutedCommand &&
-        !isExecuting &&
-        !existingExecution) {
+    if (mode === 'execute' && !hasExecuted && !isExecuting) {
       executeCommand();
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  
+  }, [mode, hasExecuted, isExecuting, executeCommand]);
+
   const toggleExpand = () => {
     setIsExpanded(!isExpanded);
   };
-  
-  // For debugging
-  useEffect(() => {
-    if (output) {
-      console.log("Command output updated:", output.substring(0, 100) + (output.length > 100 ? "..." : ""));
-    }
-  }, [output]);
-  
-  // Get current execution details if available
-  const currentExecution = executionId ? commandExecutionsRegistry[executionId] : null;
-  
+
+  // Format timestamp
+  const formatTimestamp = (timestamp: number | null) => {
+    if (!timestamp) return null;
+    
+    const date = new Date(timestamp);
+    let hours = date.getHours();
+    const minutes = date.getMinutes().toString().padStart(2, '0');
+    const seconds = date.getSeconds().toString().padStart(2, '0');
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    
+    hours = hours % 12;
+    hours = hours ? hours : 12; // Convert 0 to 12
+    
+    return `${hours}:${minutes}:${seconds} ${ampm}`;
+  };
+
   return (
-    <div
-      style={containerStyles}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-    >
-      <div style={headerStyles} onClick={toggleExpand}>
-        <div style={{ display: 'flex', alignItems: 'center' }}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: '8px' }}>
-            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-            <line x1="9" y1="3" x2="9" y2="21"></line>
-          </svg>
-          <span>Terminal Command</span>
-          {executionId && (
-            <span style={{ 
-              fontSize: '10px', 
-              opacity: 0.7, 
-              marginLeft: '6px',
-              color: '#999',
-              fontFamily: 'monospace'
-            }}>
-              ID: {executionId.split('_')[1]}
-            </span>
+    <div className="command-block">
+      <div className="command-header" onClick={toggleExpand}>
+        <div className="command-prompt">
+          <span className="prompt-symbol">$</span>
+          <span className="command-text">{command}</span>
+        </div>
+        <div className="command-controls">
+          {!isExecuting && mode === 'normal' && (
+            <button 
+              className="execute-button" 
+              onClick={(e) => {
+                e.stopPropagation();
+                executeCommand();
+              }}
+            >
+              Execute Command
+            </button>
           )}
           {isExecuting && (
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              marginLeft: '10px',
-              color: '#888',
-              fontSize: '12px',
-              backgroundColor: 'rgba(76, 175, 80, 0.1)',
-              borderRadius: '12px',
-              padding: '2px 8px'
-            }}>
-              <span style={{
-                height: '8px',
-                width: '8px',
-                borderRadius: '50%',
-                display: 'inline-block',
-                backgroundColor: '#4CAF50',
-                marginRight: '4px',
-              }} className="pulse-dot"></span>
-              Running...
-            </div>
+            <span className="execution-status running">Running...</span>
           )}
-          {hasExecuted && !isExecuting && !error && (
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              marginLeft: '10px',
-              color: '#4CAF50',
-              fontSize: '12px',
-              padding: '2px 8px'
-            }}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: '4px' }}>
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-              Executed
-            </div>
+          {hasExecuted && !isExecuting && (
+            <span className={`execution-status ${error ? 'error' : 'success'}`}>
+              {error ? 'Failed' : 'Executed'}
+            </span>
           )}
-          {error && (
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              marginLeft: '10px',
-              color: '#f44336',
-              fontSize: '12px',
-              padding: '2px 8px'
-            }}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: '4px' }}>
-                <circle cx="12" cy="12" r="10" />
-                <line x1="15" y1="9" x2="9" y2="15" />
-                <line x1="9" y1="9" x2="15" y2="15" />
-              </svg>
-              Error
-            </div>
+          {executionId && !isExecuting && (
+            <span className="execution-id">ID: {executionId.split('_')[1]}</span>
           )}
+          {executionTimestamp && !isExecuting && (
+            <span className="execution-time">{formatTimestamp(executionTimestamp)}</span>
+          )}
+          <span className="expand-icon">{isExpanded ? '▼' : '►'}</span>
         </div>
-        <span style={{ 
-          color: '#888', 
-          fontSize: '12px', 
-          display: 'flex', 
-          alignItems: 'center',
-          gap: '4px' 
-        }}>
-          {isExpanded ? 'Hide' : 'Show'} 
-          <span>{isExpanded ? '▼' : '▶'}</span>
-        </span>
       </div>
       
       {isExpanded && (
-        <>
-          <div style={commandStyles}>
-            <div style={{ color: '#4CAF50', marginBottom: '8px' }}>$ {command}</div>
-            
-            {/* Parameters section */}
-            {Object.keys(parameters).length > 0 && (
-              <div style={{ 
-                marginBottom: '12px', 
-                fontSize: '12px', 
-                color: '#aaa', 
-                background: '#222',
-                padding: '8px',
-                borderRadius: '4px',
-                fontFamily: 'monospace'
-              }}>
-                <div style={{ marginBottom: '4px', fontStyle: 'italic' }}>Parameters:</div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '4px' }}>
-                  {Object.entries(parameters).map(([key, value]) => (
-                    <React.Fragment key={key}>
-                      <div>{key}:</div>
-                      <div style={{ color: typeof value === 'string' ? '#ce9178' : '#569cd6' }}>
-                        {JSON.stringify(value)}
-                      </div>
-                    </React.Fragment>
-                  ))}
-                </div>
-              </div>
+        <div className="command-output scrollable-output">
+          {isExecuting && <div className="executing-indicator">Executing command...</div>}
+          {error && <pre className="error-output">{error}</pre>}
+          {output !== null && output !== "" && (
+            <pre className="success-output">{output}</pre>
+          )}
+          {!isExecuting && hasExecuted && output === "" && (
+            <pre className="success-output">Command executed successfully with no output.</pre>
+          )}
+          <div className="execution-metadata">
+            {executionId && (
+              <div className="execution-id">Execution ID: {executionId}</div>
             )}
-            
-            {/* For 'normal' mode, show execute button if not already executed */}
-            {mode === 'normal' && !isExecuting && !hasExecuted && (
-              <button 
-                style={buttonStyles}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  executeCommand();
-                }}
-              >
-                Execute Command
-              </button>
-            )}
-            
-            {/* Show spinner during execution */}
-            {isExecuting && (
-              <div style={{ color: '#888', marginTop: '8px' }}>Executing command...</div>
-            )}
-            
-            {/* Show output or error */}
-            {hasExecuted && !isExecuting && !error && (
-              <div>
-                <div style={{ 
-                  display: 'flex', 
-                  justifyContent: 'space-between', 
-                  alignItems: 'center',
-                  marginBottom: '8px',
-                  fontSize: '11px',
-                  color: '#888'
-                }}>
-                  <span>
-                    Status: <span style={{ color: '#4CAF50' }}>Completed</span>
-                  </span>
-                  {currentExecution && (
-                    <span>
-                      {new Date(currentExecution.timestamp).toLocaleTimeString()}
-                    </span>
-                  )}
-                </div>
-                
-                {output && output.trim() ? (
-                  <div style={outputStyles} className="hide-scrollbar">
-                    {output}
-                  </div>
-                ) : (
-                  <div style={{ 
-                    ...outputStyles, 
-                    color: '#4CAF50', 
-                    fontStyle: 'italic',
-                    backgroundColor: 'rgba(76, 175, 80, 0.05)'
-                  }}>
-                    Command executed successfully (no output).
-                  </div>
-                )}
-              </div>
-            )}
-            
-            {error && (
-              <div>
-                <div style={{ 
-                  display: 'flex', 
-                  justifyContent: 'space-between', 
-                  alignItems: 'center',
-                  marginBottom: '8px',
-                  fontSize: '11px',
-                  color: '#888'
-                }}>
-                  <span>
-                    Status: <span style={{ color: '#f44336' }}>Error</span>
-                  </span>
-                  {currentExecution && (
-                    <span>
-                      {new Date(currentExecution.timestamp).toLocaleTimeString()}
-                    </span>
-                  )}
-                </div>
-                <div style={{ ...outputStyles, color: '#ff5555' }} className="hide-scrollbar">
-                  Error: {error}
-                </div>
-              </div>
+            {executionTimestamp && (
+              <div className="execution-timestamp">Time: {formatTimestamp(executionTimestamp)}</div>
             )}
           </div>
-        </>
+        </div>
       )}
     </div>
   );
