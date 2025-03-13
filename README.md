@@ -126,7 +126,7 @@ VITE_API_URL=http://localhost:8000
 ### Common Issues
 
 1. **Backend Connection Error**
-   - Ensure the Python backend is running on port 8000
+   - Ensure the Python backend is running on correct port
    - Check if there are any CORS issues in the browser console
    - Verify the virtual environment is activated
 
