@@ -417,10 +417,24 @@ MARKDOWN FORMATTING GUIDELINES:
    code here
    \`\`\`
 
+6. For terminal commands, use the command pointer format:
+   @pointer:command+execute:start
+   npm install react
+   @pointer:command+execute:end
+   
+   The 'execute' mode will automatically run the command.
+   
+   @pointer:command+normal:start
+   npm run build
+   @pointer:command+normal:end
+   
+   The 'normal' mode will show an execute button for the user to run manually.
+
 Remember:
 - Always specify the language in code blocks
 - Use proper markdown formatting
-- Keep responses clear and well-structured`
+- Keep responses clear and well-structured
+- Use command pointers for terminal commands instead of \`\`\`sh blocks`
 };
 
 // Update the processFileReferences function
@@ -736,6 +750,284 @@ const CodeBlock: React.FC<{
   );
 };
 
+// New component for displaying terminal commands
+const CommandBlock: React.FC<{
+  command: string;
+  mode: 'execute' | 'normal';
+  message?: Message;
+}> = ({ command, mode, message }) => {
+  const [isExecuting, setIsExecuting] = useState(false);
+  const [output, setOutput] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isHovered, setIsHovered] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(mode === 'execute');
+  const [hasExecuted, setHasExecuted] = useState(false);
+  
+  // Use a ref to track if this command has already been executed
+  // This persists across re-renders but won't trigger re-renders itself
+  const hasExecutedRef = useRef(false);
+  
+  // Styles for the command block
+  const containerStyles: React.CSSProperties = {
+    backgroundColor: '#1e1e1e',
+    borderRadius: '4px',
+    marginBottom: '16px',
+    marginTop: '12px',
+    border: `1px solid ${isHovered ? '#555' : '#333'}`,
+    overflow: 'hidden',
+    transition: 'border-color 0.2s ease'
+  };
+  
+  const headerStyles: React.CSSProperties = {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '8px 12px',
+    backgroundColor: isHovered ? '#2c2c2c' : '#252525',
+    cursor: 'pointer',
+    fontSize: '14px',
+    fontFamily: 'monospace',
+    userSelect: 'none',
+    transition: 'background-color 0.2s ease',
+    zIndex: 10
+  };
+  
+  const commandStyles: React.CSSProperties = {
+    padding: '12px 16px',
+    color: '#f1f1f1',
+    fontSize: '13px',
+    fontFamily: 'monospace',
+    backgroundColor: '#1e1e1e',
+    borderTop: '1px solid #333',
+    whiteSpace: 'pre-wrap',
+    overflowX: 'auto'
+  };
+  
+  const outputStyles: React.CSSProperties = {
+    padding: '12px 16px',
+    paddingTop: '8px',
+    color: '#bbb',
+    fontSize: '13px',
+    fontFamily: 'monospace',
+    backgroundColor: '#181818',
+    borderTop: '1px solid #333',
+    maxHeight: '300px',
+    overflow: 'auto',
+    whiteSpace: 'pre-wrap'
+  };
+  
+  const buttonStyles: React.CSSProperties = {
+    padding: '6px 12px',
+    borderRadius: '4px',
+    border: '1px solid #444',
+    background: 'var(--accent-color)',
+    color: 'white',
+    fontSize: '12px',
+    cursor: 'pointer',
+    marginRight: '8px',
+    marginBottom: '10px'
+  };
+  
+  const executeCommand = async () => {
+    // Only execute if not already executing and not previously executed
+    if (isExecuting || hasExecutedRef.current) return;
+    
+    try {
+      setIsExecuting(true);
+      setError(null);
+      setOutput(null);
+      setIsExpanded(true);
+      
+      console.log("Executing command:", command);
+      
+      // Call the backend to execute the command
+      const response = await fetch('http://localhost:23816/execute-command', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          command,
+        }),
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Error executing command: ${response.statusText}`);
+      }
+      
+      const result = await response.json();
+      
+      if (result.error) {
+        setError(result.error);
+      } else {
+        setOutput(result.output);
+      }
+      
+      // Set both the state and ref to track execution
+      setHasExecuted(true);
+      hasExecutedRef.current = true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      console.error('Command execution error:', err);
+    } finally {
+      setIsExecuting(false);
+    }
+  };
+  
+  // Sync the ref with the state when hasExecuted changes
+  // Automatically execute if mode is 'execute', but only once on mount
+  useEffect(() => {
+    if (mode === 'execute' && !hasExecuted && !isExecuting) {
+      executeCommand();
+    }
+  }, []);  // Empty dependency array means this runs once on mount
+  
+  const toggleExpand = () => {
+    setIsExpanded(!isExpanded);
+  };
+  
+  // For debugging
+  useEffect(() => {
+    if (output) {
+      console.log("Command output updated:", output.substring(0, 100) + (output.length > 100 ? "..." : ""));
+    }
+  }, [output]);
+  
+  return (
+    <div
+      style={containerStyles}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
+      <div style={headerStyles} onClick={toggleExpand}>
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: '8px' }}>
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+            <line x1="9" y1="3" x2="9" y2="21"></line>
+          </svg>
+          <span>Terminal Command</span>
+          {isExecuting && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              marginLeft: '10px',
+              color: '#888',
+              fontSize: '12px',
+              backgroundColor: 'rgba(76, 175, 80, 0.1)',
+              borderRadius: '12px',
+              padding: '2px 8px'
+            }}>
+              <span style={{
+                height: '8px',
+                width: '8px',
+                borderRadius: '50%',
+                display: 'inline-block',
+                backgroundColor: '#4CAF50',
+                marginRight: '4px',
+              }} className="pulse-dot"></span>
+              Running...
+            </div>
+          )}
+          {hasExecuted && !isExecuting && !error && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              marginLeft: '10px',
+              color: '#4CAF50',
+              fontSize: '12px',
+              padding: '2px 8px'
+            }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: '4px' }}>
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              Executed
+            </div>
+          )}
+          {error && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              marginLeft: '10px',
+              color: '#f44336',
+              fontSize: '12px',
+              padding: '2px 8px'
+            }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: '4px' }}>
+                <circle cx="12" cy="12" r="10" />
+                <line x1="15" y1="9" x2="9" y2="15" />
+                <line x1="9" y1="9" x2="15" y2="15" />
+              </svg>
+              Error
+            </div>
+          )}
+        </div>
+        <span style={{ 
+          color: '#888', 
+          fontSize: '12px', 
+          display: 'flex', 
+          alignItems: 'center',
+          gap: '4px' 
+        }}>
+          {isExpanded ? 'Hide' : 'Show'} 
+          <span>{isExpanded ? '▼' : '▶'}</span>
+        </span>
+      </div>
+      
+      {isExpanded && (
+        <>
+          <div style={commandStyles}>
+            <div style={{ color: '#4CAF50', marginBottom: '8px' }}>$ {command}</div>
+            
+            {/* For 'normal' mode, show execute button if not already executed */}
+            {mode === 'normal' && !isExecuting && !hasExecuted && (
+              <button 
+                style={buttonStyles}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  executeCommand();
+                }}
+              >
+                Execute Command
+              </button>
+            )}
+            
+            {/* Show spinner during execution */}
+            {isExecuting && (
+              <div style={{ color: '#888', marginTop: '8px' }}>Executing command...</div>
+            )}
+            
+            {/* Show output or error */}
+            {hasExecuted && !isExecuting && !error && (
+              <div>
+                {output && output.trim() ? (
+                  <div style={outputStyles} className="hide-scrollbar">
+                    {output}
+                  </div>
+                ) : (
+                  <div style={{ 
+                    ...outputStyles, 
+                    color: '#4CAF50', 
+                    fontStyle: 'italic',
+                    backgroundColor: 'rgba(76, 175, 80, 0.05)'
+                  }}>
+                    Command executed successfully (no output).
+                  </div>
+                )}
+              </div>
+            )}
+            
+            {error && (
+              <div style={{ ...outputStyles, color: '#ff5555' }} className="hide-scrollbar">
+                Error: {error}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
 const MessageRenderer: React.FC<{ message: Message }> = ({ message }) => {
   const [processedContent, setProcessedContent] = useState(message.content);
 
@@ -777,6 +1069,14 @@ const MessageRenderer: React.FC<{ message: Message }> = ({ message }) => {
           
           // Add a special marker to identify this as a code pointer block
           return `\`\`\`${language}\n@pointer:${filename}\n${cleanCode}\n\`\`\``;
+        });
+        
+        // Process command pointer blocks
+        const commandRegex = /@pointer:command\+(execute|normal):start\s*([\s\S]*?)\s*@pointer:command\+\1:end/g;
+        processed = processed.replace(commandRegex, (match, mode, command) => {
+          const cleanCommand = command.trim();
+          // Add a special marker to identify this as a command pointer block
+          return `\`\`\`command-${mode}\n${cleanCommand}\n\`\`\``;
         });
         
         // Process incomplete code blocks - replace them with placeholder markers
@@ -836,6 +1136,19 @@ const MessageRenderer: React.FC<{ message: Message }> = ({ message }) => {
 
           const value = String(children).replace(/\n$/, '');
           
+          // Check if this is a command block
+          const commandMatch = /^language-command-(execute|normal)$/.exec(className || '');
+          if (commandMatch) {
+            const mode = commandMatch[1] as 'execute' | 'normal';
+            return (
+              <CommandBlock
+                command={value}
+                mode={mode}
+                message={message}
+              />
+            );
+          }
+          
           // Check if this is a loading/generating placeholder
           if (className === 'language-generating') {
             const incompleteMatch = value.match(/^@incomplete:(.*?)$/);
@@ -881,14 +1194,14 @@ const MessageRenderer: React.FC<{ message: Message }> = ({ message }) => {
             filename = lines[0].substring(9).trim();
             code = lines.slice(1).join('\n');
           }
-          
+
           // Extract language from className
           const language = className?.replace('language-', '') || '';
           
           return (
             <CodeBlock
               filename={filename || `file.${language}`}
-              language={language}
+                  language={language}
               code={code}
               message={message}
             />

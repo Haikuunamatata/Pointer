@@ -67,6 +67,11 @@ class RelevantFilesRequest(BaseModel):
     max_files: int = 10
     include_content: bool = True
 
+# Add a new class for command execution
+class CommandExecutionRequest(BaseModel):
+    command: str
+    timeout: int = 30  # Default timeout of 30 seconds
+
 base_directory: str | None = None  # Initialize as None instead of os.getcwd()
 
 # Add a file cache to track open files
@@ -905,6 +910,74 @@ async def get_file_contents(files: List[str]):
         return file_contents
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# Add new endpoint for command execution
+@app.post("/execute-command")
+async def execute_command(request: CommandExecutionRequest):
+    """Execute a terminal command and return the output."""
+    try:
+        # Set up process with timeout
+        process = None
+        output = ""
+        error = None
+        
+        # Create a safe environment for running commands
+        env = os.environ.copy()
+        
+        try:
+            # Set working directory to base_directory if available
+            cwd = base_directory if base_directory else os.getcwd()
+            
+            # Set up subprocess run with timeout
+            print(f"Executing command: {request.command} (timeout: {request.timeout}s)")
+            
+            # Execute the command
+            if sys.platform == "win32":
+                # Windows-specific command execution
+                process = subprocess.run(
+                    ["powershell.exe", "-NoProfile", "-Command", request.command],
+                    capture_output=True,
+                    text=True,
+                    timeout=request.timeout,
+                    cwd=cwd,
+                    env=env,
+                    shell=False
+                )
+            else:
+                # Linux/Mac command execution
+                process = subprocess.run(
+                    ["bash", "-c", request.command],
+                    capture_output=True,
+                    text=True,
+                    timeout=request.timeout,
+                    cwd=cwd,
+                    env=env,
+                    shell=False
+                )
+            
+            # Get the output
+            output = process.stdout
+            if process.stderr:
+                if process.returncode != 0:
+                    error = process.stderr
+                else:
+                    # Some commands put important info in stderr even on success
+                    output = output + "\n" + process.stderr if output else process.stderr
+                    
+        except subprocess.TimeoutExpired:
+            error = f"Command timed out after {request.timeout} seconds"
+        except Exception as e:
+            error = f"Error executing command: {str(e)}"
+            
+        # Return the result
+        if error:
+            return {"error": error}
+        else:
+            return {"output": output}
+            
+    except Exception as e:
+        print(f"Error in execute_command: {str(e)}")
+        return {"error": f"Server error: {str(e)}"}
 
 @app.websocket("/ws/terminal")
 async def terminal_websocket(websocket: WebSocket):
