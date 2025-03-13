@@ -1,3 +1,5 @@
+import { cleanAIResponse } from '../utils/textUtils';
+
 interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
@@ -111,10 +113,13 @@ class LMStudioService {
         reader.releaseLock();
       }
 
+      // Clean up any markdown code blocks in the response before returning
+      const cleanedContent = cleanAIResponse(fullContent);
+
       return {
         choices: [{
           message: {
-            content: fullContent
+            content: cleanedContent
           }
         }]
       };

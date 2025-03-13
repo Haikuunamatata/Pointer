@@ -11,6 +11,8 @@ import { editor } from 'monaco-editor';
 import { Settings } from './Settings';
 import '../styles/LLMChat.css';
 import { AIFileService } from '../services/AIFileService';
+import { cleanAIResponse, getLanguageFromFilename } from '../utils/textUtils';
+import { keyframes } from '@emotion/react';
 
 declare global {
   interface Window {
@@ -530,7 +532,186 @@ const processFileReferences = async (text: string): Promise<string> => {
   return result;
 };
 
-// Add this new component outside of LLMChat
+// Component for displaying code blocks (both complete and incomplete)
+const CodeBlock: React.FC<{
+  filename: string;
+  language: string;
+  code?: string;
+  isGenerating?: boolean;
+  message?: Message;
+}> = ({ filename, language, code = '', isGenerating = false, message }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
+  const contentRef = useRef<HTMLDivElement>(null);
+  
+  // Styles for the code block
+  const containerStyles: React.CSSProperties = {
+    backgroundColor: '#1e1e1e',
+    borderRadius: '4px',
+    marginBottom: '16px',
+    marginTop: '12px',
+    border: `1px solid ${isHovered ? '#555' : '#333'}`,
+    overflow: 'hidden',
+    transition: 'border-color 0.2s ease'
+  };
+  
+  const headerStyles: React.CSSProperties = {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '8px 12px',
+    backgroundColor: isHovered ? '#2c2c2c' : '#252525',
+    cursor: 'pointer',
+    fontSize: '14px',
+    fontFamily: 'monospace',
+    userSelect: 'none',
+    transition: 'background-color 0.2s ease',
+    zIndex: 10 // Ensure header is above the content
+  };
+  
+  const loadingIndicatorStyles: React.CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    marginLeft: '10px',
+    color: '#888',
+    fontSize: '12px',
+    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+    borderRadius: '12px',
+    padding: '2px 8px'
+  };
+  
+  const pulseStyle: React.CSSProperties = {
+    height: '8px',
+    width: '8px',
+    borderRadius: '50%',
+    display: 'inline-block',
+    backgroundColor: '#4CAF50',
+    marginRight: '4px',
+  };
+  
+  const codePreviewStyles: React.CSSProperties = {
+    padding: '8px 12px',
+    paddingLeft: '14px',
+    color: '#bbb',
+    fontSize: '13px',
+    fontFamily: 'monospace',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    backgroundColor: '#1e1e1e',
+    borderTop: '1px solid #333',
+    fontStyle: 'italic'
+  };
+  
+  const codeContainerStyles: React.CSSProperties = {
+    position: 'relative',
+    maxHeight: '500px',  // Set a max height for long code blocks
+    overflow: 'auto',    // Enable scrolling for long content
+    msOverflowStyle: 'none', // IE and Edge
+    scrollbarWidth: 'none'  // Firefox
+  };
+  
+  const codeStyles = {
+    margin: 0,
+    padding: '16px',
+    paddingLeft: '18px',
+    fontSize: '13px',
+    backgroundColor: '#1e1e1e',
+    overflow: 'visible'
+  };
+  
+  // First line of code for preview
+  const previewLine = code.trim().split('\n')[0];
+  
+  // Cast SyntaxHighlighter as any to avoid typing issues
+  const SyntaxHighlighterComponent = SyntaxHighlighter as any;
+  
+  // Stop event propagation to prevent collapsing
+  const handleContentInteraction = (e: React.SyntheticEvent) => {
+    e.stopPropagation();
+  };
+  
+  // Toggle expanded state
+  const toggleExpand = () => {
+    setIsExpanded(!isExpanded);
+  };
+  
+  return (
+    <div 
+      style={containerStyles} 
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
+      <div 
+        style={headerStyles} 
+        onClick={toggleExpand}
+      >
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          {getIconForFile(filename)}
+          <span style={{ marginLeft: '8px' }}>{filename}</span>
+          {isGenerating && (
+            <div style={loadingIndicatorStyles}>
+              <span style={pulseStyle} className="pulse-dot"></span>
+              Generating...
+            </div>
+          )}
+        </div>
+        <span style={{ 
+          color: '#888', 
+          fontSize: '12px', 
+          display: 'flex', 
+          alignItems: 'center',
+          gap: '4px' 
+        }}>
+          {isExpanded ? 'Hide' : 'Show'} 
+          <span>{isExpanded ? '▼' : '▶'}</span>
+        </span>
+      </div>
+      
+      {/* Show a preview when collapsed and not generating */}
+      {!isExpanded && !isGenerating && previewLine && (
+        <div style={codePreviewStyles}>
+          {previewLine.length > 80 ? previewLine.substring(0, 77) + '...' : previewLine}
+        </div>
+      )}
+      
+      {/* Show the full code when expanded */}
+      {isExpanded && !isGenerating && (
+        <div 
+          ref={contentRef} 
+          className="code-content-container"
+          onClick={handleContentInteraction}
+          onDoubleClick={handleContentInteraction}
+          onMouseDown={handleContentInteraction}
+          onMouseUp={handleContentInteraction}
+          onMouseMove={handleContentInteraction}
+          onScroll={handleContentInteraction}
+          onWheel={handleContentInteraction}
+          onKeyDown={handleContentInteraction}
+          onKeyUp={handleContentInteraction}
+        >
+          <div style={{ position: 'absolute', top: '8px', right: '8px', zIndex: 20 }}>
+            <CopyButton content={code} />
+            {filename && <InsertButton content={code} />}
+            {message?.role === 'assistant' && <ProcessFilesButton content={message.content} />}
+          </div>
+          <div style={codeContainerStyles} className="hide-scrollbar">
+            <SyntaxHighlighterComponent
+              language={language}
+              style={vscDarkPlus}
+              customStyle={codeStyles}
+              wrapLines={true}
+              wrapLongLines={true}
+            >
+              {code}
+            </SyntaxHighlighterComponent>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const MessageRenderer: React.FC<{ message: Message }> = ({ message }) => {
   const [processedContent, setProcessedContent] = useState(message.content);
 
@@ -539,9 +720,14 @@ const MessageRenderer: React.FC<{ message: Message }> = ({ message }) => {
     
     const processContent = async () => {
       try {
-        // Process code pointers first
+        // First clean up any backticks in the AI response if it's from the assistant
+        let processed = message.role === 'assistant' 
+          ? cleanAIResponse(message.content) 
+          : message.content;
+        
+        // Process complete code pointer blocks
         const pointerRegex = /Pointer:Code\+(.*?):start\s*([\s\S]*?)\s*Pointer:Code\+\1:end/g;
-        let processed = message.content.replace(pointerRegex, (match, filename, code) => {
+        processed = processed.replace(pointerRegex, (match, filename, code) => {
           // Clean up the code: remove extra line breaks and normalize indentation
           const lines = code.trim().split('\n');
           
@@ -568,6 +754,18 @@ const MessageRenderer: React.FC<{ message: Message }> = ({ message }) => {
           // Add a special marker to identify this as a code pointer block
           return `\`\`\`${language}\n@pointer:${filename}\n${cleanCode}\n\`\`\``;
         });
+        
+        // Process incomplete code blocks - replace them with placeholder markers
+        // that will be rendered as the loading indicator
+        const incompleteBlockRegex = /Pointer:Code\+(.*?):start\s*([\s\S]*?)(?=$|Pointer:Code\+(?!\1))/g;
+        processed = processed.replace(incompleteBlockRegex, (match, filename) => {
+          // Check if this is truly incomplete (doesn't have an end tag)
+          if (!match.includes(`Pointer:Code+${filename}:end`)) {
+            // This is an incomplete block, replace with placeholder
+            return `\`\`\`generating\n@incomplete:${filename}\n\`\`\``;
+          }
+          return match; // Not incomplete, leave as is
+        });
 
         if (mounted) {
           setProcessedContent(processed);
@@ -585,72 +783,91 @@ const MessageRenderer: React.FC<{ message: Message }> = ({ message }) => {
     return () => {
       mounted = false;
     };
-  }, [message.content]);
+  }, [message.content, message.role]);
 
   return (
     <ReactMarkdown
       components={{
-        code({ node, className, children, ...props }) {
-          const codeContent = String(children).replace(/\n$/, '');
+        code({ className, children, ...props }) {
+          const match = /language-(\w+)/.exec(className || '');
+          const isInline = !match && !String(children).includes('\n');
           
-          // Check if this is a code block (has language class or multiple lines)
-          const isCodeBlock = className?.startsWith('language-') || codeContent.includes('\n');
-          
-          // If it's not a code block, treat it as inline code
-          if (!isCodeBlock) {
+          if (isInline) {
             return (
-              <span
+              <code
+                className={className}
                 style={{
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: '0.9em',
-                  backgroundColor: '#2d2d2d',
-                  color: '#e06c75',
-                  padding: '2px 6px',
-                  borderRadius: '4px',
-                  wordBreak: 'break-word'
+                  backgroundColor: '#2a2a2a',
+                  padding: '0.2em 0.4em',
+                  borderRadius: '3px',
+                  fontFamily: 'monospace',
+                  fontSize: '85%'
                 }}
                 {...props}
               >
-                {codeContent}
-              </span>
+                {children}
+              </code>
             );
           }
+
+          const value = String(children).replace(/\n$/, '');
           
-          // Handle code blocks
+          // Check if this is a loading/generating placeholder
+          if (className === 'language-generating') {
+            const incompleteMatch = value.match(/^@incomplete:(.*?)$/);
+            if (incompleteMatch) {
+              const filename = incompleteMatch[1];
+              const language = getLanguageFromFilename(filename);
+              
+              return (
+                <CodeBlock
+                  filename={filename}
+                  language={language}
+                  isGenerating={true}
+                />
+              );
+            }
+          }
+          
+          // Check if this is a code pointer block
+          const pointerMatch = value.match(/^@pointer:(.*)\n([\s\S]*)$/);
+          
+          if (pointerMatch) {
+            const [_, filename, code] = pointerMatch;
+            const language = className?.replace('language-', '') || 
+                             getLanguageFromFilename(filename);
+            
+            return (
+              <CodeBlock
+                filename={filename}
+                language={language}
+                code={code}
+                message={message}
+              />
+            );
+          }
+
+          // Handle regular code blocks
           let filename = '';
-          let code = codeContent;
+          let code = value;
           
           // Check for pointer marker in the first line
           const lines = code.split('\n');
-          const pointerMatch = lines[0]?.match(/@pointer:(.*)/);
-          if (pointerMatch) {
-            filename = pointerMatch[1];
+          if (lines[0] && lines[0].startsWith('@pointer:')) {
+            filename = lines[0].substring(9).trim();
             code = lines.slice(1).join('\n');
           }
-
-          const match = /language-(\w+)/.exec(className || '');
-          const language = match ? match[1] : filename.split('.').pop() || '';
+          
+          // Extract language from className
+          const language = className?.replace('language-', '') || '';
           
           return (
-            <div style={codeBlockStyles}>
-              <div style={codeBlockHeaderStyles}>
-                {getIconForFile(filename || `file.${language}`)}
-                <span>{filename}</span>
-              </div>
-              <div style={{ position: 'relative' }}>
-                <CopyButton content={code} />
-                {filename && <InsertButton content={code} />}
-                {message.role === 'assistant' && <ProcessFilesButton content={message.content} />}
-                <SyntaxHighlighter
-                  language={language}
-                  style={vscDarkPlus as any}
-                  PreTag="div"
-                  customStyle={{ margin: 0, padding: '16px', marginBottom: '16px' }}
-                >
-                  {code}
-                </SyntaxHighlighter>
-              </div>
-            </div>
+            <CodeBlock
+              filename={filename || `file.${language}`}
+              language={language}
+              code={code}
+              message={message}
+            />
           );
         },
         // Add styles for list items

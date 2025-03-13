@@ -150,4 +150,43 @@ button {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
   z-index: 1000;
   min-width: 300px;
+}
+
+@keyframes pulse {
+  0% { opacity: 0.3; }
+  50% { opacity: 1; }
+  100% { opacity: 0.3; }
+}
+
+.pulse-dot {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+/* Hide scrollbar but keep scrolling functionality */
+.hide-scrollbar {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;  /* Chrome, Safari and Opera */
+}
+
+/* Improve code content interaction */
+.code-content-container {
+  position: relative;
+  z-index: 5;
+}
+
+/* Prevent propagation of pointer events to the header */
+pre.language-*,
+code.language-* {
+  pointer-events: auto !important;
+}
+
+/* Make sure buttons are above code content */
+.copy-button,
+.insert-button,
+.process-files-button {
+  z-index: 25;
 } 

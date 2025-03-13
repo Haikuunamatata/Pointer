@@ -663,7 +663,7 @@ async def insert_code(request: InsertCodeRequest):
 
 @app.get("/chats")
 async def list_chats():
-    chats_dir = Path(os.environ.get('PROGRAMDATA', 'C:\\ProgramData')) / 'Pointer' / 'chats'
+    chats_dir = Path(os.environ.get('PROGRAMDATA', 'C:\\ProgramData')) / 'Pointer' / 'data' / 'chats'
     chats_dir.mkdir(parents=True, exist_ok=True)
     
     chats = []
@@ -683,7 +683,7 @@ async def list_chats():
 async def get_chat(chat_id: str):
     """Get a specific chat by ID."""
     try:
-        chats_dir = Path(os.environ.get('PROGRAMDATA', 'C:\\ProgramData')) / 'Pointer' / 'chats'
+        chats_dir = Path(os.environ.get('PROGRAMDATA', 'C:\\ProgramData')) / 'Pointer' / 'data' / 'chats'
         chats_dir.mkdir(parents=True, exist_ok=True)
         
         chat_file = chats_dir / f"{chat_id}.json"
@@ -708,7 +708,7 @@ async def get_chat(chat_id: str):
 async def save_chat(chat_id: str, chat: dict):
     """Save a chat."""
     try:
-        chats_dir = Path(os.environ.get('PROGRAMDATA', 'C:\\ProgramData')) / 'Pointer' / 'chats'
+        chats_dir = Path(os.environ.get('PROGRAMDATA', 'C:\\ProgramData')) / 'Pointer' / 'data' / 'chats'
         chats_dir.mkdir(parents=True, exist_ok=True)
         
         chat_file = chats_dir / f"{chat_id}.json"

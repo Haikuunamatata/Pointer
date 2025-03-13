@@ -245,6 +245,142 @@ const EditorPane: React.FC<EditorPaneProps> = ({ fileId, file, onEditorReady }) 
     };
   }, [fileId, file, onEditorReady, completionEnabled]);
 
+  // Helper function to extract imports from content
+  const extractImports = (content: string): string[] => {
+    const imports: string[] = [];
+    
+    // Match import statements in JavaScript/TypeScript
+    const jsImportRegex = /import\s+.*?from\s+['"].*?['"]/g;
+    const jsImports = content.match(jsImportRegex) || [];
+    imports.push(...jsImports);
+    
+    // Match require statements in JavaScript
+    const requireRegex = /(?:const|let|var)\s+.*?=\s+require\(['"].*?['"]\)/g;
+    const requires = content.match(requireRegex) || [];
+    imports.push(...requires);
+    
+    // Match Python imports
+    const pyImportRegex = /(?:import|from)\s+.*?(?:import|\n|$)/g;
+    const pyImports = content.match(pyImportRegex) || [];
+    imports.push(...pyImports);
+    
+    return imports;
+  };
+  
+  // Helper function to extract major declarations based on language
+  const extractDeclarations = (content: string, language: string): string[] => {
+    const declarations: string[] = [];
+    
+    if (language === 'javascript' || language === 'typescript') {
+      // Match function and class declarations
+      const funcClassRegex = /(?:function|class|const|let|var)\s+\w+\s*(?:[=({]|extends)/g;
+      const funcClass = content.match(funcClassRegex) || [];
+      declarations.push(...funcClass);
+      
+      // Match export statements
+      const exportRegex = /export\s+(?:const|let|var|function|class|default|{)/g;
+      const exports = content.match(exportRegex) || [];
+      declarations.push(...exports);
+    } else if (language === 'python') {
+      // Match function and class declarations in Python
+      const pyFuncClassRegex = /(?:def|class)\s+\w+\s*(?:\(|\:)/g;
+      const pyFuncClass = content.match(pyFuncClassRegex) || [];
+      declarations.push(...pyFuncClass);
+    }
+    
+    return declarations;
+  };
+
+  // Helper function to extract imported modules/paths from content
+  const extractImportPaths = (content: string): string[] => {
+    const importPaths: string[] = [];
+    
+    // Extract import paths from JavaScript/TypeScript
+    const jsImportPathRegex = /(?:import|require)\s+.*?(?:from\s+|['"'"])\s*['"]([^'"'"]+)['"'"]]/g;
+    let match;
+    while ((match = jsImportPathRegex.exec(content)) !== null) {
+      if (match[1] && !match[1].startsWith('.')) continue; // Skip non-relative imports
+      if (match[1]) importPaths.push(match[1]);
+    }
+    
+    // Extract import paths from Python
+    const pyImportPathRegex = /from\s+([^\s]+)\s+import/g;
+    while ((match = pyImportPathRegex.exec(content)) !== null) {
+      if (match[1] && !match[1].startsWith('.')) continue; // Skip non-relative imports
+      if (match[1]) importPaths.push(match[1]);
+    }
+    
+    return importPaths;
+  };
+  
+  // Get context from related files based on imports
+  const getRelatedFilesContext = async (currentFilePath: string, content: string): Promise<string> => {
+    try {
+      const importPaths = extractImportPaths(content);
+      if (importPaths.length === 0) return '';
+      
+      let relatedFilesContext = '';
+      
+      // Get the directory of the current file
+      const currentDir = currentFilePath.split('/').slice(0, -1).join('/');
+      
+      // Try to resolve each import path to a file
+      for (const importPath of importPaths) {
+        try {
+          // Normalize path based on whether it's relative or not
+          let fullPath = importPath;
+          if (importPath.startsWith('.')) {
+            // Resolve relative path
+            fullPath = `${currentDir}/${importPath}`.replace(/\/\.\//g, '/');
+          }
+          
+          // Handle different file extensions (.js, .ts, etc.) or no extension
+          const potentialExtensions = ['', '.js', '.jsx', '.ts', '.tsx', '.py'];
+          
+          for (const ext of potentialExtensions) {
+            const pathToTry = `${fullPath}${ext}`;
+            
+            try {
+              // Fetch file content
+              const response = await fetch(`http://localhost:23816/read-file?path=${encodeURIComponent(pathToTry)}`);
+              
+              if (response.ok) {
+                const fileContent = await response.text();
+                
+                // Extract key functions and classes from the imported file
+                const language = pathToTry.split('.').pop() || '';
+                const declarations = extractDeclarations(fileContent, language);
+                
+                // Add to context
+                if (declarations.length > 0) {
+                  relatedFilesContext += `
+# Imported file: ${pathToTry}
+# Key declarations:
+${declarations.join('\n')}
+
+`;
+                }
+                
+                // Found a match, so break the extension loop
+                break;
+              }
+            } catch (error) {
+              // Continue trying other extensions
+            }
+          }
+        } catch (error) {
+          // Skip this import path if there's an error
+          console.error('Error fetching imported file:', error);
+        }
+      }
+      
+      return relatedFilesContext;
+    } catch (error) {
+      console.error('Error getting related files context:', error);
+      return '';
+    }
+  };
+
   // Request code completion from LM Studio 
   const requestCodeCompletion = async () => {
     if (!editor.current || !lastPositionRef.current) return;
@@ -279,15 +415,108 @@ const EditorPane: React.FC<EditorPaneProps> = ({ fileId, file, onEditorReady }) 
       } else if (language === 'python') {
         stopSequences.push('\ndef ', '\nclass ');
       } else if (language === 'html') {
-        stopSequences.push('>\n');
+        // Improved stop sequences for HTML to ensure proper tag closing
+        stopSequences.push('>\n', '</');
+      }
+      
+      // Add special HTML context if needed
+      let htmlContext = '';
+      if (language === 'html') {
+        // Check if we're inside a tag
+        const lastOpenTagMatch = textBeforeCursor.match(/<([a-zA-Z][a-zA-Z0-9]*)[^>]*$/);
+        const isInsideTag = lastOpenTagMatch && !textBeforeCursor.endsWith('>')
+        
+        // Check for unclosed tags to help with proper tag completion
+        const openTagsStack = [];
+        const tagRegex = /<\/?([a-zA-Z][a-zA-Z0-9]*)[^>]*>/g;
+        let match;
+        
+        while ((match = tagRegex.exec(textBeforeCursor)) !== null) {
+          const fullTag = match[0];
+          const tagName = match[1];
+          
+          if (fullTag.startsWith('</')) {
+            // Closing tag
+            if (openTagsStack.length > 0 && openTagsStack[openTagsStack.length - 1] === tagName) {
+              openTagsStack.pop();
+            }
+          } else if (!fullTag.endsWith('/>')) {
+            // Opening tag (not self-closing)
+            openTagsStack.push(tagName);
+          }
+        }
+        
+        if (openTagsStack.length > 0 || isInsideTag) {
+          htmlContext = `
+# HTML Context:
+${isInsideTag ? `Currently typing tag: ${lastOpenTagMatch[1]}` : ''}
+${openTagsStack.length > 0 ? `Unclosed tags: ${openTagsStack.join(', ')}` : ''}
+`;
+        }
+      }
+      
+      // Get additional context about the current file and codebase
+      let enhancedContextPrompt = '';
+      try {
+        // 1. Get imports and major declarations from the file
+        const importStatements = extractImports(content);
+        const declarations = extractDeclarations(content, language);
+        
+        // 2. Get surrounding code context (10 lines above and below cursor)
+        const startLine = Math.max(1, position.lineNumber - 10);
+        const endLine = Math.min(model.getLineCount(), position.lineNumber + 10);
+        let surroundingContext = '';
+        for (let i = startLine; i <= endLine; i++) {
+          if (i === position.lineNumber) {
+            // Mark the cursor position with [CURSOR] marker
+            const lineText = model.getLineContent(i);
+            surroundingContext += lineText.substring(0, position.column - 1) + 
+                                 "[CURSOR]" + 
+                                 lineText.substring(position.column - 1) + "\n";
+          } else {
+            surroundingContext += model.getLineContent(i) + "\n";
+          }
+        }
+        
+        // 3. Get context from related files based on imports
+        const currentFilePath = file?.path || '';
+        const relatedFilesContext = await getRelatedFilesContext(currentFilePath, content);
+        
+        // 4. Build the enhanced context prompt
+        enhancedContextPrompt = `
+# File: ${file?.name || 'untitled'}
+# Language: ${language}
+# Current Position: Line ${position.lineNumber}, Column ${position.column}
+${htmlContext}
+${importStatements.length > 0 ? '# Imports:\n' + importStatements.join('\n') : ''}
+
+${declarations.length > 0 ? '# Major Declarations:\n' + declarations.join('\n') : ''}
+
+${relatedFilesContext ? '# Related Files Context:\n' + relatedFilesContext : ''}
+
+# Surrounding Context:
+\`\`\`${language}
+${surroundingContext}
+\`\`\`
+
+${language === 'html' ? `Please provide a completion that continues from the [CURSOR] position. For HTML tags, ensure opening tags have proper closing brackets (>), and provide matching closing tags where appropriate. Complete in a way that's consistent with valid HTML syntax.` : `Please provide a completion that continues from the [CURSOR] position. Complete the current token, statement, or line in a way that's consistent with the surrounding code style and functionality.`}
+`;
+      } catch (error) {
+        console.error('Error building enhanced context:', error);
+        // Fall back to simple context if there's an error
+        enhancedContextPrompt = '';
       }
       
       console.log("Sending completion API request to LM Studio");
       
-      // Request completion
+      // Request completion with the enhanced context if available
+      const promptToUse = enhancedContextPrompt 
+        ? `${enhancedContextPrompt}\n\nContinuation: ${textBeforeCursor}`
+        : textBeforeCursor;
+        
       const response = await lmStudio.createCompletion({
         model: 'local-model', // Use your model name
-        prompt: textBeforeCursor,
+        prompt: promptToUse,
         max_tokens: 100,
         temperature: 0.2,
         stop: stopSequences
@@ -300,7 +529,32 @@ const EditorPane: React.FC<EditorPaneProps> = ({ fileId, file, onEditorReady }) 
         const completionText = response.choices[0].text;
         if (completionText && completionText.trim().length > 0) {
           console.log("Showing ghost text with completion:", completionText);
-          showGhostText(completionText);
+          
+          // Process HTML completions to ensure proper tag closing
+          let processedText = completionText;
+          if (language === 'html') {
+            // Fix unclosed opening tags
+            processedText = processedText.replace(/<([a-zA-Z][a-zA-Z0-9]*)\s*([^>]*)(?<!\/)$/g, '<$1 $2>');
+            
+            // Check if we have a tag that should be self-closed
+            const selfClosingTags = ['img', 'br', 'hr', 'input', 'meta', 'link'];
+            const tagMatch = processedText.match(/<([a-zA-Z][a-zA-Z0-9]*)\s*([^>]*)>$/);
+            if (tagMatch && selfClosingTags.includes(tagMatch[1].toLowerCase())) {
+              // Replace the ending > with /> for self-closing tags
+              processedText = processedText.replace(/>$/, '/>');
+            }
+            
+            // Check for unclosed tag pairs
+            const openTagMatch = processedText.match(/<([a-zA-Z][a-zA-Z0-9]*)[^>]*>(?!.*<\/\1>)/);
+            if (openTagMatch && !selfClosingTags.includes(openTagMatch[1].toLowerCase())) {
+              const tagName = openTagMatch[1];
+              if (!processedText.includes(`</${tagName}>`)) {
+                processedText += `</${tagName}>`;
+              }
+            }
+          }
+          
+          showGhostText(processedText);
         } else {
           console.log("Empty completion received, not showing ghost text");
         }
@@ -446,13 +700,60 @@ const EditorPane: React.FC<EditorPaneProps> = ({ fileId, file, onEditorReady }) 
     // Get the current selection or cursor position
     const selection = editor.current?.getSelection();
     const position = selection?.getStartPosition();
+    const model = editor.current?.getModel();
     
     // Get the current file path
     const currentFile = window.getCurrentFile?.();
     if (!currentFile) return;
 
-    // Create a context-aware prompt
-    const contextPrompt = `In file ${currentFile.path}${position ? ` at line ${position.lineNumber}, column ${position.column}` : ''}, ${prompt}`;
+    // Build enhanced context
+    let enhancedContext = `File: ${currentFile.path}`;
+    
+    if (position && model) {
+      enhancedContext += `\nPosition: Line ${position.lineNumber}, Column ${position.column}`;
+      
+      // Add surrounding code context (5 lines before and after cursor)
+      const startLine = Math.max(1, position.lineNumber - 5);
+      const endLine = Math.min(model.getLineCount(), position.lineNumber + 5);
+      
+      let surroundingCode = '\n\nSurrounding code:\n```\n';
+      for (let i = startLine; i <= endLine; i++) {
+        const lineContent = model.getLineContent(i);
+        // Mark the current line
+        surroundingCode += `${i === position.lineNumber ? '> ' : '  '}${lineContent}\n`;
+      }
+      surroundingCode += '```';
+      
+      enhancedContext += surroundingCode;
+      
+      // Add information about imports and structure
+      try {
+        const content = model.getValue();
+        const fileExt = currentFile.path.split('.').pop()?.toLowerCase() || '';
+        const language = getLanguageFromFileName(currentFile.path);
+        
+        const importStatements = extractImports(content);
+        if (importStatements.length > 0) {
+          enhancedContext += '\n\nImports in this file:\n```\n' + importStatements.join('\n') + '\n```';
+        }
+        
+        const declarations = extractDeclarations(content, language);
+        if (declarations.length > 0) {
+          enhancedContext += '\n\nMajor declarations in this file:\n```\n' + declarations.join('\n') + '\n```';
+        }
+        
+        // Add related files context
+        const relatedFilesContext = await getRelatedFilesContext(currentFile.path, content);
+        if (relatedFilesContext) {
+          enhancedContext += '\n\nContext from related files:\n```\n' + relatedFilesContext + '\n```';
+        }
+      } catch (error) {
+        console.error('Error adding imports/declarations to context:', error);
+      }
+    }
+    
+    // Create a context-aware prompt with file structure info
+    const contextPrompt = `${enhancedContext}\n\nUser request: ${prompt}`;
     
     try {
       // Get response from LM Studio
@@ -461,7 +762,7 @@ const EditorPane: React.FC<EditorPaneProps> = ({ fileId, file, onEditorReady }) 
         messages: [
           {
             role: 'system',
-            content: 'You are a coding assistant. Return only code changes without explanations.'
+            content: 'You are a coding assistant with deep knowledge of software development. Respond with concise, accurate code that addresses the user\'s needs.'
           },
           {
             role: 'user',

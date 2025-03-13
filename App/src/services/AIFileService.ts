@@ -1,6 +1,7 @@
 import { FileSystemService } from './FileSystemService';
 import { lmStudio } from './LMStudioService';
 import { FileChangeEventService } from './FileChangeEventService';
+import { cleanAIResponse } from '../utils/textUtils';
 
 interface FileOperation {
   path: string;
@@ -359,9 +360,8 @@ Return ONLY the final merged code without any explanations. The code should be r
       });
 
       const aiContent = response.choices[0]?.message?.content;
-      const cleanContent = (content: string) => content.trim().replace(/^```[\w-]*\n/, '').replace(/```$/, '');
       
-      return typeof aiContent === 'string' ? cleanContent(aiContent) : cleanContent(newContent);
+      return typeof aiContent === 'string' ? cleanAIResponse(aiContent) : cleanAIResponse(newContent);
     } catch (error) {
       console.error('Error merging changes:', error);
       if (this.isCompleteFile(newContent)) {
@@ -413,9 +413,8 @@ Return ONLY the final formatted code without any explanations. The code should b
       });
 
       const aiContent = response.choices[0]?.message?.content;
-      const cleanContent = (content: string) => content.trim().replace(/^```[\w-]*\n/, '').replace(/```$/, '');
       
-      return typeof aiContent === 'string' ? cleanContent(aiContent) : cleanContent(content);
+      return typeof aiContent === 'string' ? cleanAIResponse(aiContent) : cleanAIResponse(content);
     } catch (error) {
       console.error('Error formatting new file:', error);
       return content;
