@@ -31,6 +31,23 @@ export default defineConfig({
           });
         },
       },
+      '/execute-command': {
+        target: 'http://localhost:23816',
+        changeOrigin: true,
+        secure: false,
+        ws: true,
+      },
+      '/read-file': {
+        target: 'http://localhost:23816',
+        changeOrigin: true,
+        secure: false,
+      },
+      '/ws': {
+        target: 'http://localhost:23816',
+        changeOrigin: true,
+        secure: false,
+        ws: true,
+      }
     }
   },
   optimizeDeps: {

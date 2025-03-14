@@ -981,6 +981,70 @@ const CommandBlock: React.FC<{
     return `${hours}:${minutes}:${seconds} ${ampm}`;
   };
 
+  // Format output with syntax highlighting for Python
+  const formatOutput = (text: string) => {
+    if (!text) return null;
+    
+    // Basic syntax highlighting for Python output
+    const highlightPythonOutput = (str: string) => {
+      return str
+        .replace(/(".*?")/g, '<span style="color: #a8d7fe;">$1</span>') // strings
+        .replace(/\b(True|False|None)\b/g, '<span style="color: #ff9d45;">$1</span>') // booleans and None
+        .replace(/\b(\d+(\.\d+)?)\b/g, '<span style="color: #c586c0;">$1</span>') // numbers
+        .replace(/^(>>>|\.\.\.) /gm, '<span style="color: #569cd6;">$1 </span>') // REPL prompts
+        .replace(/^(Traceback.*:|Error.*:)/gm, '<span style="color: #ff5555; font-weight: bold;">$1</span>') // error headlines
+        .replace(/^(\s*File ".*", line \d+.*)/gm, '<span style="color: #888;">$1</span>') // file references in tracebacks
+        .replace(/^(\s*\w+Error:.*)/gm, '<span style="color: #ff5555;">$1</span>'); // error messages
+    };
+    
+    // Apply highlighting and preserve line breaks
+    const highlighted = highlightPythonOutput(text);
+    
+    // Safe to use dangerouslySetInnerHTML as we're not allowing any user HTML input
+    return <div dangerouslySetInnerHTML={{ __html: highlighted }} />;
+  };
+
+  // Create copy button for output
+  const CopyOutputButton = ({ text }: { text: string }) => {
+    const [copied, setCopied] = useState(false);
+    
+    const copyToClipboard = () => {
+      navigator.clipboard.writeText(text).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      });
+    };
+    
+    return (
+      <button 
+        onClick={copyToClipboard}
+        style={{
+          background: 'none',
+          border: 'none',
+          color: copied ? '#4CAF50' : '#888',
+          cursor: 'pointer',
+          fontSize: '12px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '4px',
+          padding: '2px 6px',
+          borderRadius: '4px',
+          transition: 'all 0.2s ease'
+        }}
+      >
+        {copied ? (
+          <>
+            <span style={{ fontSize: '14px' }}>✓</span> Copied
+          </>
+        ) : (
+          <>
+            <span style={{ fontSize: '14px' }}>📋</span> Copy
+          </>
+        )}
+      </button>
+    );
+  };
+
   return (
     <div className="command-block">
       <div className="command-header" onClick={toggleExpand}>
@@ -1003,38 +1067,49 @@ const CommandBlock: React.FC<{
           {isExecuting && (
             <span className="execution-status running">Running...</span>
           )}
-          {hasExecuted && !isExecuting && (
-            <span className={`execution-status ${error ? 'error' : 'success'}`}>
-              {error ? 'Failed' : 'Executed'}
-            </span>
+          {hasExecuted && !isExecuting && error && (
+            <span className="execution-status error">Failed</span>
           )}
-          {executionId && !isExecuting && (
-            <span className="execution-id">ID: {executionId.split('_')[1]}</span>
-          )}
-          {executionTimestamp && !isExecuting && (
-            <span className="execution-time">{formatTimestamp(executionTimestamp)}</span>
-          )}
-          <span className="expand-icon">{isExpanded ? '▼' : '►'}</span>
+          
+          <span className="expand-icon" style={{ transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)' }}>
+            ▼
+          </span>
         </div>
       </div>
       
       {isExpanded && (
         <div className="command-output scrollable-output">
           {isExecuting && <div className="executing-indicator">Executing command...</div>}
-          {error && <pre className="error-output">{error}</pre>}
-          {output !== null && output !== "" && (
-            <pre className="success-output">{output}</pre>
+          
+          {error && (
+            <div className="error-container">
+              <pre className="error-output">{error}</pre>
+              {error && <CopyOutputButton text={error} />}
+            </div>
           )}
+          
+          {output !== null && output !== "" && (
+            <div className="output-container">
+              <pre className="success-output">
+                {formatOutput(output)}
+              </pre>
+              {output && <CopyOutputButton text={output} />}
+            </div>
+          )}
+          
           {!isExecuting && hasExecuted && output === "" && (
             <pre className="success-output">Command executed successfully with no output.</pre>
           )}
+          
           <div className="execution-metadata">
-            {executionId && (
-              <div className="execution-id">Execution ID: {executionId}</div>
-            )}
-            {executionTimestamp && (
-              <div className="execution-timestamp">Time: {formatTimestamp(executionTimestamp)}</div>
-            )}
+            <div>
+              {executionId && (
+                <div className="execution-id">Execution ID: {executionId}</div>
+              )}
+              {executionTimestamp && (
+                <div className="execution-timestamp">Time: {formatTimestamp(executionTimestamp)}</div>
+              )}
+            </div>
           </div>
         </div>
       )}
