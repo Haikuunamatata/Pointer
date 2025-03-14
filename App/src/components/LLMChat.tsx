@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { lmStudio } from '../services/LMStudioService';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -819,20 +819,50 @@ const CommandBlock: React.FC<{
   message?: Message;
   existingExecution?: CommandExecution;
 }> = ({ command, mode, message, existingExecution }) => {
+  // Create a unique key for this command in this message
+  const commandKey = useMemo(() => {
+    // Use a combination of the first few characters of the message content and command as a unique key
+    // since Message may not have an id property
+    const messagePrefix = message?.content.slice(0, 20) || 'unknown';
+    return `${messagePrefix}_${command}`;
+  }, [message, command]);
+
   const [isExecuting, setIsExecuting] = useState(false);
-  const [hasExecuted, setHasExecuted] = useState(!!existingExecution);
+  const [hasExecuted, setHasExecuted] = useState(!!existingExecution || executedCommandsRegistry.has(commandKey));
   const [isExpanded, setIsExpanded] = useState(mode === 'execute' || !!existingExecution);
-  const [output, setOutput] = useState<string | null>(existingExecution?.output || null);
-  const [error, setError] = useState<string | null>(existingExecution?.error || null);
-  const [executionId, setExecutionId] = useState<string | null>(existingExecution?.id || null);
-  const [executionTimestamp, setExecutionTimestamp] = useState<number | null>(existingExecution?.timestamp || null);
+  const [output, setOutput] = useState<string | null>(
+    existingExecution?.output || 
+    (commandExecutionsRegistry[commandKey]?.output || null)
+  );
+  const [error, setError] = useState<string | null>(
+    existingExecution?.error || 
+    (commandExecutionsRegistry[commandKey]?.error || null)
+  );
+  const [executionId, setExecutionId] = useState<string | null>(
+    existingExecution?.id || 
+    (commandExecutionsRegistry[commandKey]?.id || null)
+  );
+  const [executionTimestamp, setExecutionTimestamp] = useState<number | null>(
+    existingExecution?.timestamp || 
+    (commandExecutionsRegistry[commandKey]?.timestamp || null)
+  );
   const [execCount, setExecCount] = useState(0); // Track multiple executions of same command
+  
+  // Use refs to track state across re-renders
+  const isExecutingRef = useRef(false);
+  const hasExecutedRef = useRef(!!existingExecution || executedCommandsRegistry.has(commandKey));
   
   // Store message reference so we can update it later
   const messageRef = useRef(message);
   useEffect(() => {
     messageRef.current = message;
   }, [message]);
+
+  // Keep refs in sync with state
+  useEffect(() => {
+    isExecutingRef.current = isExecuting;
+    hasExecutedRef.current = hasExecuted;
+  }, [isExecuting, hasExecuted]);
 
   // Generate a unique execution ID for this command instance
   const generateExecutionId = useCallback(() => {
@@ -876,22 +906,50 @@ const CommandBlock: React.FC<{
       updatedMsg.commandExecutions?.push(cmdExecution);
     }
     
+    // Add to global registry to prevent re-execution
+    executedCommandsRegistry.add(commandKey);
+    commandExecutionsRegistry[commandKey] = cmdExecution;
+    
     // TODO: Handle updating the message in state - this would require passing down a setter function
     console.log('Updated message:', updatedMsg);
     
     // For now we just update the local state
     // A real implementation would update the parent component's state as well
-  }, [command]);
+  }, [command, commandKey]);
 
   const executeCommand = useCallback(async () => {
-    // Don't execute if already executing
-    if (isExecuting) return;
+    // Don't execute if already executing or has been executed globally
+    if (isExecutingRef.current || executedCommandsRegistry.has(commandKey)) {
+      console.log('Skipping execution: already executing or already executed globally', commandKey);
+      
+      // If we have execution data in the registry, use it
+      const existingExecution = commandExecutionsRegistry[commandKey];
+      if (existingExecution) {
+        setOutput(existingExecution.output || null);
+        setError(existingExecution.error || null);
+        setExecutionId(existingExecution.id);
+        setExecutionTimestamp(existingExecution.timestamp);
+        setHasExecuted(true);
+        hasExecutedRef.current = true;
+      }
+      
+      return;
+    }
+    
+    // Don't execute if already executed in execute mode
+    if (mode === 'execute' && hasExecutedRef.current) {
+      console.log('Skipping execution: already executed with execute mode');
+      return;
+    }
     
     // Always increment execution count when executing
     const newExecCount = execCount + 1;
     setExecCount(newExecCount);
     
+    // Update both state and ref to prevent race conditions
     setIsExecuting(true);
+    isExecutingRef.current = true;
+    
     setError(null);
     setOutput(null);
     setIsExpanded(true); // Always expand when executing
@@ -949,17 +1007,26 @@ const CommandBlock: React.FC<{
       console.error("Error executing command:", err);
       setError(`Failed to execute command: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
+      // Update both state and ref
       setIsExecuting(false);
+      isExecutingRef.current = false;
+      
       setHasExecuted(true);
+      hasExecutedRef.current = true;
+      
+      // Add to global registry to prevent re-execution
+      executedCommandsRegistry.add(commandKey);
     }
-  }, [command, isExecuting, mode, execCount, updateMessageWithExecutedCommand, generateExecutionId]);
+  }, [command, mode, execCount, updateMessageWithExecutedCommand, generateExecutionId, commandKey]);
 
   // Handle automatic execution for 'execute' mode
   useEffect(() => {
-    if (mode === 'execute' && !hasExecuted && !isExecuting) {
+    // Only execute if the command is in execute mode, hasn't been executed globally yet, and isn't currently executing
+    if (mode === 'execute' && !executedCommandsRegistry.has(commandKey) && !isExecutingRef.current) {
+      console.log('Auto-executing command:', command);
       executeCommand();
     }
-  }, [mode, hasExecuted, isExecuting, executeCommand]);
+  }, [mode, executeCommand, command, commandKey]);
 
   const toggleExpand = () => {
     setIsExpanded(!isExpanded);
@@ -1119,9 +1186,18 @@ const CommandBlock: React.FC<{
 
 const MessageRenderer: React.FC<{ message: Message }> = ({ message }) => {
   const [processedContent, setProcessedContent] = useState(message.content);
+  // Track if content has been processed already
+  const hasProcessedRef = useRef(false);
+  // Store the last processed content to avoid re-processing the same content
+  const lastProcessedContentRef = useRef<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
+    
+    // Skip processing if content hasn't changed or is empty
+    if (lastProcessedContentRef.current === message.content || !message.content) {
+      return;
+    }
     
     const processContent = async () => {
       try {
@@ -1182,16 +1258,25 @@ const MessageRenderer: React.FC<{ message: Message }> = ({ message }) => {
 
         if (mounted) {
           setProcessedContent(processed);
+          // Update reference to the last processed content
+          lastProcessedContentRef.current = message.content;
+          hasProcessedRef.current = true;
         }
       } catch (error) {
         console.error('Error processing message content:', error instanceof Error ? error.message : String(error));
         if (mounted) {
           setProcessedContent(message.content);
+          // Even if there's an error, we still want to mark it as processed
+          lastProcessedContentRef.current = message.content;
+          hasProcessedRef.current = true;
         }
       }
     };
 
-    processContent();
+    // Only process content if it hasn't been processed yet or has changed
+    if (!hasProcessedRef.current || lastProcessedContentRef.current !== message.content) {
+      processContent();
+    }
 
     return () => {
       mounted = false;
