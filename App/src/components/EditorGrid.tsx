@@ -499,7 +499,9 @@ ${relatedFilesContext ? '# Related Files Context:\n' + relatedFilesContext : ''}
 ${surroundingContext}
 \`\`\`
 
-${language === 'html' ? `Please provide a completion that continues from the [CURSOR] position. For HTML tags, ensure opening tags have proper closing brackets (>), and provide matching closing tags where appropriate. Complete in a way that's consistent with valid HTML syntax.` : `Please provide a completion that continues from the [CURSOR] position. Complete the current token, statement, or line in a way that's consistent with the surrounding code style and functionality.`}
+${language === 'html' 
+  ? `Please provide a completion that continues from the [CURSOR] position. DO NOT include the [CURSOR] marker in your response. For HTML tags, ensure opening tags have proper closing brackets (>), and provide matching closing tags where appropriate. Complete in a way that's consistent with valid HTML syntax.` 
+  : `Please provide a completion that continues from the [CURSOR] position. DO NOT include the [CURSOR] marker in your response. Complete the current token, statement, or line in a way that's consistent with the surrounding code style and functionality.`}
 `;
       } catch (error) {
         console.error('Error building enhanced context:', error);
@@ -530,8 +532,16 @@ ${language === 'html' ? `Please provide a completion that continues from the [CU
         if (completionText && completionText.trim().length > 0) {
           console.log("Showing ghost text with completion:", completionText);
           
+          // Remove [CURSOR] marker from the completion text
+          let processedText = completionText.replace(/\[CURSOR\](\s*)/g, '');
+          
+          // Skip if the completion is empty after removing the cursor marker
+          if (!processedText.trim()) {
+            console.log("Empty completion after removing [CURSOR], not showing ghost text");
+            return;
+          }
+          
           // Process HTML completions to ensure proper tag closing
-          let processedText = completionText;
           if (language === 'html') {
             // Fix unclosed opening tags
             processedText = processedText.replace(/<([a-zA-Z][a-zA-Z0-9]*)\s*([^>]*)(?<!\/)$/g, '<$1 $2>');
@@ -570,6 +580,12 @@ ${language === 'html' ? `Please provide a completion that continues from the [CU
     
     // First, remove any existing ghost text
     removeGhostText();
+    
+    // If the input text is empty or only whitespace, don't show anything
+    if (!text || !text.trim()) {
+      console.log("Empty text received in showGhostText, not displaying");
+      return;
+    }
     
     // Clean up the completion text
     const position = lastPositionRef.current;
