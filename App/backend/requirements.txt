@@ -1,9 +1,23 @@
+# Common requirements for all platforms
+# For OS-specific installation, use:
+# - requirements_windows.txt for Windows
+# - requirements_macos.txt for macOS
+# - requirements_linux.txt for Linux
+
+# Core dependencies (shared across all platforms)
 fastapi==0.104.1
 uvicorn==0.24.0
 pydantic==2.4.2
-PyQt5==5.15.9
 python-multipart==0.0.9
 starlette>=0.27.0
 spacy
 websockets
-pywin32
+
+# For OS-specific dependencies, install the appropriate file using:
+# Windows: pip install -r requirements_windows.txt
+# macOS: pip install -r requirements_macos.txt
+# Linux: pip install -r requirements_linux.txt
+
+
+# python3 -m spacy download en_core_web_sm
+# Execute this command to download the model
