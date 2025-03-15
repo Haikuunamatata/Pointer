@@ -51,6 +51,39 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.addEventListener('mousemove', handleCardGlow);
 
+    // Glow effect for bento grid cards
+    const coreCards = document.querySelectorAll('.core-card');
+    
+    coreCards.forEach(card => {
+        // Create and append the cursor backdrop element
+        const backdrop = document.createElement('div');
+        backdrop.classList.add('cursor-backdrop');
+        card.appendChild(backdrop);
+        
+        card.addEventListener('mousemove', function(e) {
+            const rect = this.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            // Set CSS variables for the glow effect position
+            this.style.setProperty('--x', `${x}px`);
+            this.style.setProperty('--y', `${y}px`);
+        });
+        
+        // Add mouse enter event to ensure the cursor backdrop is visible immediately
+        card.addEventListener('mouseenter', function() {
+            this.classList.add('cursor-active');
+        });
+        
+        // Add mouse leave event to reset the cursor position
+        card.addEventListener('mouseleave', function() {
+            this.classList.remove('cursor-active');
+            // Reset cursor position to center when mouse leaves
+            this.style.setProperty('--x', '50%');
+            this.style.setProperty('--y', '50%');
+        });
+    });
+
     // Typing animation
     const text = "# AI suggests optimized solution";
     const typingText = document.querySelector('.typing-text');
