@@ -166,9 +166,53 @@ const CopyButton: React.FC<{ content: string }> = ({ content }) => {
 const InsertButton: React.FC<{ content: string }> = ({ content }) => {
   const [inserted, setInserted] = useState(false);
   const [error, setError] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  // Function to get the model ID for insertion
+  const getInsertModelId = async (): Promise<string> => {
+    const defaultModel = 'default-model';
+    let modelId = defaultModel;
+    
+    try {
+      // Try to load from localStorage for backward compatibility
+      const modelAssignmentsStr = localStorage.getItem('modelAssignments');
+      const modelAssignments = modelAssignmentsStr ? JSON.parse(modelAssignmentsStr) : {
+        chat: 'default',
+        insert: 'default',
+        autocompletion: 'default',
+        general: 'default'
+      };
+      
+      // Try to load settings from file
+      const settingsResult = await FileSystemService.readSettingsFiles('C:/ProgramData/Pointer/data/settings');
+      if (settingsResult.success && settingsResult.settings.models && 
+          settingsResult.settings.modelAssignments && settingsResult.settings.modelAssignments.insert) {
+        const assignedModelId = settingsResult.settings.modelAssignments.insert;
+        if (settingsResult.settings.models[assignedModelId] && settingsResult.settings.models[assignedModelId].id) {
+          modelId = settingsResult.settings.models[assignedModelId].id;
+          console.log(`Using model ID from settings file: ${modelId} (assignment: ${assignedModelId})`);
+        }
+      } else {
+        // Fall back to localStorage
+        const modelConfigStr = localStorage.getItem('modelConfig');
+        if (modelConfigStr) {
+          const parsed = JSON.parse(modelConfigStr);
+          modelId = parsed.id || parsed.name || defaultModel;
+          console.log(`Using model ID from localStorage: ${modelId}`);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading model settings for insert:', error);
+    }
+
+    console.log(`Final model ID for insertion: ${modelId}`);
+    return modelId;
+  };
 
   const handleInsert = async () => {
     try {
+      setIsProcessing(true);
+      
       // Get the current file path from the App state
       const currentFile = window.getCurrentFile?.();
       console.log('Current file:', currentFile);
@@ -176,16 +220,27 @@ const InsertButton: React.FC<{ content: string }> = ({ content }) => {
         throw new Error('No file is currently open');
       }
 
+      // Get the model ID to use - explicitly awaiting result
+      const modelId = await getInsertModelId();
+      console.log(`Using model for insertion: ${modelId}`);
+
+      // In the future, we could use LLM to format/improve the code before inserting
+      // For now, just insert the code as-is
+      
       // Call the backend endpoint
+      const requestBody = {
+        path: currentFile.path,
+        content: content,
+        model: modelId // Send the model ID to the backend for future use
+      };
+      console.log('Insert code request:', requestBody);
+      
       const response = await fetch('http://localhost:23816/insert-code', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          path: currentFile.path,
-          content: content,
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {
@@ -222,47 +277,42 @@ const InsertButton: React.FC<{ content: string }> = ({ content }) => {
       console.error('Failed to insert code:', err);
       setError(true);
       setTimeout(() => setError(false), 2000);
+    } finally {
+      setIsProcessing(false);
     }
   };
 
   return (
     <button
+      className="insert-button"
       onClick={handleInsert}
+      disabled={isProcessing}
+      title={error ? 'Failed to insert code' : inserted ? 'Inserted!' : 'Insert code in editor'}
       style={{
-        position: 'absolute',
-        right: '44px',
-        top: '-12px',
-        background: 'var(--bg-secondary)',
-        border: '1px solid var(--border-primary)',
-        borderRadius: '4px',
-        padding: '6px',
+        background: 'none',
+        border: 'none',
+        cursor: isProcessing ? 'wait' : 'pointer',
         color: error ? 'var(--text-error)' : inserted ? 'var(--accent-color)' : 'var(--text-secondary)',
-        cursor: 'pointer',
-        opacity: 0.7,
-        transition: 'all 0.2s ease',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        width: '28px',
-        height: '28px',
+        padding: '0',
+        width: '24px',
+        height: '24px',
+        transition: 'all 0.2s ease-in-out',
         transform: (inserted || error) ? 'scale(1.1)' : 'scale(1)',
+        borderRadius: '4px',
+        opacity: isProcessing ? 0.6 : 1
       }}
-      title={error ? 'Failed to insert code' : inserted ? 'Inserted!' : 'Insert code in editor'}
     >
-      {error ? (
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <circle cx="12" cy="12" r="10" />
-          <line x1="15" y1="9" x2="9" y2="15" />
-          <line x1="9" y1="9" x2="15" y2="15" />
-        </svg>
+      {isProcessing ? (
+        <span style={{ fontSize: '18px' }}>↻</span>
+      ) : error ? (
+        <span style={{ fontSize: '18px' }}>✕</span>
       ) : inserted ? (
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <polyline points="20 6 9 17 4 12" />
-        </svg>
+        <span style={{ fontSize: '18px' }}>✓</span>
       ) : (
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M12 5v14M5 12h14" />
-        </svg>
+        <span style={{ fontSize: '18px' }}>↓</span>
       )}
     </button>
   );
@@ -1784,15 +1834,50 @@ FINAL REMINDER:
       setMessages(prev => [...prev, { role: 'assistant', content: '' }]);
 
       // Get model configuration from localStorage
+      let modelConfig;
+      // First try to get assigned model for chat
+      const modelAssignmentsStr = localStorage.getItem('modelAssignments');
+      const modelAssignments = modelAssignmentsStr ? JSON.parse(modelAssignmentsStr) : {
+        chat: 'default',
+        insert: 'default',
+        autocompletion: 'default',
+        general: 'default'
+      };
+      
+      // Use the assigned chat model
       const modelConfigStr = localStorage.getItem('modelConfig');
-      const modelConfig = modelConfigStr ? JSON.parse(modelConfigStr) : {
-        name: 'deepseek-coder-v2-lite-instruct',
+      const defaultModelConfig = modelConfigStr ? JSON.parse(modelConfigStr) : {
+        id: 'default-model',
+        name: 'Default Model',
         temperature: 0.7,
         maxTokens: -1,
         topP: 1,
         frequencyPenalty: 0,
         presencePenalty: 0,
       };
+
+      // Try to load model settings from the settings directory
+      try {
+        const settingsResult = await FileSystemService.readSettingsFiles('C:/ProgramData/Pointer/data/settings');
+        if (settingsResult.success && settingsResult.settings.models) {
+          // Get the chat model id from assignments
+          const chatModelId = settingsResult.settings.modelAssignments?.chat || modelAssignments.chat || 'default';
+          
+          // Find the model configuration by id
+          if (settingsResult.settings.models[chatModelId]) {
+            modelConfig = settingsResult.settings.models[chatModelId];
+            console.log('Using chat model from settings:', chatModelId, modelConfig);
+          } else {
+            // Fallback to default if the assigned model doesn't exist
+            modelConfig = settingsResult.settings.models.default || defaultModelConfig;
+          }
+        } else {
+          modelConfig = defaultModelConfig;
+        }
+      } catch (error) {
+        console.error('Error loading model settings:', error);
+        modelConfig = defaultModelConfig;
+      }
 
       // Prepare messages array
       const messagesForAPI = [
@@ -1810,7 +1895,7 @@ FINAL REMINDER:
       ];
 
       await lmStudio.createStreamingChatCompletion({
-        model: modelConfig.name,
+        model: modelConfig.id || modelConfig.name, // Use ID if available, fall back to name
         messages: messagesForAPI,
         temperature: modelConfig.temperature,
         max_tokens: modelConfig.maxTokens,
@@ -2189,16 +2274,6 @@ FINAL REMINDER:
               )}
             </div>
           </div>
-          <button
-            onClick={() => setIsSettingsVisible(true)}
-            className="settings-button"
-            title="Settings"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="12" r="3" />
-              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-            </svg>
-          </button>
         </div>
         <button
           onClick={onClose}

@@ -81,7 +81,7 @@ const EditorPane: React.FC<EditorPaneProps> = ({ fileId, file, onEditorReady }) 
       scrollBeyondLastLine: false,
       cursorStyle: 'line',
       lineHeight: 19,
-      renderFinalNewline: true,
+      renderFinalNewline: 'on',
       detectIndentation: true,
       trimAutoWhitespace: true
     };
@@ -393,20 +393,134 @@ ${declarations.join('\n')}
 
       const position = lastPositionRef.current;
       
-      // We're already triggering Monaco's suggestions in the timeout handler,
-      // so we don't need to do it again here.
-      
       // Get text before the cursor for context
       const content = model.getValue();
       const textBeforeCursor = content.substring(0, model.getOffsetAt(position));
       
-      // Get line content (but don't use it to exclude comments/empty lines anymore)
+      // Get current line content and analyze it
       const lineContent = model.getLineContent(position.lineNumber);
       const lineBeforeCursor = lineContent.substring(0, position.column - 1);
+      const lineAfterCursor = lineContent.substring(position.column - 1);
       
-      // Get file extension for better language context
+      // Get file extension and language for better context
       const fileExt = file?.name ? file.name.split('.').pop()?.toLowerCase() : '';
       const language = getLanguageFromFileName(file?.name || '');
+      
+      // Determine current code context (import, function, class, etc.)
+      let codeContext = 'unknown';
+      
+      // Get the line number of the cursor position
+      const cursorLineNumber = position.lineNumber;
+      
+      // Count total lines in the file
+      const totalLines = model.getLineCount();
+      
+      // Get all lines of the file to analyze the structure
+      const allLines = [];
+      for (let i = 1; i <= totalLines; i++) {
+        allLines.push(model.getLineContent(i));
+      }
+      
+      // For Python files, do a more thorough structure analysis
+      if (language === 'python') {
+        // Find where import statements end in the file
+        let importSectionEndLine = 1;
+        let foundNonImport = false;
+        
+        for (let i = 0; i < allLines.length; i++) {
+          const line = allLines[i].trim();
+          // Skip empty lines and comments
+          if (line === '' || line.startsWith('#')) {
+            continue;
+          }
+          
+          if (line.startsWith('import ') || line.startsWith('from ')) {
+            if (!foundNonImport) {
+              importSectionEndLine = i + 1;
+            }
+          } else {
+            foundNonImport = true;
+            // If we already found a non-import and now see another import,
+            // it's probably not in the primary import section
+            if (i > importSectionEndLine + 5) {
+              break;
+            }
+          }
+        }
+        
+        console.log(`Import section ends at line ${importSectionEndLine}, cursor at line ${cursorLineNumber}`);
+        
+        // Check if cursor is in the import section
+        if (cursorLineNumber <= importSectionEndLine + 2) { // +2 for a bit of buffer
+          codeContext = 'import';
+        } else {
+          // Look for function or class definitions above the cursor
+          let insideFunction = false;
+          let insideClass = false;
+          let functionIndentation = 0;
+          let classIndentation = 0;
+          
+          // Scan from the cursor position backwards to find what context we're in
+          for (let i = cursorLineNumber - 1; i >= 0; i--) {
+            const line = allLines[i];
+            const trimmedLine = line.trim();
+            const indentation = line.length - line.trimStart().length;
+            
+            if (trimmedLine.startsWith('def ') && trimmedLine.includes(':')) {
+              functionIndentation = indentation;
+              insideFunction = true;
+              break;
+            } else if (trimmedLine.startsWith('class ') && trimmedLine.includes(':')) {
+              classIndentation = indentation;
+              insideClass = true;
+              break;
+            } else if (trimmedLine && !trimmedLine.startsWith('#')) {
+              // If we hit a non-empty, non-comment line with less indentation
+              // than our cursor position, we're not inside any function or class
+              const currentLineIndentation = lineContent.length - lineContent.trimStart().length;
+              if (indentation < currentLineIndentation) {
+                break;
+              }
+            }
+          }
+          
+          // Determine context based on indentation and definitions
+          if (insideFunction) {
+            codeContext = 'function';
+          } else if (insideClass) {
+            codeContext = 'class';
+          } else {
+            codeContext = 'module';
+          }
+        }
+      } else {
+        // Original context detection for non-Python files
+        // Check if we're in an import section
+        const lastImportMatch = textBeforeCursor.match(/^([\s\S]*?)(import|from)\s+[^;]*?$/m);
+        const isInImportSection = lastImportMatch && 
+                                 (position.lineNumber <= textBeforeCursor.split('\n').length - lastImportMatch[0].split('\n').length + 5);
+        
+        // Check if we're inside a function definition
+        const lastFunctionMatch = textBeforeCursor.match(/def\s+\w+\s*\([^)]*\)\s*:/);
+        const isInFunction = lastFunctionMatch && 
+                             !textBeforeCursor.substring(textBeforeCursor.lastIndexOf(lastFunctionMatch[0])).includes('\ndef ');
+        
+        // Check if we're inside a class definition
+        const lastClassMatch = textBeforeCursor.match(/class\s+\w+/);
+        const isInClass = lastClassMatch && 
+                          !textBeforeCursor.substring(textBeforeCursor.lastIndexOf(lastClassMatch[0])).includes('\nclass ');
+        
+        // Assign code context based on position
+        if (isInImportSection) {
+          codeContext = 'import';
+        } else if (isInFunction) {
+          codeContext = 'function';
+        } else if (isInClass) {
+          codeContext = 'class';
+        }
+      }
+      
+      console.log(`Current code context: ${codeContext}, Line: ${position.lineNumber}, Column: ${position.column}`);
       
       // Build stop sequences based on language
       const stopSequences = ['\n\n'];
@@ -415,11 +529,10 @@ ${declarations.join('\n')}
       } else if (language === 'python') {
         stopSequences.push('\ndef ', '\nclass ');
       } else if (language === 'html') {
-        // Improved stop sequences for HTML to ensure proper tag closing
         stopSequences.push('>\n', '</');
       }
       
-      // Add special HTML context if needed
+      // Add HTML context if needed
       let htmlContext = '';
       if (language === 'html') {
         // Check if we're inside a tag
@@ -482,11 +595,12 @@ ${openTagsStack.length > 0 ? `Unclosed tags: ${openTagsStack.join(', ')}` : ''}
         const currentFilePath = file?.path || '';
         const relatedFilesContext = await getRelatedFilesContext(currentFilePath, content);
         
-        // 4. Build the enhanced context prompt
+        // 4. Build the enhanced context prompt with code context information
         enhancedContextPrompt = `
 # File: ${file?.name || 'untitled'}
 # Language: ${language}
 # Current Position: Line ${position.lineNumber}, Column ${position.column}
+# Code Context: ${codeContext}
 ${htmlContext}
 ${importStatements.length > 0 ? '# Imports:\n' + importStatements.join('\n') : ''}
 
@@ -499,75 +613,101 @@ ${relatedFilesContext ? '# Related Files Context:\n' + relatedFilesContext : ''}
 ${surroundingContext}
 \`\`\`
 
-${language === 'html' 
-  ? `Please provide a completion that continues from the [CURSOR] position. DO NOT include the [CURSOR] marker in your response. For HTML tags, ensure opening tags have proper closing brackets (>), and provide matching closing tags where appropriate. Complete in a way that's consistent with valid HTML syntax.` 
-  : `Please provide a completion that continues from the [CURSOR] position. DO NOT include the [CURSOR] marker in your response. Complete the current token, statement, or line in a way that's consistent with the surrounding code style and functionality.`}
+I need a completion that continues exactly from the [CURSOR] position. The completion should be VERY SHORT (ideally just a few words or a single line) and must be contextually appropriate for ${codeContext} context.
+
+If I'm in the middle of a function, suggest only function body code, NOT imports or declarations.
+If I'm at the top level outside functions, suggest declarations or logical next steps.
+If I'm in an import section, suggest only relevant imports.
+
+DO NOT include the [CURSOR] marker in your response. Provide ONLY the completion text without any explanation.
 `;
       } catch (error) {
         console.error('Error building enhanced context:', error);
-        // Fall back to simple context if there's an error
         enhancedContextPrompt = '';
       }
       
       console.log("Sending completion API request to LM Studio");
       
-      // Request completion with the enhanced context if available
-      const promptToUse = enhancedContextPrompt 
-        ? `${enhancedContextPrompt}\n\nContinuation: ${textBeforeCursor}`
-        : textBeforeCursor;
-        
-      const response = await lmStudio.createCompletion({
-        model: 'local-model', // Use your model name
-        prompt: promptToUse,
-        max_tokens: 100,
-        temperature: 0.2,
-        stop: stopSequences
-      });
-
-      console.log("Completion API response received", response);
+      // Request completion with the enhanced context
+      const contextPrompt = `${enhancedContextPrompt}\n\nUser request: ${prompt}`;
       
-      // Display completion as ghost text
-      if (response.choices && response.choices.length > 0) {
-        const completionText = response.choices[0].text;
-        if (completionText && completionText.trim().length > 0) {
-          console.log("Showing ghost text with completion:", completionText);
+      try {
+        // Use autocompletion model for code completion
+        const modelId = await AIFileService.getModelIdForPurpose('autocompletion');
+        console.log(`Using model for code completion: ${modelId}`);
+
+        // Get response from LM Studio
+        const response = await lmStudio.createChatCompletion({
+          model: modelId,
+          messages: [
+            {
+              role: 'system',
+              content: 'You are a code completion assistant. Provide short, contextually relevant code completions. Response should be just the completion text without explanation or markdown.'
+            },
+            {
+              role: 'user',
+              content: contextPrompt
+            }
+          ],
+          temperature: 0.2, // Lower temperature for more focused completions
+        });
+
+        const aiContent = response.choices[0]?.message?.content;
+        if (aiContent) {
+          // Extract the first line or a reasonable suggestion from the AI content
+          let suggestion = aiContent.trim();
           
-          // Remove [CURSOR] marker from the completion text
-          let processedText = completionText.replace(/\[CURSOR\](\s*)/g, '');
+          // Remove markdown code blocks if present
+          suggestion = suggestion.replace(/```[\w]*\n/g, '').replace(/```/g, '');
           
-          // Skip if the completion is empty after removing the cursor marker
-          if (!processedText.trim()) {
-            console.log("Empty completion after removing [CURSOR], not showing ghost text");
-            return;
+          // If the suggestion is prefixed with the language name, remove it
+          suggestion = suggestion.replace(/^(javascript|typescript|python|html|css|java|c\+\+|c#|go|rust|php|ruby|swift|kotlin|scala)\s+/i, '');
+          
+          // Remove any [CURSOR] markers
+          suggestion = suggestion.replace('[CURSOR]', '');
+          
+          // Context-aware filtering based on where we are in the code
+          if (codeContext === 'function' && suggestion.includes('import ')) {
+            console.log("Filtering out inappropriate import in function context");
+            suggestion = '';
+          } else if (codeContext !== 'import' && suggestion.trim().startsWith('from ') && suggestion.includes(' import ')) {
+            console.log("Filtering out inappropriate import outside import section");
+            suggestion = '';
           }
           
-          // Process HTML completions to ensure proper tag closing
-          if (language === 'html') {
-            // Fix unclosed opening tags
-            processedText = processedText.replace(/<([a-zA-Z][a-zA-Z0-9]*)\s*([^>]*)(?<!\/)$/g, '<$1 $2>');
+          // If suggestion is not empty after cleaning, show it as ghost text
+          if (suggestion.trim()) {
+            console.log("Showing ghost text suggestion:", suggestion);
             
-            // Check if we have a tag that should be self-closed
-            const selfClosingTags = ['img', 'br', 'hr', 'input', 'meta', 'link'];
-            const tagMatch = processedText.match(/<([a-zA-Z][a-zA-Z0-9]*)\s*([^>]*)>$/);
-            if (tagMatch && selfClosingTags.includes(tagMatch[1].toLowerCase())) {
-              // Replace the ending > with /> for self-closing tags
-              processedText = processedText.replace(/>$/, '/>');
-            }
-            
-            // Check for unclosed tag pairs
-            const openTagMatch = processedText.match(/<([a-zA-Z][a-zA-Z0-9]*)[^>]*>(?!.*<\/\1>)/);
-            if (openTagMatch && !selfClosingTags.includes(openTagMatch[1].toLowerCase())) {
-              const tagName = openTagMatch[1];
-              if (!processedText.includes(`</${tagName}>`)) {
-                processedText += `</${tagName}>`;
+            // Additional Python-specific filtering
+            if (language === 'python') {
+              // If we're not in an import section but the suggestion starts with an import,
+              // don't show it as ghost text
+              if (codeContext !== 'import' && 
+                 (suggestion.trim().startsWith('from ') || 
+                  suggestion.trim().startsWith('import '))) {
+                console.log("Blocking inappropriate import in Python context:", codeContext);
+                return;
+              }
+              
+              // If we're inside a function body, make sure we don't suggest non-indented code
+              if (codeContext === 'function' && 
+                  lineContent.startsWith(' ') && 
+                  !suggestion.startsWith(' ') && 
+                  suggestion.trim().length > 0) {
+                // Add proper indentation to match the current line
+                const currentIndent = lineContent.length - lineContent.trimStart().length;
+                suggestion = ' '.repeat(currentIndent) + suggestion.trimStart();
               }
             }
+            
+            showGhostText(suggestion);
+          } else {
+            console.log("No valid suggestion to show after filtering");
           }
-          
-          showGhostText(processedText);
-        } else {
-          console.log("Empty completion received, not showing ghost text");
         }
+      } catch (error) {
+        console.error('Error processing AI request:', error);
       }
     } catch (error) {
       console.error('Error getting code completion:', error);
@@ -597,22 +737,53 @@ ${language === 'html'
     
     let displayText = text;
     
+    // Final check to make sure we're not showing imports at inappropriate places
+    const totalLines = model.getLineCount();
+    const isTopOfFile = position.lineNumber <= 3; // First 3 lines
+    const isMiddleOfFile = position.lineNumber > 3 && position.lineNumber < totalLines - 3;
+    
+    if (isMiddleOfFile && (displayText.includes('import ') || displayText.includes('from '))) {
+      // If it's an import statement in the middle of a file, don't show it
+      console.log("Blocking import statement in middle of file");
+      return;
+    }
+    
     // If we're at the beginning of a line, trim any leading whitespace
     if (columnTextBefore.trim() === '') {
       displayText = text.trimStart();
     }
     
-    // If the completion is empty or only whitespace, don't show it
+    // Check if we're completing inside a word - if so, only suggest the remainder
+    const lastWordMatch = columnTextBefore.match(/[\w\d_]+$/);
+    if (lastWordMatch && displayText.startsWith(lastWordMatch[0])) {
+      displayText = displayText.substring(lastWordMatch[0].length);
+    }
+    
+    // Check if we're typing a function/method and it suggests the same one
+    const lastParensMatch = columnTextBefore.match(/\w+\s*\(\s*$/);
+    if (lastParensMatch && displayText.includes('(')) {
+      const funcName = lastParensMatch[0].trim().replace(/\($/, '');
+      if (displayText.startsWith(funcName)) {
+        displayText = displayText.substring(displayText.indexOf('('));
+      }
+    }
+    
+    // If the completion is empty or only whitespace after processing, don't show it
     if (!displayText || displayText.trim() === '') {
+      console.log("Completion became empty after processing, not displaying");
       return;
     }
     
-    // Create the ghost text widget
+    // Create the ghost text widget with improved styling
     const contentWidget = {
       getId: () => 'ghost-text-widget',
       getDomNode: () => {
         const node = document.createElement('div');
         node.className = 'ghost-text-widget';
+        node.style.color = 'rgba(255, 255, 255, 0.5)'; // Semi-transparent white
+        node.style.fontStyle = 'italic';
+        node.style.display = 'inline-block';
+        node.style.pointerEvents = 'none'; // Make it non-interactive
         node.textContent = displayText;
         return node;
       },
@@ -629,6 +800,9 @@ ${language === 'html'
     // Store the widget reference before adding it to the editor
     inlineCompletionWidgetRef.current = contentWidget;
     editor.current.addContentWidget(contentWidget);
+    
+    // Log success message
+    console.log("Ghost text displayed:", displayText);
   };
 
   // Remove ghost text from the editor
@@ -772,9 +946,13 @@ ${language === 'html'
     const contextPrompt = `${enhancedContext}\n\nUser request: ${prompt}`;
     
     try {
+      // Use autocompletion model for code completion
+      const modelId = await AIFileService.getModelIdForPurpose('autocompletion');
+      console.log(`Using model for code completion: ${modelId}`);
+
       // Get response from LM Studio
       const response = await lmStudio.createChatCompletion({
-        model: 'deepseek-coder-v2-lite-instruct',
+        model: modelId,
         messages: [
           {
             role: 'system',

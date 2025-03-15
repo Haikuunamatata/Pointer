@@ -11,6 +11,9 @@ interface FileOperation {
 export class AIFileService {
   private static async detectFileType(content: string): Promise<string> {
     try {
+      // Use insert model for file type detection
+      const modelId = await this.getModelIdForPurpose('insert');
+      
       const prompt = `You are a programming language detection expert. Given a code snippet, return ONLY the most appropriate file extension (e.g., 'js', 'py', 'ts', etc.) without any explanation or additional text.
 
 Code snippet:
@@ -21,7 +24,7 @@ ${content}
 Return ONLY the file extension.`;
 
       const response = await lmStudio.createChatCompletion({
-        model: 'deepseek-coder-v2-lite-instruct',
+        model: modelId,
         messages: [
           {
             role: 'system',
@@ -344,8 +347,12 @@ Task:
 Return ONLY the final merged code without any explanations. The code should be ready to use as-is.`;
 
     try {
+      // Use insert model for code merging
+      const modelId = await this.getModelIdForPurpose('insert');
+      console.log(`Using model for code merging: ${modelId}`);
+
       const response = await lmStudio.createChatCompletion({
-        model: 'deepseek-coder-v2-lite-instruct',
+        model: modelId,
         messages: [
           {
             role: 'system',
@@ -397,8 +404,12 @@ Task:
 Return ONLY the final formatted code without any explanations. The code should be ready to use as-is.`;
 
     try {
+      // Use insert model for new file preparation
+      const modelId = await this.getModelIdForPurpose('insert');
+      console.log(`Using model for code formatting: ${modelId}`);
+
       const response = await lmStudio.createChatCompletion({
-        model: 'deepseek-coder-v2-lite-instruct',
+        model: modelId,
         messages: [
           {
             role: 'system',
@@ -533,6 +544,205 @@ Return ONLY the final formatted code without any explanations. The code should b
       } catch (error) {
         console.error(`Error processing file ${operation.path}:`, error);
       }
+    }
+  }
+
+  static async getFileDescription(filePath: string, content: string): Promise<string> {
+    try {
+      // Get model configuration for summary
+      const modelConfig = await this.getModelConfigForPurpose('summary');
+      const modelId = modelConfig.modelId;
+      const apiEndpoint = modelConfig.apiEndpoint;
+      
+      // Form the API endpoint for generate
+      const generateEndpoint = apiEndpoint.endsWith('/v1') 
+        ? apiEndpoint.replace(/\/v1$/, '/api/generate') 
+        : (apiEndpoint.endsWith('/') ? `${apiEndpoint}api/generate` : `${apiEndpoint}/api/generate`);
+
+      console.log(`Using endpoint for file description: ${generateEndpoint}`);
+      console.log(`Using model for file description: ${modelId}`);
+
+      const response = await fetch(generateEndpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: modelId,
+          prompt: `You are a helpful AI that provides concise descriptions of code files. Based on the following content of the file "${filePath}", provide a brief 1-2 sentence description of what this file does or contains. Be technical and precise.
+
+File Content:
+${content.length > 8000 ? content.substring(0, 8000) + "\n[truncated]" : content}`,
+          max_tokens: 200,
+          temperature: 0.7,
+          top_p: 0.9,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to get file description: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return data.response.trim();
+    } catch (error) {
+      console.error('Error getting file description:', error);
+      return '';
+    }
+  }
+
+  // Get the appropriate model ID for the given purpose
+  static async getModelIdForPurpose(purpose: 'chat' | 'insert' | 'autocompletion' | 'summary'): Promise<string> {
+    // Use a fallback model that likely exists in the user's system
+    const fallbackModel = 'deepseek-coder-v2-lite-instruct';
+    let modelId = fallbackModel;
+    
+    try {
+      // Try to load from settings file
+      const settingsResult = await FileSystemService.readSettingsFiles('C:/ProgramData/Pointer/data/settings');
+      if (settingsResult.success && settingsResult.settings.models && 
+          settingsResult.settings.modelAssignments && settingsResult.settings.modelAssignments[purpose]) {
+        const assignedModelId = settingsResult.settings.modelAssignments[purpose];
+        if (settingsResult.settings.models[assignedModelId] && settingsResult.settings.models[assignedModelId].id) {
+          modelId = settingsResult.settings.models[assignedModelId].id;
+          console.log(`Using configured model ID for ${purpose}: ${modelId}`);
+        } else {
+          console.log(`Model assignment found for ${purpose}, but no valid model ID, using fallback: ${fallbackModel}`);
+        }
+      } else {
+        // Fall back to localStorage
+        const modelConfigStr = localStorage.getItem('modelConfig');
+        if (modelConfigStr) {
+          try {
+            const parsed = JSON.parse(modelConfigStr);
+            if (parsed.id && typeof parsed.id === 'string' && parsed.id.trim() !== '') {
+              modelId = parsed.id;
+              console.log(`Using localStorage model ID: ${modelId}`);
+            } else if (parsed.name && typeof parsed.name === 'string' && parsed.name.trim() !== '') {
+              // Only use name if it's not "Default Model" or similar generic names
+              if (!parsed.name.toLowerCase().includes('default')) {
+                modelId = parsed.name;
+                console.log(`Using localStorage model name as ID: ${modelId}`);
+              } else {
+                console.log(`Found default model name in localStorage, using fallback: ${fallbackModel}`);
+              }
+            } else {
+              console.log(`No valid model ID in localStorage, using fallback: ${fallbackModel}`);
+            }
+          } catch (parseError) {
+            console.error(`Error parsing localStorage modelConfig: ${parseError}`);
+            console.log(`Using fallback model: ${fallbackModel}`);
+          }
+        } else {
+          console.log(`No modelConfig in localStorage, using fallback: ${fallbackModel}`);
+        }
+      }
+    } catch (error) {
+      console.error(`Error loading model settings for ${purpose}:`, error);
+      console.log(`Using fallback model due to error: ${fallbackModel}`);
+    }
+
+    // Final safety check to ensure we never return an empty or "default-model" string
+    if (!modelId || modelId === 'default-model' || modelId.trim() === '') {
+      console.log(`Invalid model ID detected (${modelId}), using fallback: ${fallbackModel}`);
+      return fallbackModel;
+    }
+
+    return modelId;
+  }
+
+  // Get the complete model configuration for the given purpose
+  static async getModelConfigForPurpose(purpose: 'chat' | 'insert' | 'autocompletion' | 'summary'): Promise<any> {
+    try {
+      const defaultEndpoint = 'http://localhost:11434/v1';
+      let apiEndpoint = defaultEndpoint;
+      let modelId = await this.getModelIdForPurpose(purpose);
+      
+      // Try to load from settings file
+      const settingsResult = await FileSystemService.readSettingsFiles('C:/ProgramData/Pointer/data/settings');
+      if (settingsResult.success && settingsResult.settings.models && 
+          settingsResult.settings.modelAssignments && settingsResult.settings.modelAssignments[purpose]) {
+        const assignedModelId = settingsResult.settings.modelAssignments[purpose];
+        if (settingsResult.settings.models[assignedModelId]) {
+          const modelConfig = settingsResult.settings.models[assignedModelId];
+          apiEndpoint = modelConfig.apiEndpoint || defaultEndpoint;
+          
+          // Use the ID from getModelIdForPurpose which has proper fallback handling
+          return {
+            modelId,
+            apiEndpoint,
+            ...modelConfig
+          };
+        }
+      }
+      
+      // Fall back to localStorage
+      const modelConfigStr = localStorage.getItem('modelConfig');
+      if (modelConfigStr) {
+        const parsed = JSON.parse(modelConfigStr);
+        return {
+          modelId, // Use the validated model ID
+          apiEndpoint: parsed.apiEndpoint || defaultEndpoint,
+          ...parsed
+        };
+      }
+      
+      // Return default values if nothing else is available
+      return {
+        modelId,
+        apiEndpoint
+      };
+    } catch (error) {
+      console.error(`Error loading model configuration for ${purpose}:`, error);
+      // Use a valid model ID as fallback
+      return {
+        modelId: 'deepseek-coder-v2-lite-instruct',
+        apiEndpoint: 'http://localhost:11434/v1'
+      };
+    }
+  }
+
+  static async getFileSummary(filePath: string, content: string): Promise<string> {
+    try {
+      // Get model configuration for summary
+      const modelConfig = await this.getModelConfigForPurpose('summary');
+      const modelId = modelConfig.modelId;
+      const apiEndpoint = modelConfig.apiEndpoint;
+      
+      // Form the API endpoint for generate
+      const generateEndpoint = apiEndpoint.endsWith('/v1') 
+        ? apiEndpoint.replace(/\/v1$/, '/api/generate') 
+        : (apiEndpoint.endsWith('/') ? `${apiEndpoint}api/generate` : `${apiEndpoint}/api/generate`);
+
+      console.log(`Using endpoint for file summary: ${generateEndpoint}`);
+      console.log(`Using model for file summary: ${modelId}`);
+
+      const response = await fetch(generateEndpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: modelId,
+          prompt: `You are a helpful AI that provides concise summaries of code files. Based on the following content of the file "${filePath}", provide a brief 1-2 sentence summary of what this file does or contains. Be technical and precise.
+
+File Content:
+${content.length > 8000 ? content.substring(0, 8000) + "\n[truncated]" : content}`,
+          max_tokens: 200,
+          temperature: 0.7,
+          top_p: 0.9,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to get file summary: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return data.response.trim();
+    } catch (error) {
+      console.error('Error getting file summary:', error);
+      return '';
     }
   }
 } 

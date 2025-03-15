@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, Optional
 import weakref
 from fastapi import FastAPI, HTTPException, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
@@ -61,7 +61,8 @@ class RenameRequest(BaseModel):
 class InsertCodeRequest(BaseModel):
     path: str
     content: str
-    position: int | None = None  # Optional cursor position for future use
+    position: Optional[int] = None  # Cursor position for insertion (not used yet)
+    model: Optional[str] = None     # Model ID for possible processing (not used yet)
 
 class RelevantFilesRequest(BaseModel):
     query: str
@@ -73,6 +74,15 @@ class CommandExecutionRequest(BaseModel):
     command: str
     timeout: int = 30  # Default timeout of 30 seconds
     executionId: str | None = None  # Optional ID for tracking executions
+
+# Request model for reading settings files
+class SettingsRequest(BaseModel):
+    settingsDir: str  # Directory containing settings files
+
+# Request model for saving settings files
+class SaveSettingsRequest(BaseModel):
+    settingsDir: str  # Directory to save settings files
+    settings: dict  # Settings data to save
 
 # Add a user workspace directory variable
 base_directory: str | None = None  # Initialize as None instead of os.getcwd()
@@ -1241,6 +1251,58 @@ async def get_workspace_directory():
         "effective_directory": effective_dir,
         "base_directory": base_directory
     }
+
+@app.post("/read-settings-files")
+async def read_settings_files(request: SettingsRequest):
+    """Read all JSON settings files from the specified directory."""
+    try:
+        settings_dir = request.settingsDir
+        
+        # Check if the directory exists
+        if not os.path.isdir(settings_dir):
+            os.makedirs(settings_dir, exist_ok=True)
+            print(f"Created settings directory: {settings_dir}")
+        
+        # Read all JSON files in the directory
+        settings = {}
+        for filename in os.listdir(settings_dir):
+            if filename.endswith('.json'):
+                try:
+                    file_path = os.path.join(settings_dir, filename)
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        # Use the filename without extension as the settings category
+                        category = os.path.splitext(filename)[0]
+                        settings[category] = json.load(f)
+                except Exception as e:
+                    print(f"Error reading settings file {filename}: {str(e)}")
+                    # Continue with other files even if one fails
+        
+        return {"settings": settings}
+    except Exception as e:
+        print(f"Error reading settings files: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/save-settings-files")
+async def save_settings_files(request: SaveSettingsRequest):
+    """Save settings files to the specified directory."""
+    try:
+        settings_dir = request.settingsDir
+        
+        # Check if the directory exists
+        if not os.path.isdir(settings_dir):
+            os.makedirs(settings_dir, exist_ok=True)
+            print(f"Created settings directory: {settings_dir}")
+        
+        # Save settings files
+        for category, settings in request.settings.items():
+            file_path = os.path.join(settings_dir, f"{category}.json")
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(settings, f, indent=2)
+        
+        return {"success": True}
+    except Exception as e:
+        print(f"Error saving settings files: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # Remove the uvicorn.run() call since we're using run.py now
 if __name__ == "__main__":

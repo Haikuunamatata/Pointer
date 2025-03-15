@@ -447,7 +447,7 @@ export class FileSystemService {
       const data = await response.json();
       return { 
         success: data.success, 
-        newPath: data.new_path 
+        newPath: data.new_path || null // Ensure we always return a string or null
       };
     } catch (error) {
       console.error('Error renaming item:', error);
@@ -457,6 +457,53 @@ export class FileSystemService {
 
   static getCurrentDirectory(): string | null {
     return this.currentDirectory;
+  }
+
+  static async readSettingsFiles(settingsDir: string): Promise<{ success: boolean, settings: Record<string, any> }> {
+    try {
+      await this.refreshStructure();
+      
+      const response = await fetch(`${this.API_URL}/read-settings-files`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ settingsDir })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to read settings files: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return { success: true, settings: data.settings };
+    } catch (error) {
+      console.error('Error reading settings files:', error);
+      return { success: false, settings: {} };
+    }
+  }
+
+  static async saveSettingsFiles(settingsDir: string, settings: Record<string, any>): Promise<{ success: boolean }> {
+    try {
+      await this.refreshStructure();
+      
+      const response = await fetch(`${this.API_URL}/save-settings-files`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ settingsDir, settings })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to save settings files: ${response.statusText}`);
+      }
+
+      return { success: true };
+    } catch (error) {
+      console.error('Error saving settings files:', error);
+      return { success: false };
+    }
   }
 
   static async refreshStructure() {
