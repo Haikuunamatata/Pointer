@@ -6,6 +6,18 @@ import { AIFileService } from '../services/AIFileService';
 import { lmStudio } from '../services/LMStudioService';
 import { FileSystemService } from '../services/FileSystemService';
 
+// Get access to the App's applyCustomTheme function through the window object
+declare global {
+  interface Window {
+    getCurrentFile: () => { path: string; } | null;
+    editor?: monaco.editor.IStandaloneCodeEditor;
+    reloadFileContent?: (fileId: string) => Promise<void>;
+    fileSystem?: Record<string, FileSystemItem>;
+    applyCustomTheme?: () => void;
+    loadSettings?: () => Promise<void>;
+  }
+}
+
 interface EditorPaneProps {
   fileId: string;
   file: FileSystemItem;
@@ -70,7 +82,6 @@ const EditorPane: React.FC<EditorPaneProps> = ({ fileId, file, onEditorReady }) 
     // Define editor options with proper typing
     const editorOptions: monaco.editor.IStandaloneEditorConstructionOptions = {
       model: model,
-      theme: 'vs-dark',
       automaticLayout: true,
       minimap: {
         enabled: false
@@ -88,6 +99,25 @@ const EditorPane: React.FC<EditorPaneProps> = ({ fileId, file, onEditorReady }) 
 
     // Create editor with the model
     editor.current = monaco.editor.create(editorRef.current, editorOptions);
+
+    // Load settings first, then apply the custom theme
+    if (window.loadSettings) {
+      window.loadSettings().then(() => {
+        // Apply the custom theme after settings are loaded
+        if (window.applyCustomTheme) {
+          window.applyCustomTheme();
+        }
+      }).catch(err => {
+        console.error('Error loading settings:', err);
+        // Apply theme anyway as fallback
+        if (window.applyCustomTheme) {
+          window.applyCustomTheme();
+        }
+      });
+    } else if (window.applyCustomTheme) {
+      // Fallback if loadSettings is not available
+      window.applyCustomTheme();
+    }
 
     // Handle all keyboard events in one place for consistency
     editor.current.onKeyDown((e) => {
@@ -864,6 +894,11 @@ DO NOT include the [CURSOR] marker in your response. Provide ONLY the completion
         if (selections) {
           editor.current.setSelections(selections);
         }
+        
+        // Reapply the custom theme when file content changes
+        if (window.applyCustomTheme) {
+          window.applyCustomTheme();
+        }
       }
     }
   }, [file?.content]);
@@ -1127,6 +1162,14 @@ const EditorGrid: React.FC<EditorGridProps> = ({
   const [draggingLayout, setDraggingLayout] = useState<EditorLayout | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const dragStartPos = useRef<{ x: number; y: number } | null>(null);
+
+  // Reapply theme when the current file changes
+  useEffect(() => {
+    if (currentFileId && window.applyCustomTheme) {
+      // Small delay to ensure the editor is ready
+      setTimeout(() => window.applyCustomTheme?.(), 50);
+    }
+  }, [currentFileId]);
 
   useEffect(() => {
     // Initialize layout when files change or grid layout changes

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { FileSystemService } from '../services/FileSystemService';
 import { ModelConfig, EditorSettings, ThemeSettings, AppSettings, ModelAssignments, DiscordRpcSettings } from '../types';
 import * as monaco from 'monaco-editor';
+import ColorInput from './ColorInput';
 // Add electron API import with proper typing
 // @ts-ignore
 const electron = window.require ? window.require('electron') : null;
@@ -122,9 +123,30 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
     formatOnPaste: false,
     autoSave: true,
   });
-  const [themeSettings, setThemeSettings] = useState({
+  const [themeSettings, setThemeSettings] = useState<ThemeSettings>({
     name: 'vs-dark',
-    customColors: {},
+    customColors: {
+      bgPrimary: '',
+      bgSecondary: '',
+      bgTertiary: '',
+      bgSelected: '',
+      bgHover: '',
+      bgAccent: '',
+      textPrimary: '',
+      textSecondary: '',
+      borderColor: '',
+      borderPrimary: '',
+      accentColor: '',
+      accentHover: '',
+      errorColor: '',
+      titlebarBg: '',
+      statusbarBg: '',
+      statusbarFg: '',
+      activityBarBg: '',
+      activityBarFg: '',
+    },
+    editorColors: {},
+    tokenColors: []
   });
   const [discordRpcSettings, setDiscordRpcSettings] = useState<DiscordRpcSettings>({...defaultDiscordRpcSettings});
   const [isLoading, setIsLoading] = useState(false);
@@ -368,16 +390,52 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
   
   // Apply theme settings to Monaco editor
   const applyThemeSettings = () => {
-    try {
-      // Apply theme to Monaco editor
-      const currentTheme = themeSettings.name;
-      if (window.editor) {
-        monaco.editor.setTheme(currentTheme);
+    // Validate the base theme (Monaco only accepts 'vs', 'vs-dark', or 'hc-black', 'hc-light')
+    const validBaseThemes = ['vs', 'vs-dark', 'hc-black', 'hc-light'];
+    const baseTheme = validBaseThemes.includes(themeSettings.name) 
+      ? themeSettings.name as monaco.editor.BuiltinTheme
+      : 'vs-dark';
+    
+    // Process colors to ensure they're in a valid format (remove alpha if present)
+    const processedEditorColors: Record<string, string> = {};
+    Object.entries(themeSettings.editorColors).forEach(([key, value]) => {
+      if (value) {
+        // Remove alpha component if present (e.g., #rrggbbaa → #rrggbb)
+        const processedValue = value.length > 7 ? value.substring(0, 7) : value;
+        processedEditorColors[key] = processedValue;
       }
-    } catch (error) {
-      console.error('Error applying theme settings:', error);
-    }
+    });
+    
+    // Create a custom Monaco theme with the specified editor and token colors
+    monaco.editor.defineTheme('custom-theme', {
+      base: baseTheme,
+      inherit: true,
+      rules: (themeSettings.tokenColors || []).map(item => ({
+        token: item.token,
+        foreground: item.foreground?.replace('#', ''),
+        background: item.background?.replace('#', ''),
+        fontStyle: item.fontStyle
+      })),
+      colors: processedEditorColors
+    });
+    
+    // Apply the custom theme
+    monaco.editor.setTheme('custom-theme');
+
+    // Apply custom UI colors
+    Object.entries(themeSettings.customColors).forEach(([key, value]) => {
+      if (value) {
+        const cssVarName = `--${key.replace(/([A-Z])/g, '-$1').toLowerCase()}`;
+        // For CSS variables, we can keep the alpha channel
+        document.documentElement.style.setProperty(cssVarName, value);
+      }
+    });
   };
+
+  // Apply theme settings whenever they change
+  useEffect(() => {
+    applyThemeSettings();
+  }, [themeSettings]);
 
   // Handle change for model configuration
   const handleModelConfigChange = (modelId: string, field: keyof ModelConfig, value: any) => {
@@ -485,6 +543,71 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
     } else {
       onClose();
     }
+  };
+
+  const handleCustomColorChange = (key: keyof ThemeSettings['customColors'], value: string) => {
+    setThemeSettings(prev => ({
+      ...prev,
+      customColors: {
+        ...prev.customColors,
+        [key]: value
+      }
+    }));
+    setHasUnsavedChanges(true);
+
+    // Update CSS variable
+    const cssVarName = `--${key.replace(/([A-Z])/g, '-$1').toLowerCase()}`;
+    document.documentElement.style.setProperty(cssVarName, value);
+  };
+
+  // Add handler for editor color changes
+  const handleEditorColorChange = (key: string, value: string) => {
+    setThemeSettings(prev => ({
+      ...prev,
+      editorColors: {
+        ...prev.editorColors,
+        [key]: value
+      }
+    }));
+    setHasUnsavedChanges(true);
+  };
+
+  // Add handler for token color changes
+  const handleTokenColorChange = (index: number, field: string, value: string) => {
+    setThemeSettings(prev => {
+      const newTokenColors = [...(prev.tokenColors || [])];
+      if (!newTokenColors[index]) {
+        newTokenColors[index] = { token: '' };
+      }
+      newTokenColors[index] = { ...newTokenColors[index], [field]: value };
+      return {
+        ...prev,
+        tokenColors: newTokenColors
+      };
+    });
+    setHasUnsavedChanges(true);
+  };
+
+  // Add handler to add a new token color rule
+  const addTokenColor = () => {
+    setThemeSettings(prev => ({
+      ...prev,
+      tokenColors: [...(prev.tokenColors || []), { token: '' }]
+    }));
+    setHasUnsavedChanges(true);
+  };
+
+  // Add handler to remove a token color rule
+  const removeTokenColor = (index: number) => {
+    setThemeSettings(prev => {
+      const newTokenColors = [...(prev.tokenColors || [])];
+      newTokenColors.splice(index, 1);
+      return {
+        ...prev,
+        tokenColors: newTokenColors
+      };
+    });
+    setHasUnsavedChanges(true);
   };
 
   if (!isVisible) return null;
@@ -1054,7 +1177,7 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                     
                     <div>
                       <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px' }}>
-                        Theme
+                        Base Theme
                       </label>
                       <select
                         value={themeSettings.name}
@@ -1069,17 +1192,455 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                         }}
                       >
                         <option value="vs-dark">VS Dark</option>
-                        <option value="vs-light">VS Light</option>
+                        <option value="vs">VS Light</option>
                         <option value="hc-black">High Contrast Dark</option>
                         <option value="hc-light">High Contrast Light</option>
                       </select>
                     </div>
 
+                    {/* UI Colors Section */}
                     <div>
-                      <h4 style={{ margin: '8px 0', fontSize: '14px' }}>Custom Colors</h4>
-                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-                        Advanced color customization will be available in a future update.
+                      <h4 style={{ margin: '8px 0', fontSize: '14px' }}>UI Colors</h4>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                        {/* Background Colors */}
+                        <div>
+                          <h5 style={{ margin: '8px 0', fontSize: '13px' }}>Background Colors</h5>
+                          <ColorInput
+                            label="Primary Background"
+                            value={themeSettings.customColors.bgPrimary || ''}
+                            onChange={(value) => handleCustomColorChange('bgPrimary', value)}
+                            variable="--bg-primary"
+                          />
+                          <ColorInput
+                            label="Secondary Background"
+                            value={themeSettings.customColors.bgSecondary || ''}
+                            onChange={(value) => handleCustomColorChange('bgSecondary', value)}
+                            variable="--bg-secondary"
+                          />
+                          <ColorInput
+                            label="Tertiary Background"
+                            value={themeSettings.customColors.bgTertiary || ''}
+                            onChange={(value) => handleCustomColorChange('bgTertiary', value)}
+                            variable="--bg-tertiary"
+                          />
+                          <ColorInput
+                            label="Selected Background"
+                            value={themeSettings.customColors.bgSelected || ''}
+                            onChange={(value) => handleCustomColorChange('bgSelected', value)}
+                            variable="--bg-selected"
+                          />
+                          <ColorInput
+                            label="Hover Background"
+                            value={themeSettings.customColors.bgHover || ''}
+                            onChange={(value) => handleCustomColorChange('bgHover', value)}
+                            variable="--bg-hover"
+                          />
+                          <ColorInput
+                            label="Accent Background"
+                            value={themeSettings.customColors.bgAccent || ''}
+                            onChange={(value) => handleCustomColorChange('bgAccent', value)}
+                            variable="--bg-accent"
+                          />
+                        </div>
+
+                        {/* Text Colors */}
+                        <div>
+                          <h5 style={{ margin: '8px 0', fontSize: '13px' }}>Text Colors</h5>
+                          <ColorInput
+                            label="Primary Text"
+                            value={themeSettings.customColors.textPrimary || ''}
+                            onChange={(value) => handleCustomColorChange('textPrimary', value)}
+                            variable="--text-primary"
+                          />
+                          <ColorInput
+                            label="Secondary Text"
+                            value={themeSettings.customColors.textSecondary || ''}
+                            onChange={(value) => handleCustomColorChange('textSecondary', value)}
+                            variable="--text-secondary"
+                          />
+                        </div>
+
+                        {/* Border Colors */}
+                        <div>
+                          <h5 style={{ margin: '8px 0', fontSize: '13px' }}>Border Colors</h5>
+                          <ColorInput
+                            label="Border Color"
+                            value={themeSettings.customColors.borderColor || ''}
+                            onChange={(value) => handleCustomColorChange('borderColor', value)}
+                            variable="--border-color"
+                          />
+                          <ColorInput
+                            label="Primary Border"
+                            value={themeSettings.customColors.borderPrimary || ''}
+                            onChange={(value) => handleCustomColorChange('borderPrimary', value)}
+                            variable="--border-primary"
+                          />
+                        </div>
+
+                        {/* Accent Colors */}
+                        <div>
+                          <h5 style={{ margin: '8px 0', fontSize: '13px' }}>Accent Colors</h5>
+                          <ColorInput
+                            label="Accent Color"
+                            value={themeSettings.customColors.accentColor || ''}
+                            onChange={(value) => handleCustomColorChange('accentColor', value)}
+                            variable="--accent-color"
+                          />
+                          <ColorInput
+                            label="Accent Hover"
+                            value={themeSettings.customColors.accentHover || ''}
+                            onChange={(value) => handleCustomColorChange('accentHover', value)}
+                            variable="--accent-hover"
+                          />
+                          <ColorInput
+                            label="Error Color"
+                            value={themeSettings.customColors.errorColor || ''}
+                            onChange={(value) => handleCustomColorChange('errorColor', value)}
+                            variable="--error-color"
+                          />
+                        </div>
+
+                        {/* UI Element Colors */}
+                        <div>
+                          <h5 style={{ margin: '8px 0', fontSize: '13px' }}>UI Elements</h5>
+                          <ColorInput
+                            label="Titlebar Background"
+                            value={themeSettings.customColors.titlebarBg || ''}
+                            onChange={(value) => handleCustomColorChange('titlebarBg', value)}
+                            variable="--titlebar-bg"
+                          />
+                          <ColorInput
+                            label="Statusbar Background"
+                            value={themeSettings.customColors.statusbarBg || ''}
+                            onChange={(value) => handleCustomColorChange('statusbarBg', value)}
+                            variable="--statusbar-bg"
+                          />
+                          <ColorInput
+                            label="Statusbar Text"
+                            value={themeSettings.customColors.statusbarFg || ''}
+                            onChange={(value) => handleCustomColorChange('statusbarFg', value)}
+                            variable="--statusbar-fg"
+                          />
+                          <ColorInput
+                            label="Activity Bar Background"
+                            value={themeSettings.customColors.activityBarBg || ''}
+                            onChange={(value) => handleCustomColorChange('activityBarBg', value)}
+                            variable="--activity-bar-bg"
+                          />
+                          <ColorInput
+                            label="Activity Bar Text"
+                            value={themeSettings.customColors.activityBarFg || ''}
+                            onChange={(value) => handleCustomColorChange('activityBarFg', value)}
+                            variable="--activity-bar-fg"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {/* Editor Colors Section */}
+                    <div>
+                      <h4 style={{ margin: '16px 0 8px 0', fontSize: '14px' }}>Monaco Editor Colors</h4>
+                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
+                        Customize the appearance of the code editor
                       </p>
+                      
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                        {/* Basic Editor Colors */}
+                        <div>
+                          <h5 style={{ margin: '8px 0', fontSize: '13px' }}>Basic Colors</h5>
+                          <ColorInput
+                            label="Editor Background"
+                            value={themeSettings.editorColors["editor.background"] || ''}
+                            onChange={(value) => handleEditorColorChange("editor.background", value)}
+                            variable=""
+                          />
+                          <ColorInput
+                            label="Editor Foreground"
+                            value={themeSettings.editorColors["editor.foreground"] || ''}
+                            onChange={(value) => handleEditorColorChange("editor.foreground", value)}
+                            variable=""
+                          />
+                          <ColorInput
+                            label="Line Numbers"
+                            value={themeSettings.editorColors["editorLineNumber.foreground"] || ''}
+                            onChange={(value) => handleEditorColorChange("editorLineNumber.foreground", value)}
+                            variable=""
+                          />
+                          <ColorInput
+                            label="Active Line Number"
+                            value={themeSettings.editorColors["editorLineNumber.activeForeground"] || ''}
+                            onChange={(value) => handleEditorColorChange("editorLineNumber.activeForeground", value)}
+                            variable=""
+                          />
+                          <ColorInput
+                            label="Cursor Foreground"
+                            value={themeSettings.editorColors["editorCursor.foreground"] || ''}
+                            onChange={(value) => handleEditorColorChange("editorCursor.foreground", value)}
+                            variable=""
+                          />
+                        </div>
+
+                        {/* Selection Colors */}
+                        <div>
+                          <h5 style={{ margin: '8px 0', fontSize: '13px' }}>Selection</h5>
+                          <ColorInput
+                            label="Selection Background"
+                            value={themeSettings.editorColors["editor.selectionBackground"] || ''}
+                            onChange={(value) => handleEditorColorChange("editor.selectionBackground", value)}
+                            variable=""
+                          />
+                          <ColorInput
+                            label="Selection Foreground"
+                            value={themeSettings.editorColors["editor.selectionForeground"] || ''}
+                            onChange={(value) => handleEditorColorChange("editor.selectionForeground", value)}
+                            variable=""
+                          />
+                          <ColorInput
+                            label="Selection Highlight Background"
+                            value={themeSettings.editorColors["editor.selectionHighlightBackground"] || ''}
+                            onChange={(value) => handleEditorColorChange("editor.selectionHighlightBackground", value)}
+                            variable=""
+                          />
+                        </div>
+
+                        {/* Line Highlight Colors */}
+                        <div>
+                          <h5 style={{ margin: '8px 0', fontSize: '13px' }}>Current Line</h5>
+                          <ColorInput
+                            label="Line Highlight Background"
+                            value={themeSettings.editorColors["editor.lineHighlightBackground"] || ''}
+                            onChange={(value) => handleEditorColorChange("editor.lineHighlightBackground", value)}
+                            variable=""
+                          />
+                          <ColorInput
+                            label="Line Highlight Border"
+                            value={themeSettings.editorColors["editor.lineHighlightBorder"] || ''}
+                            onChange={(value) => handleEditorColorChange("editor.lineHighlightBorder", value)}
+                            variable=""
+                          />
+                        </div>
+
+                        {/* Find Match Colors */}
+                        <div>
+                          <h5 style={{ margin: '8px 0', fontSize: '13px' }}>Find Matches</h5>
+                          <ColorInput
+                            label="Find Match Background"
+                            value={themeSettings.editorColors["editor.findMatchBackground"] || ''}
+                            onChange={(value) => handleEditorColorChange("editor.findMatchBackground", value)}
+                            variable=""
+                          />
+                          <ColorInput
+                            label="Find Match Highlight"
+                            value={themeSettings.editorColors["editor.findMatchHighlightBackground"] || ''}
+                            onChange={(value) => handleEditorColorChange("editor.findMatchHighlightBackground", value)}
+                            variable=""
+                          />
+                        </div>
+                      </div>
+
+                      <div style={{ marginTop: '16px' }}>
+                        <button
+                          onClick={() => {
+                            const allEditorColors = {
+                              "editor.background": "#1e1e1e",
+                              "editor.foreground": "#d4d4d4",
+                              "editorLineNumber.foreground": "#858585",
+                              "editorLineNumber.activeForeground": "#c6c6c6",
+                              "editorCursor.foreground": "#d4d4d4",
+                              "editor.selectionBackground": "#264f78",
+                              "editor.lineHighlightBackground": "#2d2d2d50",
+                            };
+                            setThemeSettings(prev => ({
+                              ...prev,
+                              editorColors: allEditorColors
+                            }));
+                            setHasUnsavedChanges(true);
+                          }}
+                          style={{
+                            padding: '8px 16px',
+                            background: 'var(--accent-color)',
+                            border: 'none',
+                            borderRadius: '4px',
+                            color: 'white',
+                            cursor: 'pointer',
+                            fontSize: '13px',
+                            width: 'fit-content',
+                          }}
+                        >
+                          Reset to Default Editor Colors
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Token Syntax Colors Section */}
+                    <div>
+                      <h4 style={{ margin: '16px 0 8px 0', fontSize: '14px' }}>Syntax Highlighting</h4>
+                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
+                        Customize syntax highlighting for different code elements
+                      </p>
+                      
+                      <div>
+                        {(themeSettings.tokenColors || []).map((tokenColor, index) => (
+                          <div key={index} style={{ 
+                            display: 'flex', 
+                            gap: '8px', 
+                            marginBottom: '12px',
+                            padding: '8px', 
+                            border: '1px solid var(--border-primary)',
+                            borderRadius: '4px'
+                          }}>
+                            <div style={{ flex: 2 }}>
+                              <label style={{ display: 'block', marginBottom: '4px', fontSize: '12px' }}>Token</label>
+                              <input
+                                type="text"
+                                value={tokenColor.token}
+                                onChange={(e) => handleTokenColorChange(index, 'token', e.target.value)}
+                                style={{
+                                  width: '100%',
+                                  padding: '6px',
+                                  background: 'var(--bg-secondary)',
+                                  border: '1px solid var(--border-primary)',
+                                  borderRadius: '4px',
+                                  color: 'var(--text-primary)',
+                                  fontSize: '12px'
+                                }}
+                                placeholder="e.g., keyword, comment, string"
+                              />
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <label style={{ display: 'block', marginBottom: '4px', fontSize: '12px' }}>Foreground</label>
+                              <div style={{ display: 'flex', alignItems: 'center' }}>
+                                <input
+                                  type="color"
+                                  value={tokenColor.foreground || '#ffffff'}
+                                  onChange={(e) => handleTokenColorChange(index, 'foreground', e.target.value)}
+                                  style={{
+                                    width: '24px',
+                                    height: '24px',
+                                    padding: '0',
+                                    border: '1px solid var(--border-primary)',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer',
+                                  }}
+                                />
+                                <input
+                                  type="text"
+                                  value={tokenColor.foreground || ''}
+                                  onChange={(e) => handleTokenColorChange(index, 'foreground', e.target.value)}
+                                  style={{
+                                    width: '100%',
+                                    marginLeft: '4px',
+                                    padding: '6px',
+                                    background: 'var(--bg-secondary)',
+                                    border: '1px solid var(--border-primary)',
+                                    borderRadius: '4px',
+                                    color: 'var(--text-primary)',
+                                    fontSize: '12px'
+                                  }}
+                                  placeholder="#RRGGBB"
+                                />
+                              </div>
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <label style={{ display: 'block', marginBottom: '4px', fontSize: '12px' }}>Style</label>
+                              <select
+                                value={tokenColor.fontStyle || ''}
+                                onChange={(e) => handleTokenColorChange(index, 'fontStyle', e.target.value)}
+                                style={{
+                                  width: '100%',
+                                  padding: '6px',
+                                  background: 'var(--bg-secondary)',
+                                  border: '1px solid var(--border-primary)',
+                                  borderRadius: '4px',
+                                  color: 'var(--text-primary)',
+                                  fontSize: '12px'
+                                }}
+                              >
+                                <option value="">Normal</option>
+                                <option value="italic">Italic</option>
+                                <option value="bold">Bold</option>
+                                <option value="underline">Underline</option>
+                                <option value="bold italic">Bold Italic</option>
+                              </select>
+                            </div>
+                            <div style={{ 
+                              display: 'flex', 
+                              alignItems: 'flex-end', 
+                              paddingBottom: '6px' 
+                            }}>
+                              <button
+                                onClick={() => removeTokenColor(index)}
+                                style={{
+                                  background: 'var(--error-color)',
+                                  border: 'none',
+                                  borderRadius: '4px',
+                                  width: '24px',
+                                  height: '24px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  color: 'white',
+                                  cursor: 'pointer',
+                                  fontSize: '14px'
+                                }}
+                              >
+                                ×
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                        
+                        <button
+                          onClick={addTokenColor}
+                          style={{
+                            padding: '6px 12px',
+                            background: 'var(--accent-color)',
+                            border: 'none',
+                            borderRadius: '4px',
+                            color: 'white',
+                            cursor: 'pointer',
+                            fontSize: '13px',
+                            width: 'fit-content',
+                            marginTop: '8px'
+                          }}
+                        >
+                          Add Token Rule
+                        </button>
+                      </div>
+
+                      <div style={{ marginTop: '16px' }}>
+                        <button
+                          onClick={() => {
+                            setThemeSettings(prev => ({
+                              ...prev,
+                              tokenColors: [
+                                { token: 'keyword', foreground: '#569CD6', fontStyle: 'bold' },
+                                { token: 'comment', foreground: '#6A9955', fontStyle: 'italic' },
+                                { token: 'string', foreground: '#CE9178' },
+                                { token: 'number', foreground: '#B5CEA8' },
+                                { token: 'operator', foreground: '#D4D4D4' },
+                                { token: 'type', foreground: '#4EC9B0' },
+                                { token: 'function', foreground: '#DCDCAA' },
+                                { token: 'variable', foreground: '#9CDCFE' }
+                              ]
+                            }));
+                            setHasUnsavedChanges(true);
+                          }}
+                          style={{
+                            padding: '8px 16px',
+                            background: 'var(--accent-color)',
+                            border: 'none',
+                            borderRadius: '4px',
+                            color: 'white',
+                            cursor: 'pointer',
+                            fontSize: '13px',
+                            width: 'fit-content',
+                            marginTop: '8px'
+                          }}
+                        >
+                          Load Default Token Colors
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -1181,7 +1742,28 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                             });
                             setThemeSettings({
                               name: 'vs-dark',
-                              customColors: {},
+                              customColors: {
+                                bgPrimary: '',
+                                bgSecondary: '',
+                                bgTertiary: '',
+                                bgSelected: '',
+                                bgHover: '',
+                                bgAccent: '',
+                                textPrimary: '',
+                                textSecondary: '',
+                                borderColor: '',
+                                borderPrimary: '',
+                                accentColor: '',
+                                accentHover: '',
+                                errorColor: '',
+                                titlebarBg: '',
+                                statusbarBg: '',
+                                statusbarFg: '',
+                                activityBarBg: '',
+                                activityBarFg: '',
+                              },
+                              editorColors: {},
+                              tokenColors: []
                             });
                           }
                         }}
@@ -1435,10 +2017,8 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                               ? 'Must start with https:// or http://'
                               : 'ERROR: URL must start with https:// or http://'}
                           </p>
-                        </div>
                       </div>
                       
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                         <div>
                           <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px', fontWeight: 'bold' }}>
                             Button 2 Text:

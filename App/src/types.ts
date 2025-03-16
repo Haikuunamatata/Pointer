@@ -47,7 +47,109 @@ export interface EditorSettings {
 
 export interface ThemeSettings {
   name: string;
-  customColors: Record<string, string>;
+  customColors: {
+    // App UI Colors
+    bgPrimary?: string;
+    bgSecondary?: string;
+    bgTertiary?: string;
+    bgSelected?: string;
+    bgHover?: string;
+    bgAccent?: string;
+    textPrimary?: string;
+    textSecondary?: string;
+    borderColor?: string;
+    borderPrimary?: string;
+    accentColor?: string;
+    accentHover?: string;
+    errorColor?: string;
+    titlebarBg?: string;
+    statusbarBg?: string;
+    statusbarFg?: string;
+    activityBarBg?: string;
+    activityBarFg?: string;
+  };
+  // Monaco Editor Colors
+  editorColors: {
+    // Basic colors
+    "editor.background"?: string;
+    "editor.foreground"?: string;
+    "editorLineNumber.foreground"?: string;
+    "editorLineNumber.activeForeground"?: string;
+    "editorCursor.background"?: string;
+    "editorCursor.foreground"?: string;
+    
+    // Selection colors
+    "editor.selectionBackground"?: string;
+    "editor.selectionForeground"?: string;
+    "editor.inactiveSelectionBackground"?: string;
+    "editor.selectionHighlightBackground"?: string;
+    "editor.selectionHighlightBorder"?: string;
+    
+    // Word highlight
+    "editor.wordHighlightBackground"?: string;
+    "editor.wordHighlightStrongBackground"?: string;
+    "editor.wordHighlightBorder"?: string;
+    "editor.wordHighlightStrongBorder"?: string;
+    
+    // Find matches
+    "editor.findMatchBackground"?: string;
+    "editor.findMatchHighlightBackground"?: string;
+    "editor.findRangeHighlightBackground"?: string;
+    "editor.findMatchBorder"?: string;
+    "editor.findMatchHighlightBorder"?: string;
+    
+    // Line highlight
+    "editor.lineHighlightBackground"?: string;
+    "editor.lineHighlightBorder"?: string;
+    
+    // Gutter
+    "editorGutter.background"?: string;
+    "editorGutter.modifiedBackground"?: string;
+    "editorGutter.addedBackground"?: string;
+    "editorGutter.deletedBackground"?: string;
+    
+    // Bracket matching
+    "editorBracketMatch.background"?: string;
+    "editorBracketMatch.border"?: string;
+    
+    // Overview ruler
+    "editorOverviewRuler.border"?: string;
+    "editorOverviewRuler.findMatchForeground"?: string;
+    "editorOverviewRuler.rangeHighlightForeground"?: string;
+    "editorOverviewRuler.selectionHighlightForeground"?: string;
+    "editorOverviewRuler.wordHighlightForeground"?: string;
+    "editorOverviewRuler.wordHighlightStrongForeground"?: string;
+    "editorOverviewRuler.modifiedForeground"?: string;
+    "editorOverviewRuler.addedForeground"?: string;
+    "editorOverviewRuler.deletedForeground"?: string;
+    "editorOverviewRuler.errorForeground"?: string;
+    "editorOverviewRuler.warningForeground"?: string;
+    "editorOverviewRuler.infoForeground"?: string;
+    
+    // Errors and warnings
+    "editorError.foreground"?: string;
+    "editorError.border"?: string;
+    "editorWarning.foreground"?: string;
+    "editorWarning.border"?: string;
+    
+    // Widget colors
+    "editorWidget.background"?: string;
+    "editorWidget.border"?: string;
+    "editorSuggestWidget.background"?: string;
+    "editorSuggestWidget.border"?: string;
+    "editorSuggestWidget.foreground"?: string;
+    "editorSuggestWidget.highlightForeground"?: string;
+    "editorSuggestWidget.selectedBackground"?: string;
+    "editorHoverWidget.background"?: string;
+    "editorHoverWidget.border"?: string;
+  };
+  // Token syntax highlighting rules
+  tokenColors?: Array<{
+    token: string;
+    foreground?: string;
+    background?: string;
+    fontStyle?: string;
+  }>;
 }
 
 export interface DiscordRpcSettings {

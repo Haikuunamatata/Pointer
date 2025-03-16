@@ -62,12 +62,23 @@ declare global {
     editor?: monaco.editor.IStandaloneCodeEditor;
     reloadFileContent?: (fileId: string) => Promise<void>;
     fileSystem?: Record<string, FileSystemItem>;
+    applyCustomTheme?: () => void;
+    loadSettings?: () => Promise<void>;
   }
 }
 
 const App: React.FC = () => {
   const editorRef = useRef<HTMLDivElement>(null);
   const editor = useRef<IEditor | null>(null);
+  const currentThemeRef = useRef<{
+    name: string;
+    editorColors: Record<string, string>;
+    tokenColors: Array<any>;
+  }>({
+    name: 'vs-dark',
+    editorColors: {},
+    tokenColors: []
+  });
   const [fileSystem, setFileSystem] = useState<FileSystemState>(() => {
     const rootId = 'root';
     return {
@@ -165,6 +176,11 @@ const App: React.FC = () => {
   // Load settings, including Discord settings
   const loadSettings = async () => {
     try {
+      console.log('Loading settings...');
+      console.log('Loading settings...');
+      console.log('Loading settings...');
+      console.log('Loading settings...');
+      console.log('Loading settings...');
       const result = await FileSystemService.readSettingsFiles('C:/ProgramData/Pointer/data/settings');
       if (result && result.success) {
         setSettingsData(result.settings);
@@ -188,8 +204,41 @@ const App: React.FC = () => {
         
         // Apply theme settings if they exist
         if (result.settings.theme) {
-          const themeName = result.settings.theme.name || 'vs-dark';
-          monaco.editor.setTheme(themeName);
+          const themeSettings = result.settings.theme;
+          
+          // Validate the base theme
+          const validBaseThemes = ['vs', 'vs-dark', 'hc-black', 'hc-light'];
+          const baseTheme = validBaseThemes.includes(themeSettings.name) 
+            ? themeSettings.name as monaco.editor.BuiltinTheme
+            : 'vs-dark';
+          
+          // Process colors to ensure they're in a valid format
+          const processedEditorColors: Record<string, string> = {};
+          Object.entries(themeSettings.editorColors || {}).forEach(([key, value]) => {
+            if (value) {
+              // Remove alpha component if present (e.g., #rrggbbaa → #rrggbb)
+              const processedValue = value.length > 7 ? value.substring(0, 7) : value;
+              processedEditorColors[key] = processedValue;
+            }
+          });
+
+          // Store the current theme in the ref for persistence
+          currentThemeRef.current = {
+            name: baseTheme,
+            editorColors: processedEditorColors,
+            tokenColors: themeSettings.tokenColors || []
+          };
+          
+          // Create and apply custom Monaco theme
+          applyCustomTheme();
+
+          // Apply custom UI colors
+          Object.entries(themeSettings.customColors).forEach(([key, value]) => {
+            if (value) {
+              const cssVarName = `--${key.replace(/([A-Z])/g, '-$1').toLowerCase()}`;
+              document.documentElement.style.setProperty(cssVarName, value);
+            }
+          });
         }
 
         // Process Discord RPC settings
@@ -211,6 +260,41 @@ const App: React.FC = () => {
       console.error('Error loading settings:', error);
     }
   };
+
+  // Create a function to apply the custom theme
+  const applyCustomTheme = () => {
+    const { name, editorColors, tokenColors } = currentThemeRef.current;
+    
+    monaco.editor.defineTheme('custom-theme', {
+      base: name as monaco.editor.BuiltinTheme,
+      inherit: true,
+      rules: tokenColors.map(item => ({
+        token: item.token,
+        foreground: item.foreground?.replace('#', ''),
+        background: item.background?.replace('#', ''),
+        fontStyle: item.fontStyle
+      })),
+      colors: editorColors
+    });
+    
+    // Apply the custom theme
+    monaco.editor.setTheme('custom-theme');
+  };
+
+  // Expose the custom theme function to the window object for use by other components
+  useEffect(() => {
+    window.applyCustomTheme = applyCustomTheme;
+    
+    return () => {
+      // Clean up when the component unmounts
+      delete window.applyCustomTheme;
+    };
+  }, []);
+
+  // Load settings on app start
+  useEffect(() => {
+    loadSettings();
+  }, []);
 
   // Add this effect to load chats
   useEffect(() => {
@@ -246,7 +330,7 @@ const App: React.FC = () => {
           ? fileSystem.items[fileSystem.currentFileId].content || ''
           : '',
         language: 'javascript',
-        theme: 'vs-dark',
+        theme: 'vs-dark', // Initial theme, will be replaced
         automaticLayout: false, // We'll handle layout updates manually
         dimension: {
           width: container.offsetWidth,
@@ -337,7 +421,15 @@ const App: React.FC = () => {
           'editorLineNumber.activeForeground': '#c6c6c6',
         }
       });
-      monaco.editor.setTheme('vscode-dark');
+
+      // Apply our custom theme if it exists, otherwise use the default
+      if (currentThemeRef.current.name !== 'vs-dark' || 
+          Object.keys(currentThemeRef.current.editorColors).length > 0 || 
+          currentThemeRef.current.tokenColors.length > 0) {
+        applyCustomTheme();
+      } else {
+        monaco.editor.setTheme('vscode-dark');
+      }
 
       const updateContent = () => {
         if (fileSystem.currentFileId && editor.current) {
@@ -419,6 +511,8 @@ const App: React.FC = () => {
           }));
           if (editor.current) {
             editor.current.setValue(content);
+            // Reapply the custom theme after setting editor content
+            applyCustomTheme();
           }
         }
       } catch (error) {
@@ -453,6 +547,8 @@ const App: React.FC = () => {
         
         if (editor.current) {
           editor.current.setValue(fileSystem.items['welcome']?.content || '');
+          // Reapply the custom theme after setting editor content
+          applyCustomTheme();
         }
         return;
       }
@@ -460,6 +556,8 @@ const App: React.FC = () => {
       setFileSystem(prev => ({ ...prev, currentFileId: 'welcome' }));
       if (editor.current) {
         editor.current.setValue(fileSystem.items['welcome']?.content || '');
+        // Reapply the custom theme after setting editor content
+        applyCustomTheme();
       }
       return;
     }
@@ -495,6 +593,8 @@ const App: React.FC = () => {
         
         if (editor.current) {
           editor.current.setValue(content);
+          // Reapply the custom theme after setting editor content
+          applyCustomTheme();
         }
       }
     } catch (error) {
@@ -997,12 +1097,20 @@ const App: React.FC = () => {
     // Expose reloadFileContent
     window.reloadFileContent = reloadFileContent;
 
+    // Expose applyCustomTheme
+    window.applyCustomTheme = applyCustomTheme;
+
+    // Expose loadSettings
+    window.loadSettings = loadSettings;
+
     return () => {
       window.fileSystem = undefined;
       window.getCurrentFile = undefined;
       window.reloadFileContent = undefined;
+      window.applyCustomTheme = undefined;
+      window.loadSettings = undefined;
     };
-  }, [fileSystem, reloadFileContent]);
+  }, [fileSystem, reloadFileContent, applyCustomTheme, loadSettings]);
 
   // Add to the App component state declarations
   const [currentChatId, setCurrentChatId] = useState<string>(uuidv4());
@@ -1257,7 +1365,7 @@ const App: React.FC = () => {
               >
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
                   <path
-                    d="M4 12C4 7.58172 7.58172 4 12 4C16.4183 4 20 7.58172 20 12C20 16.4183 16.4183 20 12 20H4L8 16"
+                    d="M4 12C4 7.58172 7.58172 4 12 4C16.4183 4 20 7.58172 20 12 20H4L8 16"
                     stroke="currentColor"
                     strokeWidth="1.5"
                     strokeLinecap="round"

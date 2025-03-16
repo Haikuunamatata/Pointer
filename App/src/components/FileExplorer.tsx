@@ -3,6 +3,14 @@ import { FileSystemItem } from '../types';
 import { FileSystemService } from '../services/FileSystemService';
 import { getIconForFile, FolderIcon, ChevronIcon } from './FileIcons';
 
+// Add a global window declaration at the top of the file if it doesn't exist
+declare global {
+  interface Window {
+    applyCustomTheme?: () => void;
+    loadSettings?: () => Promise<void>;
+  }
+}
+
 interface FileExplorerProps {
   items: Record<string, FileSystemItem>;
   rootId: string;
@@ -147,7 +155,15 @@ const FileExplorerItem: React.FC<{
           whiteSpace: 'nowrap',
           overflow: 'hidden',
         }}
-        onClick={() => item.type === 'file' ? onFileSelect(item.id) : handleFolderClick()}
+        onClick={() => {
+          if (item.type === 'file') {
+            onFileSelect(item.id);
+            // Ensure theme is applied after file selection
+            setTimeout(() => window.applyCustomTheme?.(), 100);
+          } else {
+            handleFolderClick();
+          }
+        }}
         onMouseEnter={handleFolderHover}
         onMouseLeave={() => setIsHovered(false)}
         onContextMenu={handleContextMenu}
@@ -643,7 +659,15 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
     return (
       <div key={id}>
         <div
-          onClick={() => item.type === 'file' ? onFileSelect(id) : handleFolderClick(id)}
+          onClick={() => {
+            if (item.type === 'file') {
+              onFileSelect(id);
+              // Reapply theme after file selection
+              setTimeout(() => window.applyCustomTheme?.(), 100);
+            } else {
+              handleFolderClick(id);
+            }
+          }}
           onMouseEnter={() => handleFolderHover(id)}
           onMouseLeave={() => handleFolderHover(null)}
           onContextMenu={(e) => handleContextMenu(e, id)}

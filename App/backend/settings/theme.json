@@ -1,45 +1,64 @@
 {
-  "name": "vs-dark",
+  "name": "hc-light",
   "customColors": {
-    "bg-primary": "#1e1e1e",
-    "bg-secondary": "#252526",
-    "bg-tertiary": "#2d2d2d",
-    "bg-hover": "#2a2d2e",
-    "bg-active": "#37373d",
-    "bg-selected": "#094771",
-    "text-primary": "#cccccc",
-    "text-secondary": "#a6a6a6",
-    "text-muted": "#6a6a6a",
-    "text-link": "#3794ff",
-    "border-primary": "#474747",
-    "border-secondary": "#323232",
-    "border-focus": "#007fd4",
-    "accent-color": "#007acc",
-    "accent-hover": "#0088e2",
-    "accent-active": "#0068a6",
-    "error-color": "#f14c4c",
-    "warning-color": "#cca700",
-    "success-color": "#4ec9b0",
-    "info-color": "#1a85ff",
-    "editor-bg": "#1e1e1e",
-    "editor-line-highlight": "#2a2a2a",
-    "editor-selection": "#264f78",
-    "editor-gutter-bg": "#1e1e1e",
-    "editor-gutter-text": "#858585",
-    "syntax-keyword": "#569cd6",
-    "syntax-string": "#ce9178",
-    "syntax-comment": "#6a9955",
-    "syntax-function": "#dcdcaa",
-    "syntax-number": "#b5cea8",
-    "syntax-class": "#4ec9b0",
-    "syntax-type": "#569cd6",
-    "syntax-parameter": "#9cdcfe",
-    "syntax-operator": "#d4d4d4",
-    "syntax-regexp": "#d16969",
-    "syntax-constant": "#4fc1ff",
-    "syntax-variable": "#9cdcfe"
+    "bgPrimary": "#000000",
+    "bgSecondary": "#000000",
+    "bgTertiary": "#1a1a1a",
+    "bgSelected": "#1a1a1a",
+    "bgHover": "#1a1a1a",
+    "bgAccent": "#1a1a1a",
+    "textPrimary": "#fff",
+    "textSecondary": "#949494",
+    "accentColor": "#00ff04",
+    "accentHover": "#4dff9a",
+    "errorColor": "#ff0000",
+    "titlebarBg": "#000000",
+    "statusbarBg": "#000000",
+    "activityBarBg": "#000000"
   },
-  "monacoTheme": "vs-dark",
-  "isCustom": false,
-  "presetName": "Dark Theme"
+  "editorColors": {
+    "editor.background": "#000000",
+    "editor.foreground": "#d4d4d4",
+    "editorLineNumber.foreground": "#858585",
+    "editorLineNumber.activeForeground": "#c6c6c6",
+    "editorCursor.foreground": "#d4d4d4",
+    "editor.selectionBackground": "#00ff04",
+    "editor.lineHighlightBackground": "#2d2d2d"
+  },
+  "tokenColors": [
+    {
+      "token": "keyword",
+      "foreground": "#37ff00",
+      "fontStyle": "bold"
+    },
+    {
+      "token": "comment",
+      "foreground": "#6A9955",
+      "fontStyle": "italic"
+    },
+    {
+      "token": "string",
+      "foreground": "#CE9178"
+    },
+    {
+      "token": "number",
+      "foreground": "#B5CEA8"
+    },
+    {
+      "token": "operator",
+      "foreground": "#D4D4D4"
+    },
+    {
+      "token": "type",
+      "foreground": "#42bd00"
+    },
+    {
+      "token": "function",
+      "foreground": "#DCDCAA"
+    },
+    {
+      "token": "variable",
+      "foreground": "#42bd00"
+    }
+  ]
 }
