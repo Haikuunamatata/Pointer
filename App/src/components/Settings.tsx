@@ -86,8 +86,7 @@ const modelProviders = [
 // Categories for sidebar
 const settingsCategories = [
   { id: 'models', name: 'LLM Models' },
-  { id: 'editor', name: 'Editor' },
-  { id: 'theme', name: 'Theme' },
+  { id: 'theme', name: 'Theme & Editor' }, // Changed to combined name
   { id: 'discord', name: 'Discord Rich Presence' },
   { id: 'keybindings', name: 'Keybindings' },
   { id: 'terminal', name: 'Terminal' },
@@ -145,8 +144,25 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
       activityBarBg: '',
       activityBarFg: '',
     },
-    editorColors: {},
-    tokenColors: []
+    editorColors: {
+      "editor.background": "#1e1e1e",
+      "editor.foreground": "#d4d4d4",
+      "editorLineNumber.foreground": "#858585",
+      "editorLineNumber.activeForeground": "#c6c6c6",
+      "editorCursor.foreground": "#d4d4d4",
+      "editor.selectionBackground": "#264f78",
+      "editor.lineHighlightBackground": "#2d2d2d50",
+    },
+    tokenColors: [
+      { token: 'keyword', foreground: '#569CD6', fontStyle: 'bold' },
+      { token: 'comment', foreground: '#6A9955', fontStyle: 'italic' },
+      { token: 'string', foreground: '#CE9178' },
+      { token: 'number', foreground: '#B5CEA8' },
+      { token: 'operator', foreground: '#D4D4D4' },
+      { token: 'type', foreground: '#4EC9B0' },
+      { token: 'function', foreground: '#DCDCAA' },
+      { token: 'variable', foreground: '#9CDCFE' }
+    ]
   });
   const [discordRpcSettings, setDiscordRpcSettings] = useState<DiscordRpcSettings>({...defaultDiscordRpcSettings});
   const [isLoading, setIsLoading] = useState(false);
@@ -1034,173 +1050,125 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                   </div>
                 )}
 
-                {/* Editor settings */}
-                {activeCategory === 'editor' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                    <h3 style={{ margin: '0 0 16px 0', fontSize: '16px' }}>Editor Settings</h3>
-                    
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                      <div>
-                        <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px' }}>
-                          Font Family
-            </label>
-            <input
-                          type="text"
-                          value={editorSettings.fontFamily}
-                          onChange={(e) => handleEditorSettingChange('fontFamily', e.target.value)}
-              style={{
-                width: '100%',
-                padding: '8px',
-                background: 'var(--bg-secondary)',
-                border: '1px solid var(--border-primary)',
-                borderRadius: '4px',
-                color: 'var(--text-primary)',
-              }}
-            />
-          </div>
-
-          <div>
-            <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px' }}>
-                          Font Size
-            </label>
-            <input
-                          type="number"
-                          value={editorSettings.fontSize}
-                          onChange={(e) => handleEditorSettingChange('fontSize', parseInt(e.target.value))}
-                          style={{
-                            width: '100%',
-                            padding: '8px',
-                            background: 'var(--bg-secondary)',
-                            border: '1px solid var(--border-primary)',
-                            borderRadius: '4px',
-                            color: 'var(--text-primary)',
-                          }}
-                        />
-                      </div>
-          </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-          <div>
-            <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px' }}>
-                          Line Height
-            </label>
-            <input
-                          type="number"
-              step="0.1"
-                          value={editorSettings.lineHeight}
-                          onChange={(e) => handleEditorSettingChange('lineHeight', parseFloat(e.target.value))}
-                          style={{
-                            width: '100%',
-                            padding: '8px',
-                            background: 'var(--bg-secondary)',
-                            border: '1px solid var(--border-primary)',
-                            borderRadius: '4px',
-                            color: 'var(--text-primary)',
-                          }}
-            />
-          </div>
-
-          <div>
-            <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px' }}>
-                          Tab Size
-            </label>
-            <input
-                          type="number"
-                          value={editorSettings.tabSize}
-                          onChange={(e) => handleEditorSettingChange('tabSize', parseInt(e.target.value))}
-                          style={{
-                            width: '100%',
-                            padding: '8px',
-                            background: 'var(--bg-secondary)',
-                            border: '1px solid var(--border-primary)',
-                            borderRadius: '4px',
-                            color: 'var(--text-primary)',
-                          }}
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <label style={{ display: 'flex', alignItems: 'center', fontSize: '13px' }}>
-                        <input
-                          type="checkbox"
-                          checked={editorSettings.insertSpaces}
-                          onChange={(e) => handleEditorSettingChange('insertSpaces', e.target.checked)}
-                          style={{ marginRight: '8px' }}
-                        />
-                        Insert spaces instead of tabs
-                      </label>
-                    </div>
-
-                    <div>
-                      <label style={{ display: 'flex', alignItems: 'center', fontSize: '13px' }}>
-                        <input
-                          type="checkbox"
-                          checked={editorSettings.wordWrap}
-                          onChange={(e) => handleEditorSettingChange('wordWrap', e.target.checked)}
-                          style={{ marginRight: '8px' }}
-                        />
-                        Word Wrap
-                      </label>
-                    </div>
-
-                    <div>
-                      <label style={{ display: 'flex', alignItems: 'center', fontSize: '13px' }}>
-                        <input
-                          type="checkbox"
-                          checked={editorSettings.formatOnSave}
-                          onChange={(e) => handleEditorSettingChange('formatOnSave', e.target.checked)}
-                          style={{ marginRight: '8px' }}
-                        />
-                        Format on Save
-                      </label>
-                    </div>
-
-                    <div>
-                      <label style={{ display: 'flex', alignItems: 'center', fontSize: '13px' }}>
-                        <input
-                          type="checkbox"
-                          checked={editorSettings.autoSave}
-                          onChange={(e) => handleEditorSettingChange('autoSave', e.target.checked)}
-                          style={{ marginRight: '8px' }}
-                        />
-                        Auto Save
-                      </label>
-                    </div>
-                  </div>
-                )}
-
                 {/* Theme Settings */}
                 {activeCategory === 'theme' && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                    <h3 style={{ margin: '0 0 16px 0', fontSize: '16px' }}>Theme Settings</h3>
+                    <h3 style={{ margin: '0 0 0 0', fontSize: '16px' }}>Theme & Editor Settings</h3>
                     
-                    <div>
-                      <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px' }}>
-                        Base Theme
-                      </label>
-                      <select
-                        value={themeSettings.name}
-                        onChange={(e) => handleThemeSettingChange('name', e.target.value)}
+                    {/* Theme Export/Import Section */}
+                    <div style={{ 
+                      display: 'flex', 
+                      gap: '12px',
+                      marginTop: '8px',
+                      marginBottom: '8px'
+                    }}>
+                      <button
+                        onClick={() => {
+                          // Prepare the theme data
+                          const themeData = {
+                            theme: themeSettings,
+                            editor: editorSettings
+                          };
+                          
+                          // Convert to JSON
+                          const themeJson = JSON.stringify(themeData, null, 2);
+                          
+                          // Create a blob and downloadable link
+                          const blob = new Blob([themeJson], { type: 'application/json' });
+                          const url = URL.createObjectURL(blob);
+                          
+                          // Create a link element and trigger download
+                          const a = document.createElement('a');
+                          a.href = url;
+                          a.download = `pointer-theme-${themeSettings.name.replace(/\s+/g, '-').toLowerCase()}-${new Date().toISOString().split('T')[0]}.json`;
+                          document.body.appendChild(a);
+                          a.click();
+                          
+                          // Clean up
+                          document.body.removeChild(a);
+                          URL.revokeObjectURL(url);
+                        }}
                         style={{
-                          width: '100%',
-                          padding: '8px',
+                          padding: '6px 12px',
                           background: 'var(--bg-secondary)',
                           border: '1px solid var(--border-primary)',
                           borderRadius: '4px',
                           color: 'var(--text-primary)',
+                          cursor: 'pointer',
+                          fontSize: '13px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
                         }}
                       >
-                        <option value="vs-dark">VS Dark</option>
-                        <option value="vs">VS Light</option>
-                        <option value="hc-black">High Contrast Dark</option>
-                        <option value="hc-light">High Contrast Light</option>
-                      </select>
+                        <span>Export Theme</span>
+                      </button>
+                      
+                      <label
+                        style={{
+                          padding: '6px 12px',
+                          background: 'var(--bg-secondary)',
+                          border: '1px solid var(--border-primary)',
+                          borderRadius: '4px',
+                          color: 'var(--text-primary)',
+                          cursor: 'pointer',
+                          fontSize: '13px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                        }}
+                      >
+                        <span>Import Theme</span>
+                        <input
+                          type="file"
+                          accept=".json"
+                          style={{ display: 'none' }}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            
+                            const reader = new FileReader();
+                            reader.onload = (event) => {
+                              try {
+                                const content = event.target?.result as string;
+                                const imported = JSON.parse(content);
+                                
+                                // Validate the imported data
+                                if (!imported.theme) {
+                                  throw new Error('Invalid theme file: Missing theme settings');
+                                }
+                                
+                                // Update theme settings
+                                setThemeSettings(imported.theme);
+                                
+                                // Update editor settings if available
+                                if (imported.editor) {
+                                  setEditorSettings(prev => ({
+                                    ...prev,
+                                    ...imported.editor
+                                  }));
+                                }
+                                
+                                setHasUnsavedChanges(true);
+                                alert('Theme imported successfully!');
+                              } catch (error) {
+                                console.error('Error importing theme:', error);
+                                alert('Failed to import theme: Invalid JSON format');
+                              }
+                              
+                              // Reset the file input
+                              e.target.value = '';
+                            };
+                            
+                            reader.readAsText(file);
+                          }}
+                        />
+                      </label>
                     </div>
 
                     {/* UI Colors Section */}
                     <div>
-                      <h4 style={{ margin: '8px 0', fontSize: '14px' }}>UI Colors</h4>
+                      <h4 style={{ margin: '0 0 8px 0', fontSize: '14px' }}>UI Colors</h4>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                         {/* Background Colors */}
                         <div>
@@ -1337,6 +1305,147 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                       </div>
                     </div>
                     
+                    {/* Editor Behavior Settings Section */}
+                    <div>
+                      <h4 style={{ margin: '16px 0 8px 0', fontSize: '14px' }}>Editor Behavior</h4>
+                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
+                        Customize how the editor behaves
+                      </p>
+                      
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                        <div>
+                          <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px' }}>
+                            Font Family
+                          </label>
+                          <input
+                            type="text"
+                            value={editorSettings.fontFamily}
+                            onChange={(e) => handleEditorSettingChange('fontFamily', e.target.value)}
+                            style={{
+                              width: '100%',
+                              padding: '8px',
+                              background: 'var(--bg-secondary)',
+                              border: '1px solid var(--border-primary)',
+                              borderRadius: '4px',
+                              color: 'var(--text-primary)',
+                            }}
+                          />
+                        </div>
+
+                        <div>
+                          <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px' }}>
+                            Font Size
+                          </label>
+                          <input
+                            type="number"
+                            value={editorSettings.fontSize}
+                            onChange={(e) => handleEditorSettingChange('fontSize', parseInt(e.target.value))}
+                            style={{
+                              width: '100%',
+                              padding: '8px',
+                              background: 'var(--bg-secondary)',
+                              border: '1px solid var(--border-primary)',
+                              borderRadius: '4px',
+                              color: 'var(--text-primary)',
+                            }}
+                          />
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginTop: '12px' }}>
+                        <div>
+                          <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px' }}>
+                            Line Height
+                          </label>
+                          <input
+                            type="number"
+                            step="0.1"
+                            value={editorSettings.lineHeight}
+                            onChange={(e) => handleEditorSettingChange('lineHeight', parseFloat(e.target.value))}
+                            style={{
+                              width: '100%',
+                              padding: '8px',
+                              background: 'var(--bg-secondary)',
+                              border: '1px solid var(--border-primary)',
+                              borderRadius: '4px',
+                              color: 'var(--text-primary)',
+                            }}
+                          />
+                        </div>
+
+                        <div>
+                          <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px' }}>
+                            Tab Size
+                          </label>
+                          <input
+                            type="number"
+                            value={editorSettings.tabSize}
+                            onChange={(e) => handleEditorSettingChange('tabSize', parseInt(e.target.value))}
+                            style={{
+                              width: '100%',
+                              padding: '8px',
+                              background: 'var(--bg-secondary)',
+                              border: '1px solid var(--border-primary)',
+                              borderRadius: '4px',
+                              color: 'var(--text-primary)',
+                            }}
+                          />
+                        </div>
+                      </div>
+                      
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginTop: '12px' }}>
+                        <div>
+                          <label style={{ display: 'flex', alignItems: 'center', fontSize: '13px' }}>
+                            <input
+                              type="checkbox"
+                              checked={editorSettings.insertSpaces}
+                              onChange={(e) => handleEditorSettingChange('insertSpaces', e.target.checked)}
+                              style={{ marginRight: '8px' }}
+                            />
+                            Insert spaces instead of tabs
+                          </label>
+                        </div>
+
+                        <div>
+                          <label style={{ display: 'flex', alignItems: 'center', fontSize: '13px' }}>
+                            <input
+                              type="checkbox"
+                              checked={editorSettings.wordWrap}
+                              onChange={(e) => handleEditorSettingChange('wordWrap', e.target.checked)}
+                              style={{ marginRight: '8px' }}
+                            />
+                            Word Wrap
+                          </label>
+                        </div>
+                      </div>
+                      
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginTop: '8px' }}>
+                        <div>
+                          <label style={{ display: 'flex', alignItems: 'center', fontSize: '13px' }}>
+                            <input
+                              type="checkbox"
+                              checked={editorSettings.formatOnSave}
+                              onChange={(e) => handleEditorSettingChange('formatOnSave', e.target.checked)}
+                              style={{ marginRight: '8px' }}
+                            />
+                            Format on Save
+                          </label>
+                        </div>
+
+                        <div>
+                          <label style={{ display: 'flex', alignItems: 'center', fontSize: '13px' }}>
+                            <input
+                              type="checkbox"
+                              checked={editorSettings.autoSave}
+                              onChange={(e) => handleEditorSettingChange('autoSave', e.target.checked)}
+                              style={{ marginRight: '8px' }}
+                            />
+                            Auto Save
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+                    
                     {/* Editor Colors Section */}
                     <div>
                       <h4 style={{ margin: '16px 0 8px 0', fontSize: '14px' }}>Monaco Editor Colors</h4>
@@ -1436,39 +1545,6 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                             variable=""
                           />
                         </div>
-                      </div>
-
-                      <div style={{ marginTop: '16px' }}>
-                        <button
-                          onClick={() => {
-                            const allEditorColors = {
-                              "editor.background": "#1e1e1e",
-                              "editor.foreground": "#d4d4d4",
-                              "editorLineNumber.foreground": "#858585",
-                              "editorLineNumber.activeForeground": "#c6c6c6",
-                              "editorCursor.foreground": "#d4d4d4",
-                              "editor.selectionBackground": "#264f78",
-                              "editor.lineHighlightBackground": "#2d2d2d50",
-                            };
-                            setThemeSettings(prev => ({
-                              ...prev,
-                              editorColors: allEditorColors
-                            }));
-                            setHasUnsavedChanges(true);
-                          }}
-                          style={{
-                            padding: '8px 16px',
-                            background: 'var(--accent-color)',
-                            border: 'none',
-                            borderRadius: '4px',
-                            color: 'white',
-                            cursor: 'pointer',
-                            fontSize: '13px',
-                            width: 'fit-content',
-                          }}
-                        >
-                          Reset to Default Editor Colors
-                        </button>
                       </div>
                     </div>
 
@@ -1607,12 +1683,65 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                           Add Token Rule
                         </button>
                       </div>
+                    </div>
 
-                      <div style={{ marginTop: '16px' }}>
-                        <button
-                          onClick={() => {
-                            setThemeSettings(prev => ({
-                              ...prev,
+                    {/* Reset Theme & Editor Settings button */}
+                    <div style={{ 
+                      marginTop: '24px', 
+                      borderTop: '1px solid var(--border-primary)', 
+                      paddingTop: '16px',
+                      display: 'flex',
+                      gap: '12px'
+                    }}>
+                      <button
+                        onClick={() => {
+                          if (confirm('Are you sure you want to reset all theme and editor settings to defaults?')) {
+                            // Default editor settings
+                            setEditorSettings({
+                              fontFamily: 'monospace',
+                              fontSize: 13,
+                              lineHeight: 1.5,
+                              tabSize: 2,
+                              insertSpaces: true,
+                              wordWrap: true,
+                              rulers: [],
+                              formatOnSave: true,
+                              formatOnPaste: false,
+                              autoSave: true,
+                            });
+                            
+                            // Default theme settings
+                            setThemeSettings({
+                              name: 'vs-dark',
+                              customColors: {
+                                bgPrimary: '',
+                                bgSecondary: '',
+                                bgTertiary: '',
+                                bgSelected: '',
+                                bgHover: '',
+                                bgAccent: '',
+                                textPrimary: '',
+                                textSecondary: '',
+                                borderColor: '',
+                                borderPrimary: '',
+                                accentColor: '',
+                                accentHover: '',
+                                errorColor: '',
+                                titlebarBg: '',
+                                statusbarBg: '',
+                                statusbarFg: '',
+                                activityBarBg: '',
+                                activityBarFg: '',
+                              },
+                              editorColors: {
+                                "editor.background": "#1e1e1e",
+                                "editor.foreground": "#d4d4d4",
+                                "editorLineNumber.foreground": "#858585",
+                                "editorLineNumber.activeForeground": "#c6c6c6",
+                                "editorCursor.foreground": "#d4d4d4",
+                                "editor.selectionBackground": "#264f78",
+                                "editor.lineHighlightBackground": "#2d2d2d50",
+                              },
                               tokenColors: [
                                 { token: 'keyword', foreground: '#569CD6', fontStyle: 'bold' },
                                 { token: 'comment', foreground: '#6A9955', fontStyle: 'italic' },
@@ -1623,24 +1752,26 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                                 { token: 'function', foreground: '#DCDCAA' },
                                 { token: 'variable', foreground: '#9CDCFE' }
                               ]
-                            }));
+                            });
+
                             setHasUnsavedChanges(true);
-                          }}
-                          style={{
-                            padding: '8px 16px',
-                            background: 'var(--accent-color)',
-                            border: 'none',
-                            borderRadius: '4px',
-                            color: 'white',
-                            cursor: 'pointer',
-                            fontSize: '13px',
-                            width: 'fit-content',
-                            marginTop: '8px'
-                          }}
-                        >
-                          Load Default Token Colors
-                        </button>
-                      </div>
+                          }
+                        }}
+                        style={{
+                          padding: '8px 16px',
+                          background: 'var(--accent-color)',
+                          border: 'none',
+                          borderRadius: '4px',
+                          color: 'white',
+                          cursor: 'pointer',
+                          fontSize: '13px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                        }}
+                      >
+                        <span>Reset Theme & Editor Settings</span>
+                      </button>
                     </div>
                   </div>
                 )}
@@ -1728,6 +1859,7 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                           if (confirm('Are you sure you want to reset all settings to default values?')) {
                             // Reset all settings
                             setModelConfigs({ 'default': { ...defaultConfig } });
+                            setModelAssignments({...defaultModelAssignments});
                             setEditorSettings({
                               fontFamily: 'monospace',
                               fontSize: 13,
@@ -1762,9 +1894,29 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                                 activityBarBg: '',
                                 activityBarFg: '',
                               },
-                              editorColors: {},
-                              tokenColors: []
+                              editorColors: {
+                                "editor.background": "#1e1e1e",
+                                "editor.foreground": "#d4d4d4",
+                                "editorLineNumber.foreground": "#858585",
+                                "editorLineNumber.activeForeground": "#c6c6c6",
+                                "editorCursor.foreground": "#d4d4d4",
+                                "editor.selectionBackground": "#264f78",
+                                "editor.lineHighlightBackground": "#2d2d2d50",
+                              },
+                              tokenColors: [
+                                { token: 'keyword', foreground: '#569CD6', fontStyle: 'bold' },
+                                { token: 'comment', foreground: '#6A9955', fontStyle: 'italic' },
+                                { token: 'string', foreground: '#CE9178' },
+                                { token: 'number', foreground: '#B5CEA8' },
+                                { token: 'operator', foreground: '#D4D4D4' },
+                                { token: 'type', foreground: '#4EC9B0' },
+                                { token: 'function', foreground: '#DCDCAA' },
+                                { token: 'variable', foreground: '#9CDCFE' }
+                              ]
                             });
+                            setDiscordRpcSettings({...defaultDiscordRpcSettings});
+                            
+                            setHasUnsavedChanges(true);
                           }
                         }}
                         style={{
