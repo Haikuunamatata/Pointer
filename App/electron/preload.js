@@ -7,7 +7,7 @@ contextBridge.exposeInMainWorld(
   {
     send: (channel, data) => {
       // whitelist channels
-      let validChannels = ['toMain'];
+      let validChannels = ['toMain', 'editor-info-update', 'discord-settings-update'];
       if (validChannels.includes(channel)) {
         ipcRenderer.send(channel, data);
       }
@@ -17,6 +17,15 @@ contextBridge.exposeInMainWorld(
       if (validChannels.includes(channel)) {
         // Deliberately strip event as it includes `sender` 
         ipcRenderer.on(channel, (event, ...args) => func(...args));
+      }
+    },
+    // Discord RPC specific functions
+    discord: {
+      updateEditorInfo: (info) => {
+        ipcRenderer.send('editor-info-update', info);
+      },
+      updateSettings: (settings) => {
+        ipcRenderer.send('discord-settings-update', settings);
       }
     }
   }

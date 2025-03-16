@@ -147,8 +147,8 @@ const App: React.FC = () => {
     setChats(loadedChats);
   };
 
-  // Initialize Discord RPC settings with proper defaults
-  const [discordRpcSettings, setDiscordRpcSettings] = useState<DiscordRpcSettings>({
+  // Add this for Discord RPC settings
+  const [discordRpcSettings, setDiscordRpcSettings] = useState({
     enabled: true,
     details: 'Editing {file}',
     state: 'Workspace: {workspace}',
@@ -210,40 +210,6 @@ const App: React.FC = () => {
     } catch (error) {
       console.error('Error loading settings:', error);
     }
-  };
-
-  // Load Discord RPC settings from main process on startup
-  useEffect(() => {
-    // Request settings from main process
-    ipcRenderer.on('discord-settings-loaded', (event, settings) => {
-      console.log('Received Discord RPC settings from main process:', settings);
-      if (settings && settings.discordRpc) {
-        setDiscordRpcSettings(prev => ({
-          ...prev,
-          ...settings.discordRpc
-        }));
-      }
-    });
-    
-    // Request settings from main process
-    ipcRenderer.send('get-discord-settings');
-    
-    return () => {
-      ipcRenderer.removeAllListeners('discord-settings-loaded');
-    };
-  }, []);
-
-  // Handle Discord RPC settings changes
-  const handleDiscordRpcSettingsChange = (settings: Partial<DiscordRpcSettings>) => {
-    setDiscordRpcSettings(prev => {
-      const newSettings = { ...prev, ...settings };
-      console.log('Updating Discord RPC settings:', newSettings);
-      
-      // Send to main process immediately
-      ipcRenderer.send('discord-settings-update', newSettings);
-      
-      return newSettings;
-    });
   };
 
   // Add this effect to load chats
@@ -1291,7 +1257,7 @@ const App: React.FC = () => {
               >
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
                   <path
-                    d="M4 12C4 7.58172 7.58172 4 12 4C16.4183 4 20 7.58172 20 12 20H4L8 16"
+                    d="M4 12C4 7.58172 7.58172 4 12 4C16.4183 4 20 7.58172 20 12C20 16.4183 16.4183 20 12 20H4L8 16"
                     stroke="currentColor"
                     strokeWidth="1.5"
                     strokeLinecap="round"
@@ -1565,7 +1531,12 @@ const App: React.FC = () => {
             onClose={() => setIsSettingsModalOpen(false)} 
             initialSettings={{
               discordRpc: discordRpcSettings,
-              onDiscordSettingsChange: handleDiscordRpcSettingsChange
+              onDiscordSettingsChange: (settings) => {
+                setDiscordRpcSettings(prev => ({
+                  ...prev,
+                  ...settings
+                }));
+              }
             }}
           />
         </div>

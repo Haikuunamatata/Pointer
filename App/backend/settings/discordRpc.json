@@ -1,0 +1,14 @@
+{
+  "enabled": true,
+  "details": "Editing {file} | Cursor at {line}:{column}",
+  "state": "Workspace: {workspace}",
+  "largeImageKey": "logo",
+  "largeImageText": "Pointer Editor",
+  "smallImageKey": "code",
+  "smallImageText": "Cursor at line {line}, column {column}",
+  "button1Label": "Check it out",
+  "button1Url": "https://pointer.f1shy312.com",
+  "button2Label": "",
+  "button2Url": "",
+  "showElapsedTime": true
+}

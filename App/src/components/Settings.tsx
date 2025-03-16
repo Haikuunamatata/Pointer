@@ -2,6 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { FileSystemService } from '../services/FileSystemService';
 import { ModelConfig, EditorSettings, ThemeSettings, AppSettings, ModelAssignments, DiscordRpcSettings } from '../types';
 import * as monaco from 'monaco-editor';
+// Add electron API import with proper typing
+// @ts-ignore
+const electron = window.require ? window.require('electron') : null;
+// @ts-ignore
+const ipcRenderer = electron ? electron.ipcRenderer : null;
 
 interface SettingsProps {
   isVisible: boolean;
@@ -88,8 +93,17 @@ const settingsCategories = [
   { id: 'advanced', name: 'Advanced' },
 ];
 
+// Helper function to get the platform-specific settings path
+const getSettingsPath = (): string => {
+  // Determine platform-specific path
+  if (window.navigator.platform.indexOf('Win') > -1) {
+    return 'C:/ProgramData/Pointer/data/settings';
+  } else {
+    return './settings';
+  }
+};
+
 export function Settings({ isVisible, onClose, initialSettings }: SettingsProps) {
-  // State for various settings
   const [activeCategory, setActiveCategory] = useState('models');
   const [activeTab, setActiveTab] = useState('default');
   const [modelConfigs, setModelConfigs] = useState<Record<string, ModelConfig>>({
@@ -112,65 +126,92 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
     name: 'vs-dark',
     customColors: {},
   });
-  const [discordRpcSettings, setDiscordRpcSettings] = useState<DiscordRpcSettings>(
-    // Initialize with initialSettings if available, otherwise use default
-    initialSettings?.discordRpc || {...defaultDiscordRpcSettings}
-  );
+  const [discordRpcSettings, setDiscordRpcSettings] = useState<DiscordRpcSettings>({...defaultDiscordRpcSettings});
   const [isLoading, setIsLoading] = useState(false);
-  const [settingsChanged, setSettingsChanged] = useState(false);
-  
-  // Populate settings from initialSettings if available
-  useEffect(() => {
-    if (initialSettings) {
-      if (initialSettings.discordRpc) {
-        setDiscordRpcSettings(prev => ({ ...prev, ...initialSettings.discordRpc }));
-      }
-      // Add similar logic for other settings as needed
-    }
-  }, [initialSettings]);
-
-  // Function to handle changes to Discord RPC settings
-  const handleDiscordRpcSettingChange = (field: keyof DiscordRpcSettings, value: any) => {
-    setDiscordRpcSettings(prev => {
-      const newSettings = { ...prev, [field]: value };
-      setSettingsChanged(true);
-      
-      // Call the onDiscordSettingsChange callback if it exists
-      if (initialSettings?.onDiscordSettingsChange) {
-        initialSettings.onDiscordSettingsChange(newSettings);
-      }
-      
-      return newSettings;
-    });
-  };
-
-  // Function to save all settings
-  const saveSettings = () => {
-    // Save Discord RPC settings if the initialSettings has a callback
-    if (initialSettings?.onDiscordSettingsChange) {
-      initialSettings.onDiscordSettingsChange(discordRpcSettings);
-    }
-    
-    // Call existing save function that handles other settings
-    saveAllSettings();
-  };
-
-  // Function to handle cancel
-  const handleCancel = () => {
-    // Reset any changes
-    if (initialSettings?.discordRpc) {
-      setDiscordRpcSettings(initialSettings.discordRpc);
-    }
-    setSettingsChanged(false);
-    onClose();
-  };
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   // Load the settings
   useEffect(() => {
     if (isVisible) {
-      loadAllSettings();
+      // Reset loading state
+      setIsLoading(true);
+      
+      // Clear any previous settings to ensure we don't show stale data
+      setDiscordRpcSettings({...defaultDiscordRpcSettings});
+      
+      console.log('Settings opened - initiating full sync with main process');
+      
+      // Load settings with a slight delay to ensure the UI is ready
+      const loadSettingsAsync = async () => {
+        try {
+          // First, directly request settings from the main process
+          if (ipcRenderer) {
+            console.log('Requesting Discord RPC settings directly from main process');
+            const rpcSettings = await ipcRenderer.invoke('get-discord-rpc-settings');
+            if (rpcSettings) {
+              console.log('Successfully received Discord RPC settings from main process', rpcSettings);
+              setDiscordRpcSettings(rpcSettings);
+            } else {
+              console.warn('No settings received from main process');
+            }
+          }
+          
+          // Then load all settings (this will load from files as well)
+          await loadAllSettings();
+          
+        } catch (error) {
+          console.error('Error during settings sync:', error);
+        } finally {
+          setIsLoading(false);
+        }
+      };
+      
+      loadSettingsAsync();
     }
   }, [isVisible]);
+
+  // Load Discord RPC settings from main process
+  async function loadDiscordRpcSettings(): Promise<void> {
+    try {
+      if (ipcRenderer) {
+        console.log('Requesting Discord RPC settings from main process...');
+        const rpcSettings = await ipcRenderer.invoke('get-discord-rpc-settings');
+        if (rpcSettings) {
+          console.log('Loaded Discord RPC settings from main process:', rpcSettings);
+          
+          // Deep comparison to see if these are actually different
+          const currentSettingsJson = JSON.stringify(discordRpcSettings);
+          const newSettingsJson = JSON.stringify(rpcSettings);
+          
+          if (currentSettingsJson !== newSettingsJson) {
+            console.log('Discord RPC settings changed, updating UI');
+            
+            // Log important settings for debugging
+            console.log('- Enabled:', rpcSettings.enabled);
+            console.log('- Details:', rpcSettings.details);
+            console.log('- Button 1:', rpcSettings.button1Label, rpcSettings.button1Url);
+            console.log('- Button 2:', rpcSettings.button2Label, rpcSettings.button2Url);
+            
+            setDiscordRpcSettings(rpcSettings);
+            setHasUnsavedChanges(false); // Reset unsaved changes flag
+          } else {
+            console.log('Discord RPC settings unchanged');
+          }
+          return;
+        } else {
+          console.log('No Discord RPC settings received from main process');
+        }
+      } else {
+        console.log('IPC Renderer not available, skipping Discord RPC settings load');
+      }
+    } catch (rpcError) {
+      console.error('Error loading Discord RPC settings:', rpcError);
+    }
+    
+    // If we couldn't load settings, use defaults
+    console.log('Using default Discord RPC settings');
+    setDiscordRpcSettings({...defaultDiscordRpcSettings});
+  }
 
   // Load settings from localStorage and from the settings directory
   const loadAllSettings = async () => {
@@ -191,8 +232,14 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
         }));
       }
 
+      // Load Discord RPC settings from main process
+      await loadDiscordRpcSettings();
+
+      // Get the settings path
+      const settingsPath = getSettingsPath();
+
       // Load settings from the settings directory
-      const result = await FileSystemService.readSettingsFiles('C:/ProgramData/Pointer/data/settings');
+      const result = await FileSystemService.readSettingsFiles(settingsPath);
       if (result && result.success) {
         // Process model configs
         if (result.settings.models) {
@@ -278,6 +325,9 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
       // Apply the theme settings
       applyThemeSettings();
       
+      // Get the settings path
+      const settingsPath = getSettingsPath();
+      
       // Save to the settings directory
       const settings = {
         models: modelConfigs,
@@ -288,7 +338,7 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
       };
 
       // Save settings to the backend
-      const result = await FileSystemService.saveSettingsFiles('C:/ProgramData/Pointer/data/settings', settings);
+      const result = await FileSystemService.saveSettingsFiles(settingsPath, settings);
       
       if (result.success) {
         console.log('Settings saved successfully');
@@ -296,7 +346,19 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
         console.error('Failed to save settings');
       }
       
-    onClose();
+      // Also send Discord RPC settings to main process for immediate use
+      if (ipcRenderer) {
+        // First use the discord-settings-update event which now saves to file
+        ipcRenderer.send('discord-settings-update', discordRpcSettings);
+        console.log('Discord RPC settings sent to main process via discord-settings-update');
+      } else {
+        console.log('IPC Renderer not available, skipping Discord RPC settings save');
+      }
+      
+      // Reset unsaved changes flag
+      setHasUnsavedChanges(false);
+      
+      onClose();
     } catch (error) {
       console.error('Error saving settings:', error);
     } finally {
@@ -326,6 +388,7 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
         [field]: value
       }
     }));
+    setHasUnsavedChanges(true);
   };
 
   // Handle change for editor settings
@@ -334,6 +397,7 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
       ...prev,
       [field]: value
     }));
+    setHasUnsavedChanges(true);
   };
 
   // Handle change for theme settings
@@ -342,6 +406,44 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
       ...prev,
       [field]: value
     }));
+    setHasUnsavedChanges(true);
+  };
+
+  // Handle change for Discord RPC settings
+  const handleDiscordRpcSettingChange = (field: keyof DiscordRpcSettings, value: any) => {
+    const updatedSettings = {
+      ...discordRpcSettings,
+      [field]: value
+    };
+    
+    setDiscordRpcSettings(updatedSettings);
+    setHasUnsavedChanges(true); // Mark that we have unsaved changes
+    
+    // Send updated settings to main process
+    if (ipcRenderer) {
+      // Use both methods to ensure immediate update and persistence
+      
+      // This updates the UI and saves to file
+      ipcRenderer.send('discord-settings-update', { [field]: value });
+      
+      // This ensures the update is reflected immediately in Discord
+      ipcRenderer.invoke('update-discord-rpc-settings', { [field]: value })
+        .then((result: { success: boolean, error?: string }) => {
+          if (!result.success) {
+            console.error('Failed to save Discord RPC settings:', result.error);
+          }
+        })
+        .catch((error: Error) => {
+          console.error('Error saving Discord RPC settings:', error);
+        });
+    } else {
+      console.log('IPC Renderer not available, skipping Discord RPC settings save');
+    }
+    
+    // Notify parent component if callback provided
+    if (initialSettings?.onDiscordSettingsChange) {
+      initialSettings.onDiscordSettingsChange({ [field]: value });
+    }
   };
 
   // Add a new model configuration
@@ -372,6 +474,17 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
     });
 
     setActiveTab('default');
+  };
+
+  // Handle closing the settings dialog
+  const handleClose = () => {
+    if (hasUnsavedChanges) {
+      if (confirm('You have unsaved changes. Are you sure you want to close without saving?')) {
+        onClose();
+      }
+    } else {
+      onClose();
+    }
   };
 
   if (!isVisible) return null;
@@ -409,9 +522,21 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
           padding: '16px 20px',
           borderBottom: '1px solid var(--border-primary)',
         }}>
-          <h2 style={{ margin: 0, fontSize: '18px' }}>Settings</h2>
+          <h2 style={{ margin: 0, fontSize: '18px' }}>
+            Settings
+            {hasUnsavedChanges && 
+              <span style={{ 
+                fontSize: '12px', 
+                color: 'var(--accent-color)', 
+                marginLeft: '10px',
+                fontWeight: 'normal'
+              }}>
+                (unsaved changes)
+              </span>
+            }
+          </h2>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             style={{
               background: 'none',
               border: 'none',
@@ -1049,22 +1174,14 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                               tabSize: 2,
                               insertSpaces: true,
                               wordWrap: true,
-                              minimap: true,
-                              lineNumbers: true,
-                              smoothScrolling: true,
-                              quickSuggestions: true,
-                              bracketPairColorization: true,
+                              rulers: [],
+                              formatOnSave: true,
+                              formatOnPaste: false,
+                              autoSave: true,
                             });
                             setThemeSettings({
-                              primaryColor: '#007ACC',
-                              bgPrimary: '#1E1E1E',
-                              bgSecondary: '#252526',
-                              textPrimary: '#CCCCCC',
-                              textSecondary: '#9E9E9E',
-                              accentColor: '#007ACC',
-                              errorColor: '#F44336',
-                              borderPrimary: '#474747',
-                              bgHover: '#2A2D2E',
+                              name: 'vs-dark',
+                              customColors: {},
                             });
                           }
                         }}
@@ -1431,17 +1548,17 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
 
         {/* Footer with save/cancel buttons */}
         <div style={{ 
-          display: 'flex', 
-          justifyContent: 'flex-end', 
-          gap: '12px', 
           padding: '16px 20px',
           borderTop: '1px solid var(--border-primary)',
+          display: 'flex',
+          justifyContent: 'flex-end',
+          gap: '12px',
         }}>
           <button
-            onClick={handleCancel}
-            style={{ 
-              padding: '8px 16px', 
-              borderRadius: '4px', 
+            onClick={handleClose}
+            style={{
+              padding: '8px 16px',
+              borderRadius: '4px',
               border: '1px solid var(--border-primary)',
               background: 'var(--bg-secondary)',
               color: 'var(--text-secondary)',
@@ -1452,20 +1569,20 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
             Cancel
           </button>
           <button
-            onClick={saveSettings}
+            onClick={saveAllSettings}
             disabled={isLoading}
-            style={{ 
-              padding: '8px 16px', 
-              borderRadius: '4px', 
+            style={{
+              padding: '8px 16px',
+              borderRadius: '4px',
               border: 'none',
-              background: isLoading ? 'var(--bg-secondary)' : 'var(--accent-color)',
+              background: isLoading ? 'var(--bg-secondary)' : 
+                        hasUnsavedChanges ? 'var(--accent-color)' : 'var(--bg-hover)',
               color: isLoading ? 'var(--text-secondary)' : 'white',
               cursor: isLoading ? 'not-allowed' : 'pointer',
               fontSize: '13px',
-              opacity: settingsChanged ? 1 : 0.7
             }}
           >
-            {isLoading ? 'Saving...' : 'Save Changes'}
+            {isLoading ? 'Saving...' : hasUnsavedChanges ? 'Save Changes' : 'Done'}
           </button>
         </div>
       </div>

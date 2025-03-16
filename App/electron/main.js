@@ -25,34 +25,53 @@ let discordRpcSettings = {
   button2Url: '',
 };
 
-// Load saved settings from disk if available
-const settingsPath = path.join(app.getPath('userData'), 'settings.json');
-
-// Function to load settings from disk
-function loadSettingsFromDisk() {
+// Function to load settings from storage
+async function loadSettings() {
   try {
+    // Use platform-specific path for settings
+    const userDataPath = app.getPath('userData');
+    const settingsPath = path.join(userDataPath, 'settings', 'discord_rpc.json');
+    
+    console.log('Looking for Discord RPC settings at:', settingsPath);
+    
+    // Check if settings file exists
     if (fs.existsSync(settingsPath)) {
-      const savedSettings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-      if (savedSettings.discordRpc) {
-        console.log('Loading Discord RPC settings from disk');
-        discordRpcSettings = { ...discordRpcSettings, ...savedSettings.discordRpc };
+      console.log('Loading Discord RPC settings from:', settingsPath);
+      const settingsData = fs.readFileSync(settingsPath, 'utf8');
+      const settings = JSON.parse(settingsData);
+      
+      // Update the settings
+      if (settings && typeof settings === 'object') {
+        console.log('Discord RPC settings loaded successfully');
+        discordRpcSettings = { ...discordRpcSettings, ...settings };
+        
+        // Log the current settings for debugging
+        console.log('Current Discord RPC settings:');
+        console.log('- Enabled:', discordRpcSettings.enabled);
+        console.log('- Details template:', discordRpcSettings.details);
+        console.log('- State template:', discordRpcSettings.state);
+        console.log('- Button 1:', discordRpcSettings.button1Label, discordRpcSettings.button1Url ? '(URL set)' : '(no URL)');
+        console.log('- Button 2:', discordRpcSettings.button2Label, discordRpcSettings.button2Url ? '(URL set)' : '(no URL)');
+      }
+    } else {
+      console.log('No saved Discord RPC settings found, using defaults');
+      
+      // Create the settings directory if it doesn't exist
+      const settingsDir = path.dirname(settingsPath);
+      if (!fs.existsSync(settingsDir)) {
+        fs.mkdirSync(settingsDir, { recursive: true });
+      }
+      
+      // Save the default settings
+      try {
+        fs.writeFileSync(settingsPath, JSON.stringify(discordRpcSettings, null, 2));
+        console.log('Default Discord RPC settings saved to:', settingsPath);
+      } catch (saveError) {
+        console.error('Error saving default Discord RPC settings:', saveError);
       }
     }
   } catch (error) {
-    console.error('Error loading settings from disk:', error);
-  }
-}
-
-// Function to save settings to disk
-function saveSettingsToDisk() {
-  try {
-    const settings = {
-      discordRpc: discordRpcSettings
-    };
-    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
-    console.log('Settings saved to disk');
-  } catch (error) {
-    console.error('Error saving settings to disk:', error);
+    console.error('Error loading Discord RPC settings:', error);
   }
 }
 
@@ -89,8 +108,14 @@ let editorInfo = {
 };
 
 // Initialize Discord RPC
-function initDiscordRPC() {
-  if (!discordRpcSettings.enabled) return;
+async function initDiscordRPC() {
+  // Load settings first
+  await loadSettings();
+  
+  if (!discordRpcSettings.enabled) {
+    console.log('Discord RPC is disabled in settings');
+    return;
+  }
   
   // Register and create client
   DiscordRPC.register(DISCORD_CLIENT_ID);
@@ -310,151 +335,165 @@ function showMainWindow(mainWindow) {
 }
 
 async function createWindow() {
-  // First check if backend is running
-  const backendReady = await checkBackendConnection();
-  if (!backendReady) {
-    console.error('Failed to connect to backend');
-    // Show error dialog
-    if (splashWindow) {
-      dialog.showErrorBox(
-        'Connection Error',
-        'Failed to connect to the backend. Please ensure the backend server is running.'
-      );
-      splashWindow.destroy();
-    }
-    app.quit();
-    return;
-  }
-  
-  updateSplashMessage('Loading application...');
-
-  // Create the browser window.
-  const mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 800,
-    show: false, // Don't show until fully loaded
-    icon: getIconPath(), // Set application icon
-    title: 'Pointer', // Set window title
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-      webSecurity: true,
-      preload: path.join(__dirname, 'preload.js')
-    }
-  });
-
-  // Set up window event listeners for debugging
-  mainWindow.webContents.on('did-start-loading', () => {
-    console.log('Main window did-start-loading');
-  });
-
-  mainWindow.webContents.on('did-finish-load', () => {
-    console.log('Main window did-finish-load');
-  });
-
-  mainWindow.webContents.on('dom-ready', () => {
-    console.log('Main window dom-ready');
-  });
-
-  // Set the app user model ID for Windows
-  if (process.platform === 'win32') {
-    app.setAppUserModelId('com.pointer');
-  }
-
-  // Set up a timeout fallback to show the window in case the ready-to-show event doesn't fire
-  const windowShowTimeout = setTimeout(() => {
-    console.log('Window show timeout reached, forcing display');
-    showMainWindow(mainWindow);
-  }, 10000); // 10 second fallback timeout
-
-  // Once everything is loaded and rendered, show the main window and close the splash
-  mainWindow.once('ready-to-show', () => {
-    console.log('Main window ready-to-show event triggered');
-    clearTimeout(windowShowTimeout); // Clear the timeout as we got the event
-    showMainWindow(mainWindow);
-  });
-
-  // Initialize Discord RPC
-  initDiscordRPC();
-
-  // Load the app
-  if (isDev) {
-    // Wait for Vite server in development
-    const serverReady = await waitForViteServer();
-    if (!serverReady) {
-      console.error('Failed to connect to Vite server');
+  try {
+    // Load settings first
+    await loadSettings();
+    
+    // First check if backend is running
+    const backendReady = await checkBackendConnection();
+    if (!backendReady) {
+      console.error('Failed to connect to backend');
+      // Show error dialog
       if (splashWindow) {
         dialog.showErrorBox(
-          'Development Server Error',
-          'Failed to connect to the development server. Please ensure "yarn start" is running.'
+          'Connection Error',
+          'Failed to connect to the backend. Please ensure the backend server is running.'
         );
         splashWindow.destroy();
       }
       app.quit();
       return;
     }
-
-    updateSplashMessage('Loading development environment...');
-    console.log('Loading development URL: http://localhost:3000');
-    try {
-      await mainWindow.loadURL('http://localhost:3000');
-      console.log('Development URL loaded successfully');
-    } catch (error) {
-      console.error('Error loading development URL:', error);
-      // Show the window anyway if we hit an error trying to load the URL
-      showMainWindow(mainWindow);
-    }
     
-    if (isDev) {
-      mainWindow.webContents.openDevTools();
-    }
-  } else {
-    updateSplashMessage('Loading application...');
-    console.log('Loading application from dist folder');
-    try {
-      await mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
-      console.log('Application loaded successfully from dist folder');
-    } catch (error) {
-      console.error('Error loading application from dist folder:', error);
-      // Show the window anyway if we hit an error trying to load the file
-      showMainWindow(mainWindow);
-    }
-  }
+    // Update splash message
+    updateSplashMessage('Initializing editor...');
+    
+    // Initialize Discord RPC after loading settings
+    await initDiscordRPC();
+    
+    // Create the browser window.
+    const mainWindow = new BrowserWindow({
+      width: 1200,
+      height: 800,
+      show: false, // Don't show until fully loaded
+      icon: getIconPath(), // Set application icon
+      title: 'Pointer', // Set window title
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        webSecurity: true,
+        preload: path.join(__dirname, 'preload.js')
+      }
+    });
 
-  // Handle loading errors
-  mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
-    console.error('Failed to load:', errorCode, errorDescription);
+    // Set up window event listeners for debugging
+    mainWindow.webContents.on('did-start-loading', () => {
+      console.log('Main window did-start-loading');
+    });
+
+    mainWindow.webContents.on('did-finish-load', () => {
+      console.log('Main window did-finish-load');
+    });
+
+    mainWindow.webContents.on('dom-ready', () => {
+      console.log('Main window dom-ready');
+    });
+
+    // Set the app user model ID for Windows
+    if (process.platform === 'win32') {
+      app.setAppUserModelId('com.pointer');
+    }
+
+    // Set up a timeout fallback to show the window in case the ready-to-show event doesn't fire
+    const windowShowTimeout = setTimeout(() => {
+      console.log('Window show timeout reached, forcing display');
+      showMainWindow(mainWindow);
+    }, 10000); // 10 second fallback timeout
+
+    // Once everything is loaded and rendered, show the main window and close the splash
+    mainWindow.once('ready-to-show', () => {
+      console.log('Main window ready-to-show event triggered');
+      clearTimeout(windowShowTimeout); // Clear the timeout as we got the event
+      showMainWindow(mainWindow);
+    });
+
+    // Load the app
     if (isDev) {
-      // Retry loading in development
-      setTimeout(() => {
-        console.log('Retrying to load the app...');
-        mainWindow.loadURL('http://localhost:3000').catch(err => {
-          console.error('Error retrying load:', err);
-          // Force show the window even if we can't load it
-          showMainWindow(mainWindow);
-        });
-      }, 1000);
+      // Wait for Vite server in development
+      const serverReady = await waitForViteServer();
+      if (!serverReady) {
+        console.error('Failed to connect to Vite server');
+        if (splashWindow) {
+          dialog.showErrorBox(
+            'Development Server Error',
+            'Failed to connect to the development server. Please ensure "yarn start" is running.'
+          );
+          splashWindow.destroy();
+        }
+        app.quit();
+        return;
+      }
+
+      updateSplashMessage('Loading development environment...');
+      console.log('Loading development URL: http://localhost:3000');
+      try {
+        await mainWindow.loadURL('http://localhost:3000');
+        console.log('Development URL loaded successfully');
+      } catch (error) {
+        console.error('Error loading development URL:', error);
+        // Show the window anyway if we hit an error trying to load the URL
+        showMainWindow(mainWindow);
+      }
+      
+      if (isDev) {
+        mainWindow.webContents.openDevTools();
+      }
     } else {
-      // Force show the window even if we can't load it
-      showMainWindow(mainWindow);
+      updateSplashMessage('Loading application...');
+      console.log('Loading application from dist folder');
+      try {
+        await mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+        console.log('Application loaded successfully from dist folder');
+      } catch (error) {
+        console.error('Error loading application from dist folder:', error);
+        // Show the window anyway if we hit an error trying to load the file
+        showMainWindow(mainWindow);
+      }
     }
-  });
 
-  // Log any console messages from the renderer process
-  mainWindow.webContents.on('console-message', (event, level, message) => {
-    console.log('Renderer Console:', message);
-  });
+    // Handle loading errors
+    mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
+      console.error('Failed to load:', errorCode, errorDescription);
+      if (isDev) {
+        // Retry loading in development
+        setTimeout(() => {
+          console.log('Retrying to load the app...');
+          mainWindow.loadURL('http://localhost:3000').catch(err => {
+            console.error('Error retrying load:', err);
+            // Force show the window even if we can't load it
+            showMainWindow(mainWindow);
+          });
+        }, 1000);
+      } else {
+        // Force show the window even if we can't load it
+        showMainWindow(mainWindow);
+      }
+    });
+
+    // Log any console messages from the renderer process
+    mainWindow.webContents.on('console-message', (event, level, message) => {
+      console.log('Renderer Console:', message);
+    });
+  } catch (error) {
+    console.error('Error in createWindow:', error);
+    if (splashWindow) {
+      dialog.showErrorBox(
+        'Application Error',
+        'An error occurred while initializing the application. Please try restarting the application.'
+      );
+      splashWindow.destroy();
+    }
+    app.quit();
+  }
 }
 
 // This method will be called when Electron has finished initialization
 app.whenReady().then(async () => {
-  console.log('Electron app is ready. Creating window...');
+  console.log('Electron app is ready.');
   
-  // Load settings before creating splash screen and window
-  loadSettingsFromDisk();
-  
-  // Initialize Discord RPC after loading settings
-  initDiscordRPC();
+  // Load settings first thing
+  await loadSettings();
+  console.log('Settings loaded, creating splash screen...');
   
   // Create and show the splash screen
   createSplashScreen();
@@ -491,10 +530,26 @@ ipcMain.on('editor-info-update', (event, info) => {
 });
 
 ipcMain.on('discord-settings-update', (event, settings) => {
+  // Update the global settings object
   discordRpcSettings = { ...discordRpcSettings, ...settings };
   
-  // Save the settings to disk immediately
-  saveSettingsToDisk();
+  // Save the updated settings to file
+  try {
+    const userDataPath = app.getPath('userData');
+    const settingsPath = path.join(userDataPath, 'settings', 'discord_rpc.json');
+    
+    // Create the settings directory if it doesn't exist
+    const settingsDir = path.dirname(settingsPath);
+    if (!fs.existsSync(settingsDir)) {
+      fs.mkdirSync(settingsDir, { recursive: true });
+    }
+    
+    // Save the settings to file
+    fs.writeFileSync(settingsPath, JSON.stringify(discordRpcSettings, null, 2));
+    console.log('Discord RPC settings saved to:', settingsPath);
+  } catch (error) {
+    console.error('Error saving Discord RPC settings:', error);
+  }
   
   // Reinitialize Discord RPC if enabled status changed
   if (settings.enabled !== undefined) {
@@ -514,10 +569,61 @@ ipcMain.on('discord-settings-update', (event, settings) => {
   }
 });
 
-// Handle get-discord-settings request from renderer
-ipcMain.on('get-discord-settings', (event) => {
-  // Send settings back to the renderer process
-  event.sender.send('discord-settings-loaded', {
-    discordRpc: discordRpcSettings
+// Update Discord Rich Presence settings
+ipcMain.handle('update-discord-rpc-settings', async (event, newSettings) => {
+  try {
+    console.log('Updating Discord RPC settings:', newSettings);
+    
+    // Update the global settings object
+    discordRpcSettings = { ...discordRpcSettings, ...newSettings };
+    
+    // Save settings to file
+    const userDataPath = app.getPath('userData');
+    const settingsPath = path.join(userDataPath, 'settings', 'discord_rpc.json');
+    
+    // Create the settings directory if it doesn't exist
+    const settingsDir = path.dirname(settingsPath);
+    if (!fs.existsSync(settingsDir)) {
+      fs.mkdirSync(settingsDir, { recursive: true });
+    }
+    
+    // Save the settings
+    fs.writeFileSync(settingsPath, JSON.stringify(discordRpcSettings, null, 2));
+    console.log('Discord RPC settings saved to:', settingsPath);
+    
+    // Update the rich presence with new settings
+    if (rpc && discordRpcSettings.enabled) {
+      updateRichPresence();
+    } else if (!discordRpcSettings.enabled && rpc) {
+      // Clear presence if disabled
+      rpc.clearActivity().catch(console.error);
+      console.log('Discord RPC disabled and activity cleared');
+    } else if (discordRpcSettings.enabled && !rpc) {
+      // Re-initialize if it was disabled before
+      initDiscordRPC();
+    }
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Error updating Discord RPC settings:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Get Discord Rich Presence settings
+ipcMain.handle('get-discord-rpc-settings', async () => {
+  // Force reload settings from disk to ensure we have the latest
+  await loadSettings();
+  
+  console.log('Responding to get-discord-rpc-settings request with:', {
+    enabled: discordRpcSettings.enabled,
+    details: discordRpcSettings.details,
+    state: discordRpcSettings.state,
+    button1Label: discordRpcSettings.button1Label,
+    button1Url: discordRpcSettings.button1Url,
+    button2Label: discordRpcSettings.button2Label,
+    button2Url: discordRpcSettings.button2Url
   });
+  
+  return discordRpcSettings;
 }); 

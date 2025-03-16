@@ -40,4 +40,34 @@ declare module 'monaco-editor/esm/vs/language/typescript/ts.worker?worker' {
     new (): Worker
   }
   export default workerConstructor
+}
+
+// Add Discord RPC TypeScript definitions
+interface ElectronAPI {
+  send: (channel: string, data: any) => void;
+  receive: (channel: string, func: (...args: any[]) => void) => void;
+  discord: {
+    updateEditorInfo: (info: {
+      file: string;
+      workspace: string;
+      line: number;
+      column: number;
+      languageId: string;
+      fileSize: string;
+    }) => void;
+    updateSettings: (settings: {
+      enabled?: boolean;
+      details?: string;
+      state?: string;
+      largeImageKey?: string;
+      largeImageText?: string;
+      smallImageKey?: string;
+      smallImageText?: string;
+      showElapsedTime?: boolean;
+    }) => void;
+  };
+}
+
+interface Window {
+  electron?: ElectronAPI;
 } 

@@ -50,6 +50,20 @@ export interface ThemeSettings {
   customColors: Record<string, string>;
 }
 
+export interface DiscordRpcSettings {
+  enabled: boolean;
+  details: string;
+  state: string;
+  largeImageKey: string;
+  largeImageText: string;
+  smallImageKey: string;
+  smallImageText: string;
+  button1Label: string;
+  button1Url: string;
+  button2Label: string;
+  button2Url: string;
+}
+
 export interface ModelAssignments {
   chat: string;
   insert: string;
@@ -64,5 +78,6 @@ export interface AppSettings {
   theme: ThemeSettings;
   keybindings?: Record<string, string>;
   terminal?: Record<string, any>;
+  discordRpc?: DiscordRpcSettings;
   advanced?: Record<string, any>;
 } 
