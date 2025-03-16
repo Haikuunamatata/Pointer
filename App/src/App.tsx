@@ -176,11 +176,6 @@ const App: React.FC = () => {
   // Load settings, including Discord settings
   const loadSettings = async () => {
     try {
-      console.log('Loading settings...');
-      console.log('Loading settings...');
-      console.log('Loading settings...');
-      console.log('Loading settings...');
-      console.log('Loading settings...');
       const result = await FileSystemService.readSettingsFiles('C:/ProgramData/Pointer/data/settings');
       if (result && result.success) {
         setSettingsData(result.settings);
@@ -295,6 +290,20 @@ const App: React.FC = () => {
   useEffect(() => {
     loadSettings();
   }, []);
+
+  // Add a dedicated effect to ensure theme is applied on app start and whenever editor changes
+  useEffect(() => {
+    // Only apply if editor exists
+    if (editor.current) {
+      // Use a small timeout to ensure Monaco editor is fully initialized
+      const timeoutId = setTimeout(() => {
+        applyCustomTheme();
+        console.log('Applied theme on startup/editor change');
+      }, 100);
+      
+      return () => clearTimeout(timeoutId);
+    }
+  }, [editor.current]);
 
   // Add this effect to load chats
   useEffect(() => {
@@ -479,6 +488,9 @@ const App: React.FC = () => {
   }, [fileSystem.currentFileId]);
 
   const handleFileSelect = async (fileId: string) => {
+    // Apply custom theme at the beginning to ensure it's set
+    applyCustomTheme();
+    
     // Check if file exists in the current file system state
     if (!fileSystem.items[fileId]) {
       console.error(`Attempted to select non-existent file with id: ${fileId}`);
@@ -523,6 +535,9 @@ const App: React.FC = () => {
 
   const handleTabSelect = async (tabId: string) => {
     console.log('handleTabSelect called with:', tabId);
+    
+    // Apply custom theme at the beginning of tab select to ensure it's set
+    applyCustomTheme();
     
     // Special handling for welcome tab
     if (tabId === 'welcome') {
@@ -643,6 +658,9 @@ const App: React.FC = () => {
             const welcomeContent = fileSystem.items['welcome'].content ||
               "// Welcome to your new code editor!\n// Start typing here...\n\n// By the way you can't delete or save this file.";
             editor.current.setValue(welcomeContent);
+            
+            // Apply theme when switching to welcome screen
+            applyCustomTheme();
           }
         }
       }
@@ -698,6 +716,9 @@ const App: React.FC = () => {
   }, []);
 
   const handleOpenFile = async () => {
+    // Apply custom theme at the beginning to ensure it's set
+    applyCustomTheme();
+    
     try {
       const result = await FileSystemService.openFile();
       if (!result) {
@@ -753,6 +774,8 @@ const App: React.FC = () => {
       // Set the editor content
       if (editor.current) {
         editor.current.setValue(result.content);
+        // Apply custom theme after setting content
+        applyCustomTheme();
       } else {
         console.error('Editor not initialized');
       }
@@ -1224,6 +1247,15 @@ const App: React.FC = () => {
     if (!window.electron || !window.electron.discord) return;
     window.electron.discord.updateSettings(discordRpcSettings);
   }, [discordRpcSettings]);
+
+  // Ensure theme is applied whenever file system state changes
+  useEffect(() => {
+    if (fileSystem.currentFileId && editor.current) {
+      setTimeout(() => {
+        applyCustomTheme();
+      }, 50);
+    }
+  }, [fileSystem.currentFileId]);
 
   return (
     <>

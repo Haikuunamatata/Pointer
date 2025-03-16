@@ -43,6 +43,12 @@ const Tabs: React.FC<TabsProps> = ({
 }) => {
   const handleTabClick = (fileId: string) => {
     console.log('Tab clicked:', fileId);
+    
+    // Apply theme when switching tabs if available on window
+    if (window.applyCustomTheme) {
+      window.applyCustomTheme();
+    }
+    
     if (onTabSelect && fileId !== currentFileId) {
       onTabSelect(fileId);
     }

@@ -1163,11 +1163,14 @@ const EditorGrid: React.FC<EditorGridProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const dragStartPos = useRef<{ x: number; y: number } | null>(null);
 
-  // Reapply theme when the current file changes
+  // Make sure theme is applied when currentFileId changes
   useEffect(() => {
-    if (currentFileId && window.applyCustomTheme) {
-      // Small delay to ensure the editor is ready
-      setTimeout(() => window.applyCustomTheme?.(), 50);
+    // Apply custom theme whenever the current file changes if available on window
+    if (window.applyCustomTheme && currentFileId) {
+      // Small delay to ensure editor is ready
+      setTimeout(() => {
+        window.applyCustomTheme?.();
+      }, 50);
     }
   }, [currentFileId]);
 
