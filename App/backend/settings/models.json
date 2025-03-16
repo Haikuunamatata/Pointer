@@ -1,7 +1,7 @@
 {
   "default": {
-    "id": "deepseek-coder-v2-lite-instruct",
-    "name": "Default Model",
+    "id": "deepseek-r1-distill-qwen-7b",
+    "name": "deepseek-r1-distill-qwen-7b",
     "temperature": 0.7,
     "maxTokens": -1,
     "topP": 1,
@@ -11,7 +11,7 @@
     "contextLength": 8192,
     "stopSequences": [],
     "modelProvider": "local",
-    "apiEndpoint": "http://localhost:11434/v1",
+    "apiEndpoint": "http://localhost:1234/v1",
     "apiKey": "",
     "purpose": "general"
   }
