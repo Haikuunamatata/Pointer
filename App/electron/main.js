@@ -138,6 +138,9 @@ function updateRichPresence() {
   if (!rpc || !discordRpcSettings.enabled) return;
   
   try {
+    // Check if user is not editing a real file
+    const isIdling = !editorInfo.file || editorInfo.file === 'Untitled' || editorInfo.file === 'Welcome';
+    
     // Replace placeholders in messages
     const details = replaceVariables(discordRpcSettings.details);
     const state = replaceVariables(discordRpcSettings.state);
@@ -173,7 +176,7 @@ function updateRichPresence() {
     
     // Build the activity object
     const activity = {
-      details: details || 'Editing',
+      details: isIdling ? 'Idling' : (details || 'Editing'),
       state: state || 'In Pointer Editor',
       startTimestamp: startTimestamp,
       largeImageKey: discordRpcSettings.largeImageKey || 'pointer_logo',
@@ -203,8 +206,14 @@ function updateRichPresence() {
 function replaceVariables(message) {
   if (!message) return '';
   
+  // Check if user is not editing a real file
+  let fileDisplay = editorInfo.file;
+  if (!fileDisplay || fileDisplay === 'Untitled' || fileDisplay === 'Welcome') {
+    fileDisplay = 'Idling';
+  }
+  
   return message
-    .replace(/{file}/g, editorInfo.file)
+    .replace(/{file}/g, fileDisplay)
     .replace(/{workspace}/g, editorInfo.workspace)
     .replace(/{line}/g, editorInfo.line)
     .replace(/{column}/g, editorInfo.column)
