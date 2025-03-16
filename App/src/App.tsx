@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import * as monaco from 'monaco-editor';
 import FileExplorer from './components/FileExplorer';
 import Tabs from './components/Tabs';
@@ -147,10 +147,24 @@ const App: React.FC = () => {
     setChats(loadedChats);
   };
 
-  // Function to load settings from JSON files
+  // Initialize Discord RPC settings with proper defaults
+  const [discordRpcSettings, setDiscordRpcSettings] = useState<DiscordRpcSettings>({
+    enabled: true,
+    details: 'Editing {file}',
+    state: 'Workspace: {workspace}',
+    largeImageKey: 'pointer_logo',
+    largeImageText: 'Pointer - Code Editor',
+    smallImageKey: 'code',
+    smallImageText: '{languageId} | Line {line}:{column}',
+    button1Label: 'Download Pointer',
+    button1Url: 'https://pointer.f1shy312.com',
+    button2Label: '',
+    button2Url: '',
+  });
+
+  // Load settings, including Discord settings
   const loadSettings = async () => {
     try {
-      // This will be handled by the backend to read files from C:/ProgramData/Pointer/data/settings
       const result = await FileSystemService.readSettingsFiles('C:/ProgramData/Pointer/data/settings');
       if (result && result.success) {
         setSettingsData(result.settings);
@@ -177,12 +191,59 @@ const App: React.FC = () => {
           const themeName = result.settings.theme.name || 'vs-dark';
           monaco.editor.setTheme(themeName);
         }
+
+        // Process Discord RPC settings
+        if (result.settings.discordRpc) {
+          setDiscordRpcSettings(prev => ({
+            ...prev,
+            ...result.settings.discordRpc
+          }));
+          
+          // Send settings to main process
+          if (window.electron && window.electron.discord) {
+            window.electron.discord.updateSettings(result.settings.discordRpc);
+          }
+        }
       } else {
         console.error('Failed to load settings');
       }
     } catch (error) {
       console.error('Error loading settings:', error);
     }
+  };
+
+  // Load Discord RPC settings from main process on startup
+  useEffect(() => {
+    // Request settings from main process
+    ipcRenderer.on('discord-settings-loaded', (event, settings) => {
+      console.log('Received Discord RPC settings from main process:', settings);
+      if (settings && settings.discordRpc) {
+        setDiscordRpcSettings(prev => ({
+          ...prev,
+          ...settings.discordRpc
+        }));
+      }
+    });
+    
+    // Request settings from main process
+    ipcRenderer.send('get-discord-settings');
+    
+    return () => {
+      ipcRenderer.removeAllListeners('discord-settings-loaded');
+    };
+  }, []);
+
+  // Handle Discord RPC settings changes
+  const handleDiscordRpcSettingsChange = (settings: Partial<DiscordRpcSettings>) => {
+    setDiscordRpcSettings(prev => {
+      const newSettings = { ...prev, ...settings };
+      console.log('Updating Discord RPC settings:', newSettings);
+      
+      // Send to main process immediately
+      ipcRenderer.send('discord-settings-update', newSettings);
+      
+      return newSettings;
+    });
   };
 
   // Add this effect to load chats
@@ -1040,6 +1101,56 @@ const App: React.FC = () => {
     }));
   };
 
+  // Update Discord RPC when editor state changes
+  useEffect(() => {
+    if (!editor.current || !discordRpcSettings.enabled) return;
+    
+    const updateDiscordRPC = () => {
+      if (!window.electron || !window.electron.discord) return;
+      
+      const position = editor.current?.getPosition();
+      const model = editor.current?.getModel();
+      const fileName = getCurrentFileName();
+      const workspaceName = fileSystem.items[fileSystem.rootId]?.name || 'Pointer';
+      const languageId = model?.getLanguageId() || 'plaintext';
+      const content = model?.getValue() || '';
+      const fileSize = `${Math.round(content.length / 1024)} KB`;
+      
+      window.electron.discord.updateEditorInfo({
+        file: fileName || 'Untitled',
+        workspace: workspaceName,
+        line: position?.lineNumber || 1,
+        column: position?.column || 1,
+        languageId,
+        fileSize,
+      });
+    };
+    
+    // Update initially
+    updateDiscordRPC();
+    
+    // Set up event listeners for cursor position changes
+    const disposable = editor.current.onDidChangeCursorPosition(() => {
+      updateDiscordRPC();
+    });
+    
+    // Set up event listener for model changes (file changes)
+    const modelDisposable = editor.current.onDidChangeModel(() => {
+      updateDiscordRPC();
+    });
+    
+    return () => {
+      disposable.dispose();
+      modelDisposable.dispose();
+    };
+  }, [editor.current, discordRpcSettings.enabled, fileSystem.currentFileId]);
+  
+  // Update Discord settings in main process when they change
+  useEffect(() => {
+    if (!window.electron || !window.electron.discord) return;
+    window.electron.discord.updateSettings(discordRpcSettings);
+  }, [discordRpcSettings]);
+
   return (
     <>
       {/* Show loading screen while connecting */}
@@ -1180,7 +1291,7 @@ const App: React.FC = () => {
               >
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
                   <path
-                    d="M4 12C4 7.58172 7.58172 4 12 4C16.4183 4 20 7.58172 20 12C20 16.4183 16.4183 20 12 20H4L8 16"
+                    d="M4 12C4 7.58172 7.58172 4 12 4C16.4183 4 20 7.58172 20 12 20H4L8 16"
                     stroke="currentColor"
                     strokeWidth="1.5"
                     strokeLinecap="round"
@@ -1452,6 +1563,10 @@ const App: React.FC = () => {
           <Settings 
             isVisible={isSettingsModalOpen} 
             onClose={() => setIsSettingsModalOpen(false)} 
+            initialSettings={{
+              discordRpc: discordRpcSettings,
+              onDiscordSettingsChange: handleDiscordRpcSettingsChange
+            }}
           />
         </div>
       </div>

@@ -1,9 +1,191 @@
-const { app, BrowserWindow, dialog } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain } = require('electron');
 const path = require('path');
 const os = require('os');
 const isDev = process.env.NODE_ENV !== 'production';
+const DiscordRPC = require('discord-rpc');
+const fs = require('fs');
 
 console.log('Electron app is starting...');
+
+// Discord RPC client
+let rpc = null;
+const DISCORD_CLIENT_ID = '1350617401724768328';
+let startTimestamp = null;
+let discordRpcSettings = {
+  enabled: true,
+  details: 'Editing {file}',
+  state: 'Workspace: {workspace}',
+  largeImageKey: 'pointer_logo',
+  largeImageText: 'Pointer - Code Editor',
+  smallImageKey: 'code',
+  smallImageText: '{languageId} | Line {line}:{column}',
+  button1Label: 'Download Pointer',
+  button1Url: 'https://pointer.f1shy312.com',
+  button2Label: '',
+  button2Url: '',
+};
+
+// Load saved settings from disk if available
+const settingsPath = path.join(app.getPath('userData'), 'settings.json');
+
+// Function to load settings from disk
+function loadSettingsFromDisk() {
+  try {
+    if (fs.existsSync(settingsPath)) {
+      const savedSettings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+      if (savedSettings.discordRpc) {
+        console.log('Loading Discord RPC settings from disk');
+        discordRpcSettings = { ...discordRpcSettings, ...savedSettings.discordRpc };
+      }
+    }
+  } catch (error) {
+    console.error('Error loading settings from disk:', error);
+  }
+}
+
+// Function to save settings to disk
+function saveSettingsToDisk() {
+  try {
+    const settings = {
+      discordRpc: discordRpcSettings
+    };
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+    console.log('Settings saved to disk');
+  } catch (error) {
+    console.error('Error saving settings to disk:', error);
+  }
+}
+
+// Discord icon mappings - these must match asset names in your Discord Developer Portal
+const LANGUAGE_ICONS = {
+  'javascript': 'javascript',
+  'typescript': 'typescript',
+  'python': 'python',
+  'html': 'html',
+  'css': 'css',
+  'json': 'json',
+  'markdown': 'markdown',
+  'java': 'java',
+  'c': 'c',
+  'cpp': 'cpp',
+  'csharp': 'csharp',
+  'go': 'go',
+  'php': 'php',
+  'ruby': 'ruby',
+  'rust': 'rust',
+  'shell': 'shell',
+  'sql': 'sql',
+  'xml': 'xml',
+  'yaml': 'yaml',
+};
+
+let editorInfo = {
+  file: 'Untitled',
+  workspace: 'Pointer',
+  line: 1,
+  column: 1,
+  languageId: 'plaintext',
+  fileSize: '0 KB',
+};
+
+// Initialize Discord RPC
+function initDiscordRPC() {
+  if (!discordRpcSettings.enabled) return;
+  
+  // Register and create client
+  DiscordRPC.register(DISCORD_CLIENT_ID);
+  rpc = new DiscordRPC.Client({ transport: 'ipc' });
+  startTimestamp = new Date();
+  
+  // Handle the ready event
+  rpc.on('ready', () => {
+    console.log('Discord RPC ready');
+    updateRichPresence();
+  });
+  
+  // Login with client ID
+  rpc.login({ clientId: DISCORD_CLIENT_ID })
+    .catch(error => console.error('Discord RPC login failed:', error));
+}
+
+// Update Discord Rich Presence with current editor info
+function updateRichPresence() {
+  if (!rpc || !discordRpcSettings.enabled) return;
+  
+  try {
+    // Replace placeholders in messages
+    const details = replaceVariables(discordRpcSettings.details);
+    const state = replaceVariables(discordRpcSettings.state);
+    const largeImageText = replaceVariables(discordRpcSettings.largeImageText);
+    const smallImageText = replaceVariables(discordRpcSettings.smallImageText);
+    
+    // Determine correct image keys based on language
+    let smallImageKey = discordRpcSettings.smallImageKey;
+    if (editorInfo.languageId && discordRpcSettings.smallImageKey === 'code') {
+      // Use language-specific icons when available if using default 'code' setting
+      if (LANGUAGE_ICONS[editorInfo.languageId]) {
+        smallImageKey = LANGUAGE_ICONS[editorInfo.languageId];
+      }
+    }
+    
+    // Prepare buttons array
+    const buttons = [];
+    
+    // Add buttons if they have values
+    if (discordRpcSettings.button1Label && discordRpcSettings.button1Url) {
+      buttons.push({
+        label: discordRpcSettings.button1Label.substring(0, 32),
+        url: discordRpcSettings.button1Url
+      });
+    }
+    
+    if (discordRpcSettings.button2Label && discordRpcSettings.button2Url) {
+      buttons.push({
+        label: discordRpcSettings.button2Label.substring(0, 32),
+        url: discordRpcSettings.button2Url
+      });
+    }
+    
+    // Build the activity object
+    const activity = {
+      details: details || 'Editing',
+      state: state || 'In Pointer Editor',
+      startTimestamp: startTimestamp,
+      largeImageKey: discordRpcSettings.largeImageKey || 'pointer_logo',
+      largeImageText: largeImageText || 'Pointer Code Editor',
+      smallImageKey: smallImageKey,
+      smallImageText: smallImageText,
+      instance: false
+    };
+    
+    // Only add buttons if we have any
+    if (buttons.length > 0) {
+      activity.buttons = buttons;
+    }
+    
+    // Set the activity
+    rpc.setActivity(activity)
+      .catch(error => {
+        console.error('Discord RPC error:', error);
+      });
+      
+  } catch (error) {
+    console.error('Error in updateRichPresence:', error);
+  }
+}
+
+// Replace placeholder variables in Discord RPC messages
+function replaceVariables(message) {
+  if (!message) return '';
+  
+  return message
+    .replace(/{file}/g, editorInfo.file)
+    .replace(/{workspace}/g, editorInfo.workspace)
+    .replace(/{line}/g, editorInfo.line)
+    .replace(/{column}/g, editorInfo.column)
+    .replace(/{languageId}/g, editorInfo.languageId)
+    .replace(/{fileSize}/g, editorInfo.fileSize);
+}
 
 // Define icon path based on platform
 const getIconPath = () => {
@@ -192,6 +374,9 @@ async function createWindow() {
     showMainWindow(mainWindow);
   });
 
+  // Initialize Discord RPC
+  initDiscordRPC();
+
   // Load the app
   if (isDev) {
     // Wait for Vite server in development
@@ -265,6 +450,12 @@ async function createWindow() {
 app.whenReady().then(async () => {
   console.log('Electron app is ready. Creating window...');
   
+  // Load settings before creating splash screen and window
+  loadSettingsFromDisk();
+  
+  // Initialize Discord RPC after loading settings
+  initDiscordRPC();
+  
   // Create and show the splash screen
   createSplashScreen();
   
@@ -291,4 +482,42 @@ app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
   }
+});
+
+// IPC handlers for Discord RPC
+ipcMain.on('editor-info-update', (event, info) => {
+  editorInfo = { ...editorInfo, ...info };
+  updateRichPresence();
+});
+
+ipcMain.on('discord-settings-update', (event, settings) => {
+  discordRpcSettings = { ...discordRpcSettings, ...settings };
+  
+  // Save the settings to disk immediately
+  saveSettingsToDisk();
+  
+  // Reinitialize Discord RPC if enabled status changed
+  if (settings.enabled !== undefined) {
+    if (settings.enabled) {
+      if (!rpc) {
+        initDiscordRPC();
+      }
+    } else {
+      if (rpc) {
+        rpc.destroy().catch(console.error);
+        rpc = null;
+      }
+    }
+  } else {
+    // Just update the presence with new settings
+    updateRichPresence();
+  }
+});
+
+// Handle get-discord-settings request from renderer
+ipcMain.on('get-discord-settings', (event) => {
+  // Send settings back to the renderer process
+  event.sender.send('discord-settings-loaded', {
+    discordRpc: discordRpcSettings
+  });
 }); 

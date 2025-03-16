@@ -1,12 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { FileSystemService } from '../services/FileSystemService';
-import { ModelConfig, EditorSettings, ThemeSettings, AppSettings, ModelAssignments } from '../types';
+import { ModelConfig, EditorSettings, ThemeSettings, AppSettings, ModelAssignments, DiscordRpcSettings } from '../types';
 import * as monaco from 'monaco-editor';
 
 interface SettingsProps {
   isVisible: boolean;
   onClose: () => void;
-  initialSettings?: Record<string, any>;
+  initialSettings?: {
+    discordRpc?: DiscordRpcSettings;
+    onDiscordSettingsChange?: (settings: Partial<DiscordRpcSettings>) => void;
+    [key: string]: any;
+  };
 }
 
 const defaultConfig: ModelConfig = {
@@ -31,6 +35,20 @@ const defaultModelAssignments: ModelAssignments = {
   insert: 'default',
   autocompletion: 'default',
   summary: 'default',
+};
+
+const defaultDiscordRpcSettings: DiscordRpcSettings = {
+  enabled: true,
+  details: 'Editing {file}',
+  state: 'Workspace: {workspace}',
+  largeImageKey: 'pointer_logo',
+  largeImageText: 'Pointer - Code Editor',
+  smallImageKey: 'code',
+  smallImageText: '{languageId} | Line {line}:{column}',
+  button1Label: 'Download Pointer',
+  button1Url: 'https://pointer.f1shy312.com',
+  button2Label: '',
+  button2Url: '',
 };
 
 // List of available models
@@ -64,12 +82,14 @@ const settingsCategories = [
   { id: 'models', name: 'LLM Models' },
   { id: 'editor', name: 'Editor' },
   { id: 'theme', name: 'Theme' },
+  { id: 'discord', name: 'Discord Rich Presence' },
   { id: 'keybindings', name: 'Keybindings' },
   { id: 'terminal', name: 'Terminal' },
   { id: 'advanced', name: 'Advanced' },
 ];
 
 export function Settings({ isVisible, onClose, initialSettings }: SettingsProps) {
+  // State for various settings
   const [activeCategory, setActiveCategory] = useState('models');
   const [activeTab, setActiveTab] = useState('default');
   const [modelConfigs, setModelConfigs] = useState<Record<string, ModelConfig>>({
@@ -92,7 +112,58 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
     name: 'vs-dark',
     customColors: {},
   });
+  const [discordRpcSettings, setDiscordRpcSettings] = useState<DiscordRpcSettings>(
+    // Initialize with initialSettings if available, otherwise use default
+    initialSettings?.discordRpc || {...defaultDiscordRpcSettings}
+  );
   const [isLoading, setIsLoading] = useState(false);
+  const [settingsChanged, setSettingsChanged] = useState(false);
+  
+  // Populate settings from initialSettings if available
+  useEffect(() => {
+    if (initialSettings) {
+      if (initialSettings.discordRpc) {
+        setDiscordRpcSettings(prev => ({ ...prev, ...initialSettings.discordRpc }));
+      }
+      // Add similar logic for other settings as needed
+    }
+  }, [initialSettings]);
+
+  // Function to handle changes to Discord RPC settings
+  const handleDiscordRpcSettingChange = (field: keyof DiscordRpcSettings, value: any) => {
+    setDiscordRpcSettings(prev => {
+      const newSettings = { ...prev, [field]: value };
+      setSettingsChanged(true);
+      
+      // Call the onDiscordSettingsChange callback if it exists
+      if (initialSettings?.onDiscordSettingsChange) {
+        initialSettings.onDiscordSettingsChange(newSettings);
+      }
+      
+      return newSettings;
+    });
+  };
+
+  // Function to save all settings
+  const saveSettings = () => {
+    // Save Discord RPC settings if the initialSettings has a callback
+    if (initialSettings?.onDiscordSettingsChange) {
+      initialSettings.onDiscordSettingsChange(discordRpcSettings);
+    }
+    
+    // Call existing save function that handles other settings
+    saveAllSettings();
+  };
+
+  // Function to handle cancel
+  const handleCancel = () => {
+    // Reset any changes
+    if (initialSettings?.discordRpc) {
+      setDiscordRpcSettings(initialSettings.discordRpc);
+    }
+    setSettingsChanged(false);
+    onClose();
+  };
 
   // Load the settings
   useEffect(() => {
@@ -172,6 +243,22 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
             ...result.settings.theme
           }));
         }
+
+        // Process Discord RPC settings
+        if (result.settings.discordRpc) {
+          setDiscordRpcSettings(prev => ({
+            ...prev,
+            ...result.settings.discordRpc
+          }));
+        }
+        
+        // Load from props if provided
+        if (initialSettings?.discordRpc) {
+          setDiscordRpcSettings(prev => ({
+            ...prev,
+            ...initialSettings.discordRpc
+          }));
+        }
       }
     } catch (error) {
       console.error('Error loading settings:', error);
@@ -197,6 +284,7 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
         modelAssignments: modelAssignments,
         editor: editorSettings,
         theme: themeSettings,
+        discordRpc: discordRpcSettings,
       };
 
       // Save settings to the backend
@@ -961,14 +1049,22 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                               tabSize: 2,
                               insertSpaces: true,
                               wordWrap: true,
-                              rulers: [],
-                              formatOnSave: true,
-                              formatOnPaste: false,
-                              autoSave: true,
+                              minimap: true,
+                              lineNumbers: true,
+                              smoothScrolling: true,
+                              quickSuggestions: true,
+                              bracketPairColorization: true,
                             });
                             setThemeSettings({
-                              name: 'vs-dark',
-                              customColors: {},
+                              primaryColor: '#007ACC',
+                              bgPrimary: '#1E1E1E',
+                              bgSecondary: '#252526',
+                              textPrimary: '#CCCCCC',
+                              textSecondary: '#9E9E9E',
+                              accentColor: '#007ACC',
+                              errorColor: '#F44336',
+                              borderPrimary: '#474747',
+                              bgHover: '#2A2D2E',
                             });
                           }
                         }}
@@ -988,6 +1084,346 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                     </div>
                   </div>
                 )}
+
+                {/* Discord RPC Settings */}
+                {activeCategory === 'discord' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '16px', background: 'var(--bg-secondary)', borderRadius: '8px' }}>
+                    <h3 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>Discord Rich Presence Settings</h3>
+                    <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                      Show your friends what you're working on in Pointer with Discord Rich Presence integration.
+                    </p>
+                    
+                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '16px' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', fontSize: '14px', fontWeight: 'bold' }}>
+                        <input
+                          type="checkbox"
+                          checked={discordRpcSettings.enabled}
+                          onChange={(e) => handleDiscordRpcSettingChange('enabled', e.target.checked)}
+                          style={{ marginRight: '8px' }}
+                        />
+                        Enable Discord Rich Presence
+                      </label>
+                    </div>
+                    
+                    <div style={{ padding: '16px', background: 'var(--bg-primary)', borderRadius: '8px', border: '1px solid var(--border-primary)' }}>
+                      <h4 style={{ margin: '0 0 12px 0', fontSize: '14px' }}>Text Customization</h4>
+                      
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                        <div>
+                          <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px', fontWeight: 'bold' }}>
+                            Details Line:
+                          </label>
+                          <input
+                            type="text"
+                            value={discordRpcSettings.details}
+                            onChange={(e) => handleDiscordRpcSettingChange('details', e.target.value)}
+                            placeholder="Editing {file}"
+                            style={{
+                              width: '100%',
+                              padding: '8px',
+                              background: 'var(--bg-secondary)',
+                              border: '1px solid var(--border-primary)',
+                              borderRadius: '4px',
+                              color: 'var(--text-primary)',
+                            }}
+                          />
+                          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                            Primary line shown in your Discord status
+                          </p>
+                        </div>
+                        
+                        <div>
+                          <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px', fontWeight: 'bold' }}>
+                            State Line:
+                          </label>
+                          <input
+                            type="text"
+                            value={discordRpcSettings.state}
+                            onChange={(e) => handleDiscordRpcSettingChange('state', e.target.value)}
+                            placeholder="Workspace: {workspace}"
+                            style={{
+                              width: '100%',
+                              padding: '8px',
+                              background: 'var(--bg-secondary)',
+                              border: '1px solid var(--border-primary)',
+                              borderRadius: '4px',
+                              color: 'var(--text-primary)',
+                            }}
+                          />
+                          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                            Secondary line shown in your Discord status
+                          </p>
+                        </div>
+                      </div>
+                      
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                        <div>
+                          <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px', fontWeight: 'bold' }}>
+                            Large Image Key:
+                          </label>
+                          <input
+                            type="text"
+                            value={discordRpcSettings.largeImageKey}
+                            onChange={(e) => handleDiscordRpcSettingChange('largeImageKey', e.target.value)}
+                            placeholder="pointer_logo"
+                            style={{
+                              width: '100%',
+                              padding: '8px',
+                              background: 'var(--bg-secondary)',
+                              border: '1px solid var(--border-primary)',
+                              borderRadius: '4px',
+                              color: 'var(--text-primary)',
+                            }}
+                          />
+                          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                            Asset key for the large image
+                          </p>
+                        </div>
+                        
+                        <div>
+                          <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px', fontWeight: 'bold' }}>
+                            Small Image Key:
+                          </label>
+                          <input
+                            type="text"
+                            value={discordRpcSettings.smallImageKey}
+                            onChange={(e) => handleDiscordRpcSettingChange('smallImageKey', e.target.value)}
+                            placeholder="code"
+                            style={{
+                              width: '100%',
+                              padding: '8px',
+                              background: 'var(--bg-secondary)',
+                              border: '1px solid var(--border-primary)',
+                              borderRadius: '4px',
+                              color: 'var(--text-primary)',
+                            }}
+                          />
+                          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                            Asset key for the small image (use "code" for automatic language icons)
+                          </p>
+                        </div>
+                      </div>
+                      
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                        <div>
+                          <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px', fontWeight: 'bold' }}>
+                            Large Image Text:
+                          </label>
+                          <input
+                            type="text"
+                            value={discordRpcSettings.largeImageText}
+                            onChange={(e) => handleDiscordRpcSettingChange('largeImageText', e.target.value)}
+                            placeholder="Pointer - Code Editor"
+                            style={{
+                              width: '100%',
+                              padding: '8px',
+                              background: 'var(--bg-secondary)',
+                              border: '1px solid var(--border-primary)',
+                              borderRadius: '4px',
+                              color: 'var(--text-primary)',
+                            }}
+                          />
+                          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                            Text shown when hovering the large icon
+                          </p>
+                        </div>
+                        
+                        <div>
+                          <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px', fontWeight: 'bold' }}>
+                            Small Image Text:
+                          </label>
+                          <input
+                            type="text"
+                            value={discordRpcSettings.smallImageText}
+                            onChange={(e) => handleDiscordRpcSettingChange('smallImageText', e.target.value)}
+                            placeholder="{languageId} | Line {line}:{column}"
+                            style={{
+                              width: '100%',
+                              padding: '8px',
+                              background: 'var(--bg-secondary)',
+                              border: '1px solid var(--border-primary)',
+                              borderRadius: '4px',
+                              color: 'var(--text-primary)',
+                            }}
+                          />
+                          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                            Text shown when hovering the small icon
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div style={{ padding: '16px', background: 'var(--bg-primary)', borderRadius: '8px', border: '1px solid var(--border-primary)' }}>
+                      <h4 style={{ margin: '0 0 12px 0', fontSize: '14px' }}>Button Customization</h4>
+                      <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
+                        Add up to two buttons that will appear on your Discord status. URLs must be complete and point to public websites. (ts is broken rn)
+                      </p>
+                      
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                        <div>
+                          <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px', fontWeight: 'bold' }}>
+                            Button 1 Text:
+                          </label>
+                          <input
+                            type="text"
+                            value={discordRpcSettings.button1Label || ''}
+                            onChange={(e) => handleDiscordRpcSettingChange('button1Label', e.target.value)}
+                            placeholder="Download Pointer"
+                            maxLength={32}
+                            style={{
+                              width: '100%',
+                              padding: '8px',
+                              background: 'var(--bg-secondary)',
+                              border: '1px solid var(--border-primary)',
+                              borderRadius: '4px',
+                              color: 'var(--text-primary)',
+                            }}
+                          />
+                          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                            Max 32 characters (required for button to work)
+                          </p>
+                        </div>
+                        
+                        <div>
+                          <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px', fontWeight: 'bold' }}>
+                            Button 1 URL:
+                          </label>
+                          <input
+                            type="url"
+                            value={discordRpcSettings.button1Url || ''}
+                            onChange={(e) => handleDiscordRpcSettingChange('button1Url', e.target.value)}
+                            placeholder="https://pointer.f1shy312.com"
+                            style={{
+                              width: '100%',
+                              padding: '8px',
+                              background: 'var(--bg-secondary)',
+                              border: '1px solid var(--border-primary)',
+                              borderRadius: '4px',
+                              color: !discordRpcSettings.button1Url || 
+                                     (discordRpcSettings.button1Url.startsWith('http://') || discordRpcSettings.button1Url.startsWith('https://'))
+                                ? 'var(--text-primary)' 
+                                : 'var(--error-color)',
+                            }}
+                          />
+                          <p style={{ 
+                            fontSize: '12px', 
+                            color: !discordRpcSettings.button1Url || 
+                                   (discordRpcSettings.button1Url.startsWith('http://') || discordRpcSettings.button1Url.startsWith('https://'))
+                              ? 'var(--text-secondary)'
+                              : 'var(--error-color)',
+                            marginTop: '4px' 
+                          }}>
+                            {!discordRpcSettings.button1Url || 
+                             (discordRpcSettings.button1Url.startsWith('http://') || discordRpcSettings.button1Url.startsWith('https://'))
+                              ? 'Must start with https:// or http://'
+                              : 'ERROR: URL must start with https:// or http://'}
+                          </p>
+                        </div>
+                      </div>
+                      
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                        <div>
+                          <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px', fontWeight: 'bold' }}>
+                            Button 2 Text:
+                          </label>
+                          <input
+                            type="text"
+                            value={discordRpcSettings.button2Label || ''}
+                            onChange={(e) => handleDiscordRpcSettingChange('button2Label', e.target.value)}
+                            placeholder="Join Discord"
+                            maxLength={32}
+                            style={{
+                              width: '100%',
+                              padding: '8px',
+                              background: 'var(--bg-secondary)',
+                              border: '1px solid var(--border-primary)',
+                              borderRadius: '4px',
+                              color: 'var(--text-primary)',
+                            }}
+                          />
+                          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                            Max 32 characters (required for button to work)
+                          </p>
+                        </div>
+                        
+                        <div>
+                          <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px', fontWeight: 'bold' }}>
+                            Button 2 URL:
+                          </label>
+                          <input
+                            type="url"
+                            value={discordRpcSettings.button2Url || ''}
+                            onChange={(e) => handleDiscordRpcSettingChange('button2Url', e.target.value)}
+                            placeholder="https://discord.gg/coming-soon"
+                            style={{
+                              width: '100%',
+                              padding: '8px',
+                              background: 'var(--bg-secondary)',
+                              border: '1px solid var(--border-primary)',
+                              borderRadius: '4px',
+                              color: !discordRpcSettings.button2Url || 
+                                     (discordRpcSettings.button2Url.startsWith('http://') || discordRpcSettings.button2Url.startsWith('https://'))
+                                ? 'var(--text-primary)' 
+                                : 'var(--error-color)',
+                            }}
+                          />
+                          <p style={{ 
+                            fontSize: '12px', 
+                            color: !discordRpcSettings.button2Url || 
+                                   (discordRpcSettings.button2Url.startsWith('http://') || discordRpcSettings.button2Url.startsWith('https://'))
+                              ? 'var(--text-secondary)'
+                              : 'var(--error-color)',
+                            marginTop: '4px' 
+                          }}>
+                            {!discordRpcSettings.button2Url || 
+                             (discordRpcSettings.button2Url.startsWith('http://') || discordRpcSettings.button2Url.startsWith('https://'))
+                              ? 'Must start with https:// or http://'
+                              : 'ERROR: URL must start with https:// or http://'}
+                          </p>
+                        </div>
+                      </div>
+                      
+                      <div style={{ 
+                        marginTop: '16px', 
+                        padding: '8px', 
+                        borderRadius: '4px', 
+                        background: 'var(--bg-hover)',
+                        border: '1px solid var(--border-primary)'
+                      }}>
+                        <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: 0 }}>
+                          <strong>Important:</strong> For buttons to work, you must:
+                        </p>
+                        <ul style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: '4px 0 0 0', paddingLeft: '16px' }}>
+                          <li>Include complete URLs (with https://)</li>
+                          <li>Make sure both label and URL are filled for each button</li>
+                          <li>Ensure URLs point to public websites (not localhost)</li>
+                          <li>Keep button text under 32 characters</li>
+                        </ul>
+                      </div>
+                    </div>
+                    
+                    <div style={{ 
+                      background: 'var(--bg-primary)', 
+                      padding: '12px', 
+                      borderRadius: '6px',
+                      border: '1px solid var(--border-primary)',
+                      marginTop: '8px'
+                    }}>
+                      <h4 style={{ margin: '0 0 8px 0', fontSize: '14px' }}>Available Placeholders</h4>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', fontSize: '12px' }}>
+                        <div><code>{'{file}'}</code> - Current file name</div>
+                        <div><code>{'{workspace}'}</code> - Workspace name</div>
+                        <div><code>{'{line}'}</code> - Cursor line</div>
+                        <div><code>{'{column}'}</code> - Cursor column</div>
+                        <div><code>{'{languageId}'}</code> - File language</div>
+                        <div><code>{'{fileSize}'}</code> - File size</div>
+                      </div>
+                      <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '8px' }}>
+                        Note: Elapsed time is now automatically included by Discord and cannot be disabled.
+                      </p>
+                    </div>
+                  </div>
+                )}
               </>
             )}
           </div>
@@ -995,17 +1431,17 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
 
         {/* Footer with save/cancel buttons */}
         <div style={{ 
+          display: 'flex', 
+          justifyContent: 'flex-end', 
+          gap: '12px', 
           padding: '16px 20px',
           borderTop: '1px solid var(--border-primary)',
-          display: 'flex',
-          justifyContent: 'flex-end',
-          gap: '12px',
         }}>
           <button
-            onClick={onClose}
-            style={{
-              padding: '8px 16px',
-              borderRadius: '4px',
+            onClick={handleCancel}
+            style={{ 
+              padding: '8px 16px', 
+              borderRadius: '4px', 
               border: '1px solid var(--border-primary)',
               background: 'var(--bg-secondary)',
               color: 'var(--text-secondary)',
@@ -1016,16 +1452,17 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
             Cancel
           </button>
           <button
-            onClick={saveAllSettings}
+            onClick={saveSettings}
             disabled={isLoading}
-            style={{
-              padding: '8px 16px',
-              borderRadius: '4px',
+            style={{ 
+              padding: '8px 16px', 
+              borderRadius: '4px', 
               border: 'none',
               background: isLoading ? 'var(--bg-secondary)' : 'var(--accent-color)',
               color: isLoading ? 'var(--text-secondary)' : 'white',
               cursor: isLoading ? 'not-allowed' : 'pointer',
               fontSize: '13px',
+              opacity: settingsChanged ? 1 : 0.7
             }}
           >
             {isLoading ? 'Saving...' : 'Save Changes'}
