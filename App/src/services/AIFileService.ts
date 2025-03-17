@@ -554,26 +554,34 @@ Return ONLY the final formatted code without any explanations. The code should b
       const modelId = modelConfig.modelId;
       const apiEndpoint = modelConfig.apiEndpoint;
       
-      // Form the API endpoint for generate
-      const generateEndpoint = apiEndpoint.endsWith('/v1') 
-        ? apiEndpoint.replace(/\/v1$/, '/api/generate') 
-        : (apiEndpoint.endsWith('/') ? `${apiEndpoint}api/generate` : `${apiEndpoint}/api/generate`);
+      // Form the API endpoint for chat completions
+      const chatEndpoint = apiEndpoint.endsWith('/v1') 
+        ? `${apiEndpoint}/chat/completions` 
+        : (apiEndpoint.endsWith('/') ? `${apiEndpoint}v1/chat/completions` : `${apiEndpoint}/v1/chat/completions`);
 
-      console.log(`Using endpoint for file description: ${generateEndpoint}`);
+      console.log(`Using endpoint for file description: ${chatEndpoint}`);
       console.log(`Using model for file description: ${modelId}`);
 
-      const response = await fetch(generateEndpoint, {
+      const response = await fetch(chatEndpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           model: modelId,
-          prompt: `You are a helpful AI that provides concise descriptions of code files. Based on the following content of the file "${filePath}", provide a brief 1-2 sentence description of what this file does or contains. Be technical and precise.
+          messages: [
+            {
+              role: "system",
+              content: "You are a helpful AI that provides concise descriptions of code files."
+            },
+            {
+              role: "user",
+              content: `Based on the following content of the file "${filePath}", provide a brief 1-2 sentence description of what this file does or contains. Be technical and precise.
 
 File Content:
-${content.length > 8000 ? content.substring(0, 8000) + "\n[truncated]" : content}`,
-          max_tokens: 200,
+${content.length > 8000 ? content.substring(0, 8000) + "\n[truncated]" : content}`
+            }
+          ],
           temperature: 0.7,
           top_p: 0.9,
         }),
@@ -584,7 +592,9 @@ ${content.length > 8000 ? content.substring(0, 8000) + "\n[truncated]" : content
       }
 
       const data = await response.json();
-      return data.response.trim();
+      return data.choices && data.choices[0] && data.choices[0].message 
+        ? data.choices[0].message.content.trim() 
+        : '';
     } catch (error) {
       console.error('Error getting file description:', error);
       return '';
@@ -707,42 +717,172 @@ ${content.length > 8000 ? content.substring(0, 8000) + "\n[truncated]" : content
       // Get model configuration for summary
       const modelConfig = await this.getModelConfigForPurpose('summary');
       const modelId = modelConfig.modelId;
-      const apiEndpoint = modelConfig.apiEndpoint;
+      let apiEndpoint = modelConfig.apiEndpoint;
       
-      // Form the API endpoint for generate
-      const generateEndpoint = apiEndpoint.endsWith('/v1') 
-        ? apiEndpoint.replace(/\/v1$/, '/api/generate') 
-        : (apiEndpoint.endsWith('/') ? `${apiEndpoint}api/generate` : `${apiEndpoint}/api/generate`);
+      // List of fallback endpoints to try in order
+      const fallbackEndpoints = [
+        apiEndpoint, // Try the configured endpoint first
+        'http://localhost:11434/v1', // Default Ollama endpoint
+        'http://localhost:1234/v1',  // Alternative port
+        'http://127.0.0.1:11434/v1', // Try with IP instead of localhost
+      ];
+      
+      // Try each endpoint until one works
+      let lastError: Error | null = null;
+      
+      for (const endpoint of fallbackEndpoints) {
+        try {
+          // Form the API endpoint for chat completions (correct Ollama endpoint)
+          const chatEndpoint = endpoint.endsWith('/v1') 
+            ? `${endpoint}/chat/completions` 
+            : (endpoint.endsWith('/') ? `${endpoint}v1/chat/completions` : `${endpoint}/v1/chat/completions`);
 
-      console.log(`Using endpoint for file summary: ${generateEndpoint}`);
-      console.log(`Using model for file summary: ${modelId}`);
-
-      const response = await fetch(generateEndpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: modelId,
-          prompt: `You are a helpful AI that provides concise summaries of code files. Based on the following content of the file "${filePath}", provide a brief 1-2 sentence summary of what this file does or contains. Be technical and precise.
+          console.log(`Trying endpoint for file summary: ${chatEndpoint}`);
+          
+          // Create abort controller with timeout
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 5000);
+          
+          try {
+            const response = await fetch(chatEndpoint, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                model: modelId,
+                messages: [
+                  {
+                    role: "system",
+                    content: "You are a helpful AI that provides concise summaries of code files."
+                  },
+                  {
+                    role: "user",
+                    content: `Based on the following content of the file "${filePath}", provide a brief 1-2 sentence summary of what this file does or contains. Be technical and precise.
 
 File Content:
-${content.length > 8000 ? content.substring(0, 8000) + "\n[truncated]" : content}`,
-          max_tokens: 200,
-          temperature: 0.7,
-          top_p: 0.9,
-        }),
-      });
+${content.length > 8000 ? content.substring(0, 8000) + "\n[truncated]" : content}`
+                  }
+                ],
+                temperature: 0.7,
+                top_p: 0.9,
+              }),
+              signal: controller.signal
+            });
 
-      if (!response.ok) {
-        throw new Error(`Failed to get file summary: ${response.statusText}`);
+            // Clear the timeout since the request completed
+            clearTimeout(timeoutId);
+
+            if (!response.ok) {
+              throw new Error(`Failed to get file summary: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            // Extract response from the chat completion format
+            return data.choices && data.choices[0] && data.choices[0].message 
+              ? data.choices[0].message.content.trim() 
+              : '';
+          } finally {
+            // Ensure the timeout is cleared
+            clearTimeout(timeoutId);
+          }
+        } catch (fetchError) {
+          console.error(`Error with endpoint ${endpoint}:`, fetchError);
+          lastError = fetchError as Error;
+          // Continue to next endpoint
+          continue;
+        }
       }
-
-      const data = await response.json();
-      return data.response.trim();
+      
+      // If we've tried all endpoints and none worked
+      console.error('All endpoints failed for file summary:', lastError);
+      return this.generateSimpleSummary(filePath, content);
     } catch (error) {
       console.error('Error getting file summary:', error);
-      return '';
+      return this.generateSimpleSummary(filePath, content);
     }
+  }
+  
+  // Simple fallback summary generator when LLM server is not available
+  private static generateSimpleSummary(filePath: string, content: string): string {
+    try {
+      // Extract filename
+      const fileName = filePath.split('/').pop() || filePath;
+      
+      // Identify file type
+      const extension = fileName.split('.').pop()?.toLowerCase() || '';
+      
+      // Get lines of code count
+      const lines = content.split('\n').length;
+      
+      // Count imports/includes/requires
+      const importMatches = content.match(/import\s+|require\s*\(|include\s+|using\s+/g) || [];
+      const importCount = importMatches.length;
+      
+      // Look for classes/functions
+      const classMatches = content.match(/class\s+\w+/g) || [];
+      const functionMatches = content.match(/function\s+\w+|def\s+\w+|\w+\s*=\s*\(.*\)\s*=>|\w+\s*\(.*\)\s*{/g) || [];
+      
+      const fileType = this.getFileTypeDescription(extension);
+      
+      // Construct a simple summary
+      let summary = `${fileName} is a ${fileType} file with ${lines} lines of code`;
+      
+      if (classMatches.length > 0) {
+        summary += ` containing ${classMatches.length} class${classMatches.length > 1 ? 'es' : ''}`;
+      }
+      
+      if (functionMatches.length > 0) {
+        if (classMatches.length > 0) {
+          summary += ' and';
+        }
+        summary += ` approximately ${functionMatches.length} function${functionMatches.length > 1 ? 's' : ''}`;
+      }
+      
+      if (importCount > 0) {
+        summary += ` with ${importCount} import${importCount > 1 ? 's' : ''}`;
+      }
+      
+      summary += '.';
+      
+      return summary;
+    } catch (error) {
+      console.error('Error generating simple summary:', error);
+      return `File: ${filePath} (Unable to generate summary)`;
+    }
+  }
+  
+  private static getFileTypeDescription(extension: string): string {
+    const fileTypes: Record<string, string> = {
+      'js': 'JavaScript',
+      'jsx': 'React JavaScript',
+      'ts': 'TypeScript',
+      'tsx': 'React TypeScript',
+      'py': 'Python',
+      'java': 'Java',
+      'c': 'C',
+      'cpp': 'C++',
+      'cs': 'C#',
+      'go': 'Go',
+      'rb': 'Ruby',
+      'php': 'PHP',
+      'html': 'HTML',
+      'css': 'CSS',
+      'scss': 'SASS',
+      'json': 'JSON',
+      'md': 'Markdown',
+      'sql': 'SQL',
+      'sh': 'Shell script',
+      'bat': 'Batch script',
+      'ps1': 'PowerShell script',
+      'yaml': 'YAML',
+      'yml': 'YAML',
+      'xml': 'XML',
+      'swift': 'Swift',
+      'kt': 'Kotlin',
+      'rs': 'Rust',
+    };
+    
+    return extension in fileTypes ? fileTypes[extension] : extension.toUpperCase();
   }
 } 

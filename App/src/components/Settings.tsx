@@ -1088,12 +1088,12 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                           document.body.removeChild(a);
                           URL.revokeObjectURL(url);
                         }}
-                        style={{
+                          style={{
                           padding: '6px 12px',
-                          background: 'var(--bg-secondary)',
-                          border: '1px solid var(--border-primary)',
-                          borderRadius: '4px',
-                          color: 'var(--text-primary)',
+                            background: 'var(--bg-secondary)',
+                            border: '1px solid var(--border-primary)',
+                            borderRadius: '4px',
+                            color: 'var(--text-primary)',
                           cursor: 'pointer',
                           fontSize: '13px',
                           display: 'flex',
@@ -1105,12 +1105,12 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                       </button>
                       
                       <label
-                        style={{
+                          style={{
                           padding: '6px 12px',
-                          background: 'var(--bg-secondary)',
-                          border: '1px solid var(--border-primary)',
-                          borderRadius: '4px',
-                          color: 'var(--text-primary)',
+                            background: 'var(--bg-secondary)',
+                            border: '1px solid var(--border-primary)',
+                            borderRadius: '4px',
+                            color: 'var(--text-primary)',
                           cursor: 'pointer',
                           fontSize: '13px',
                           display: 'flex',
@@ -1683,7 +1683,7 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                           Add Token Rule
                         </button>
                       </div>
-                    </div>
+                      </div>
 
                     {/* Reset Theme & Editor Settings button */}
                     <div style={{ 
@@ -1693,8 +1693,8 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                       display: 'flex',
                       gap: '12px'
                     }}>
-                      <button
-                        onClick={() => {
+                        <button
+                          onClick={() => {
                           if (confirm('Are you sure you want to reset all theme and editor settings to defaults?')) {
                             // Default editor settings
                             setEditorSettings({
@@ -1756,22 +1756,22 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
 
                             setHasUnsavedChanges(true);
                           }
-                        }}
-                        style={{
-                          padding: '8px 16px',
-                          background: 'var(--accent-color)',
-                          border: 'none',
-                          borderRadius: '4px',
-                          color: 'white',
-                          cursor: 'pointer',
-                          fontSize: '13px',
+                          }}
+                          style={{
+                            padding: '8px 16px',
+                            background: 'var(--accent-color)',
+                            border: 'none',
+                            borderRadius: '4px',
+                            color: 'white',
+                            cursor: 'pointer',
+                            fontSize: '13px',
                           display: 'flex',
                           alignItems: 'center',
                           gap: '8px',
-                        }}
-                      >
+                          }}
+                        >
                         <span>Reset Theme & Editor Settings</span>
-                      </button>
+                        </button>
                     </div>
                   </div>
                 )}
