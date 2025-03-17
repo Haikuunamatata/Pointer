@@ -13,16 +13,16 @@ const DISCORD_CLIENT_ID = '1350617401724768328';
 let startTimestamp = null;
 let discordRpcSettings = {
   enabled: true,
-  details: 'Editing {file}',
-  state: 'Workspace: {workspace}',
-  largeImageKey: 'pointer_logo',
-  largeImageText: 'Pointer - Code Editor',
-  smallImageKey: 'code',
-  smallImageText: '{languageId} | Line {line}:{column}',
-  button1Label: 'Download Pointer',
-  button1Url: 'https://pointer.f1shy312.com',
-  button2Label: '',
-  button2Url: '',
+  details: "Editing {file} | Line {line}:{column}",
+  state: "Workspace: {workspace}",
+  largeImageKey: "pointer_logo",
+  largeImageText: "Pointer - Code Editor",
+  smallImageKey: "code",
+  smallImageText: "{languageId} | Line {line}:{column}",
+  button1Label: "Please Contribute \ud83d\ude4f",
+  button1Url: "https://pointer.f1shy312.com",
+  button2Label: "im depressive cuz ts pmo",
+  button2Url: "https://github.com/f1shyondrugs/Pointer"
 };
 
 // Function to load settings from storage
