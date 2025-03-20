@@ -189,4 +189,75 @@ code.language-* {
 .insert-button,
 .process-files-button {
   z-index: 25;
+}
+
+/* Function explanation button styles */
+.explain-function-button {
+  visibility: hidden;
+  position: relative;
+  z-index: 5;
+}
+
+.monaco-editor .monaco-editor-background:hover .explain-function-button {
+  visibility: visible;
+}
+
+.monaco-editor-hover-content .explain-function-button {
+  visibility: visible;
+}
+
+/* Animated typing cursor effect */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.typing-animation::after {
+  content: '|';
+  display: inline-block;
+  margin-left: 2px;
+  animation: blink 1s infinite;
+}
+
+/* Loading steps animation */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 0.7; }
+}
+
+.loading-step {
+  animation: fadeIn 0.5s forwards;
+}
+
+.loading-step:nth-child(2) {
+  animation-delay: 0.5s;
+}
+
+.loading-step:nth-child(3) {
+  animation-delay: 1s;
+}
+
+/* Enhanced pulse animation */
+@keyframes enhancedPulse {
+  0% { transform: scale(0.8); opacity: 0.3; }
+  50% { transform: scale(1.2); opacity: 1; }
+  100% { transform: scale(0.8); opacity: 0.3; }
+}
+
+.enhanced-pulse {
+  animation: enhancedPulse 1.5s ease-in-out infinite;
+}
+
+/* Blinking cursor for streaming text */
+@keyframes blink-cursor {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.blinking-cursor {
+  display: inline-block;
+  margin-left: 2px;
+  animation: blink-cursor 1s infinite;
+  color: var(--accent-color);
+  font-weight: bold;
 } 

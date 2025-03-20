@@ -5,140 +5,9 @@ import ContextMenu from './ContextMenu';
 import { AIFileService } from '../services/AIFileService';
 import { ToastManager } from './Toast';
 import { FileSystemService } from '../services/FileSystemService';
+import Modal from './Modal';
 
-// Add new dialog component for displaying summaries
-interface SummaryDialogProps {
-  isOpen: boolean;
-  onClose: () => void;
-  fileName: string;
-  summary: string;
-}
-
-const SummaryDialog: React.FC<SummaryDialogProps> = ({ isOpen, onClose, fileName, summary }) => {
-  console.log("SummaryDialog rendering with:", { isOpen, fileName, summaryLength: summary?.length });
-  
-  if (!isOpen) return null;
-
-  return (
-    <div 
-      style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        background: 'rgba(0, 0, 0, 0.7)', // Darker background for more contrast
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 9999, // Very high z-index to ensure it's on top of everything
-        backdropFilter: 'blur(3px)', // Add blur effect to background
-      }}
-      onClick={(e) => {
-        // Close when clicking the backdrop
-        if (e.target === e.currentTarget) {
-          onClose();
-        }
-      }}
-    >
-      <div 
-        style={{
-          background: 'var(--bg-primary)',
-          borderRadius: '8px', // Slightly larger radius
-          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.25)', // More pronounced shadow
-          width: '600px', // Larger width
-          maxWidth: '90%',
-          maxHeight: '80vh',
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-          border: '1px solid var(--accent-color)', // Highlighted border
-        }}
-      >
-        <div 
-          style={{
-            padding: '16px',
-            borderBottom: '1px solid var(--border-color)',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            background: 'var(--bg-secondary)',
-          }}
-        >
-          <h3 style={{ 
-            margin: 0, 
-            fontSize: '18px',
-            color: 'var(--accent-color)',
-            fontWeight: 'bold',
-          }}>File Summary: {fileName}</h3>
-          <button 
-            onClick={onClose}
-            style={{
-              background: 'transparent',
-              border: 'none',
-              fontSize: '24px',
-              cursor: 'pointer',
-              color: 'var(--text-secondary)',
-              width: '32px',
-              height: '32px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              borderRadius: '50%',
-              transition: 'background 0.2s',
-            }}
-            onMouseOver={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
-            onMouseOut={(e) => { e.currentTarget.style.background = 'transparent'; }}
-          >
-            ×
-          </button>
-        </div>
-        <div 
-          style={{
-            padding: '20px',
-            overflow: 'auto',
-            color: 'var(--text-primary)',
-            fontSize: '15px',
-            lineHeight: 1.6,
-            flexGrow: 1,
-            wordBreak: 'break-word',
-            whiteSpace: 'pre-wrap', // Preserve whitespace
-          }}
-        >
-          {summary || 'No summary available.'}
-        </div>
-        <div 
-          style={{
-            padding: '16px',
-            borderTop: '1px solid var(--border-color)',
-            display: 'flex',
-            justifyContent: 'flex-end',
-            background: 'var(--bg-secondary)',
-          }}
-        >
-          <button
-            onClick={onClose}
-            style={{
-              padding: '8px 16px',
-              background: 'var(--accent-color)',
-              color: 'white',
-              border: 'none',
-              borderRadius: '4px',
-              cursor: 'pointer',
-              fontSize: '14px',
-              fontWeight: 'bold',
-              transition: 'background 0.2s',
-            }}
-            onMouseOver={(e) => { e.currentTarget.style.background = 'var(--accent-hover, #0078d7)'; }}
-            onMouseOut={(e) => { e.currentTarget.style.background = 'var(--accent-color)'; }}
-          >
-            Close
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
+// Interface no longer needed as we're using the generic Modal component
 
 interface TabsProps {
   openFiles: string[];
@@ -190,10 +59,12 @@ const Tabs: React.FC<TabsProps> = ({
     isOpen: boolean;
     fileName: string;
     summary: string;
+    isStreaming: boolean;
   }>({
     isOpen: false,
     fileName: '',
     summary: '',
+    isStreaming: false,
   });
 
   const handleTabClick = (fileId: string) => {
@@ -256,40 +127,52 @@ const Tabs: React.FC<TabsProps> = ({
         }
       }
       
-      // Now that we have content, call the summary function
-      console.log("Requesting summary for file:", file.path);
-      const summary = await AIFileService.getFileSummary(file.path, fileContent);
-      console.log("Received summary:", summary); // Debug log
+      // Open the dialog first but mark it as streaming
+      setSummaryDialog({
+        isOpen: true,
+        fileName: file.name,
+        summary: '',
+        isStreaming: true
+      });
+      
+      // Initialize accumulated summary
+      let accumulatedSummary = '';
+      
+      // Now that we have content, call the summary function with streaming
+      console.log("Requesting streaming summary for file:", file.path);
+      
+      const summary = await AIFileService.getFileSummary(
+        file.path, 
+        fileContent,
+        (chunk) => {
+          // Update with each new chunk
+          accumulatedSummary += chunk;
+          setSummaryDialog(prev => ({
+            ...prev,
+            summary: accumulatedSummary
+          }));
+        }
+      );
 
-      if (summary) {
-        console.log(`Summary generated for ${file.name}:`, summary);
-        
-        // Show toast notification
-        ToastManager.show(`Summary ready for ${file.name}`, 'success');
-        
-        // Force state update to ensure dialog shows up
-        setSummaryDialog(prevState => {
-          console.log("Updating dialog state, previous:", prevState);
-          const newState = {
-            isOpen: true,
-            fileName: file.name,
-            summary: summary
-          };
-          console.log("New dialog state:", newState);
-          return newState;
-        });
-        
-        // Just to be super sure the state update worked, log after
-        setTimeout(() => {
-          console.log("SummaryDialog state after update:", summaryDialog);
-        }, 100);
-      } else {
-        console.log("No summary returned");
-        ToastManager.show('Could not generate summary', 'error');
-      }
+      // After streaming is complete, update the final state
+      setSummaryDialog(prev => ({
+        ...prev,
+        summary: summary || accumulatedSummary,
+        isStreaming: false
+      }));
+      
+      // Show toast notification
+      ToastManager.show(`Summary ready for ${file.name}`, 'success');
+      
     } catch (error) {
       console.error('Error summarizing file:', error);
       ToastManager.show('Error generating file summary', 'error');
+      
+      // Make sure to update state to indicate streaming is done, even on error
+      setSummaryDialog(prev => ({
+        ...prev,
+        isStreaming: false
+      }));
     }
   };
 
@@ -298,6 +181,20 @@ const Tabs: React.FC<TabsProps> = ({
   const validOpenFiles = openFiles.filter(fileId => 
     fileId === 'welcome' || items[fileId]
   );
+
+  // Render the content for the summary dialog
+  const renderSummaryContent = () => {
+    if (summaryDialog.isStreaming && summaryDialog.summary === '') {
+      return <span className="blinking-cursor">|</span>;
+    }
+    
+    return (
+      <>
+        {summaryDialog.summary || 'No summary available.'}
+        {summaryDialog.isStreaming && <span className="blinking-cursor">|</span>}
+      </>
+    );
+  };
 
   return (
     <>
@@ -455,15 +352,16 @@ const Tabs: React.FC<TabsProps> = ({
         )}
       </div>
       
-      {/* Always render the SummaryDialog component, regardless of isOpen state */}
-      <SummaryDialog
+      {/* Use the generic Modal component instead of the SummaryDialog */}
+      <Modal
         isOpen={summaryDialog.isOpen}
         onClose={() => {
           console.log("Closing summary dialog");
           setSummaryDialog(prev => ({ ...prev, isOpen: false }));
         }}
-        fileName={summaryDialog.fileName}
-        summary={summaryDialog.summary}
+        title={`File Summary: ${summaryDialog.fileName}`}
+        content={renderSummaryContent()}
+        isStreaming={summaryDialog.isStreaming}
       />
     </>
   );

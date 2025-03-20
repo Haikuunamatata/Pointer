@@ -5,6 +5,8 @@ import { getLanguageFromFileName } from '../utils/languageUtils';
 import { AIFileService } from '../services/AIFileService';
 import { lmStudio } from '../services/LMStudioService';
 import { FileSystemService } from '../services/FileSystemService';
+import { ToastManager } from './Toast';
+import Modal from './Modal';
 
 // Get access to the App's applyCustomTheme function through the window object
 declare global {
@@ -24,6 +26,8 @@ interface EditorPaneProps {
   onEditorReady: (editor: monaco.editor.IStandaloneCodeEditor) => void;
 }
 
+// No longer needed as we're using the generic Modal component
+
 const EditorPane: React.FC<EditorPaneProps> = ({ fileId, file, onEditorReady }) => {
   const editorRef = useRef<HTMLDivElement>(null);
   const editor = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -40,6 +44,30 @@ const EditorPane: React.FC<EditorPaneProps> = ({ fileId, file, onEditorReady }) 
   const autoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Track if content has changed since last save
   const contentChangedRef = useRef<boolean>(false);
+  // Add tracking for function decorations
+  const functionDecorationsRef = useRef<string[]>([]);
+  const explainWidgetsRef = useRef<monaco.editor.IContentWidget[]>([]);
+  // Store detected functions
+  const detectedFunctionsRef = useRef<{
+    lineNumber: number,
+    name: string,
+    code: string,
+    range: monaco.Range
+  }[]>([]);
+  // Add state for function explanation dialog
+  const [functionExplanationDialog, setFunctionExplanationDialog] = useState<{
+    isOpen: boolean;
+    functionName: string;
+    explanation: string;
+    isLoading: boolean;
+    isStreaming: boolean;
+  }>({
+    isOpen: false,
+    functionName: '',
+    explanation: '',
+    isLoading: false,
+    isStreaming: false
+  });
 
   // Normalize content once when file changes
   useEffect(() => {
@@ -1034,9 +1062,621 @@ DO NOT include the [CURSOR] marker in your response. Provide ONLY the completion
     }
   };
 
+  // Add function detection after editor initialization
+  useEffect(() => {
+    if (!editor.current || !editorInitializedRef.current) return;
+    
+    // Run function detection on content changes
+    const model = editor.current.getModel();
+    if (!model) return;
+    
+    const disposable = model.onDidChangeContent(() => {
+      if (autoSaveTimeoutRef.current) {
+        clearTimeout(autoSaveTimeoutRef.current);
+      }
+      
+      // Set up a new timeout to detect functions after content changes
+      autoSaveTimeoutRef.current = setTimeout(() => {
+        detectFunctionsAndAddExplainButtons();
+      }, 500); // Add some delay to avoid too frequent updates
+    });
+    
+    // Initial function detection
+    detectFunctionsAndAddExplainButtons();
+    
+    // Clean up on unmount
+    return () => {
+      disposable.dispose();
+      removeAllExplainWidgets();
+    };
+  }, [editor.current, editorInitializedRef.current, file]);
+
+  // Function to detect functions in the code
+  const detectFunctionsAndAddExplainButtons = () => {
+    if (!editor.current) return;
+    
+    const model = editor.current.getModel();
+    if (!model) return;
+    
+    // Remove existing explain widgets
+    removeAllExplainWidgets();
+    
+    // Get the content
+    const content = model.getValue();
+    
+    // Detect language based on content patterns rather than just file extension
+    let detectedLanguage = file ? getLanguageFromFileName(file.name) : 'javascript';
+    
+    // Check for language-specific patterns to determine the actual language
+    if (content.includes('import React') || content.includes('from "react"') || 
+        content.includes("from 'react'") || content.includes('extends Component') ||
+        content.includes('<div>') || content.includes('<>')) {
+      // Likely JSX/TSX
+      if (content.includes(':') && 
+          (content.includes('interface ') || content.includes('type ') || 
+           content.includes(': string') || content.includes(': number') || 
+           content.includes(': boolean') || content.includes(': React.'))) {
+        detectedLanguage = 'tsx';
+      } else {
+        detectedLanguage = 'jsx';
+      }
+    } else if (content.includes('interface ') || content.includes('type ') || 
+               content.includes(': string') || content.includes(': number') || 
+               content.includes(': boolean') || content.includes('implements ')) {
+      // Likely TypeScript
+      detectedLanguage = 'typescript';
+    } else if (content.includes('def ') && content.includes(':') && 
+               (content.includes('    ') || content.includes('\t')) && 
+               (content.includes('import ') || content.includes('class ') || 
+                content.includes('self'))) {
+      // Likely Python
+      detectedLanguage = 'python';
+    } else if (content.includes('function ') || content.includes('=>') || 
+               content.includes('const ') || content.includes('let ')) {
+      // Likely JavaScript
+      detectedLanguage = 'javascript';
+    }
+    
+    console.log(`Detected language: ${detectedLanguage} for file: ${file?.name}`);
+    
+    // Store detected functions
+    const detectedFunctions: {
+      lineNumber: number,
+      name: string,
+      code: string,
+      range: monaco.Range
+    }[] = [];
+    
+    // Different regex patterns based on detected language
+    let functionMatches: RegExpMatchArray | null = null;
+    const allLines = content.split('\n');
+    
+    if (detectedLanguage === 'javascript' || detectedLanguage === 'typescript' || 
+        detectedLanguage === 'jsx' || detectedLanguage === 'tsx') {
+      // Match JS/TS function declarations, arrow functions, and methods
+      const functionRegex = /(?:function\s+(\w+)|const\s+(\w+)\s*=\s*(?:async\s*)?\([^)]*\)\s*=>|(?:async\s+)?(\w+)\s*\([^)]*\)\s*{|class\s+(\w+)|(?:(?:public|private|protected)\s+)?(?:async\s+)?(\w+)\s*\([^)]*\)\s*{)/g;
+      let match;
+      
+      while ((match = functionRegex.exec(content)) !== null) {
+        const fullMatch = match[0];
+        // Get the first non-undefined capture group as the function name
+        const name = match[1] || match[2] || match[3] || match[4] || match[5];
+        if (!name) continue;
+        
+        // Find the line number for this match
+        const upToMatch = content.substring(0, match.index);
+        const lineNumber = upToMatch.split('\n').length;
+        
+        // Extract the full function code
+        let functionCode = "";
+        let bracesCount = 0;
+        let startIndex = match.index;
+        let endIndex = startIndex;
+        
+        // For function declarations and methods with braces
+        if (fullMatch.includes('{')) {
+          bracesCount = 1;
+          endIndex = match.index + fullMatch.length;
+          
+          // Find the closing brace
+          for (let i = endIndex; i < content.length; i++) {
+            if (content[i] === '{') bracesCount++;
+            if (content[i] === '}') bracesCount--;
+            
+            if (bracesCount === 0) {
+              endIndex = i + 1;
+              break;
+            }
+          }
+        } 
+        // For arrow functions without braces
+        else if (fullMatch.includes('=>')) {
+          // Find the end of the statement (semicolon or new line)
+          const restOfContent = content.substring(match.index + fullMatch.length);
+          const semicolonIndex = restOfContent.indexOf(';');
+          const newLineIndex = restOfContent.indexOf('\n');
+          
+          let statementEndOffset;
+          if (semicolonIndex >= 0 && (newLineIndex < 0 || semicolonIndex < newLineIndex)) {
+            statementEndOffset = semicolonIndex + 1;
+          } else if (newLineIndex >= 0) {
+            statementEndOffset = newLineIndex;
+          } else {
+            statementEndOffset = restOfContent.length;
+          }
+          
+          endIndex = match.index + fullMatch.length + statementEndOffset;
+        }
+        
+        // Extract the function code
+        functionCode = content.substring(startIndex, endIndex);
+        
+        // Create a range for the function
+        const range = new monaco.Range(
+          lineNumber,
+          1,
+          lineNumber + functionCode.split('\n').length - 1,
+          1
+        );
+        
+        detectedFunctions.push({
+          lineNumber,
+          name,
+          code: functionCode,
+          range
+        });
+      }
+      
+      // Also detect class methods that weren't caught by the above regex
+      const classMethodRegex = /(\w+)\s*\([^)]*\)\s*{/g;
+      const classRegex = /class\s+(\w+)/g;
+      let classMatch;
+      
+      while ((classMatch = classRegex.exec(content)) !== null) {
+        const className = classMatch[1];
+        let classStart = classMatch.index;
+        
+        // Find the class end (closing brace)
+        let bracesCount = 0;
+        let classEnd = classStart;
+        
+        // First, find the opening brace
+        for (let i = classStart; i < content.length; i++) {
+          if (content[i] === '{') {
+            bracesCount = 1;
+            classStart = i + 1;
+            break;
+          }
+        }
+        
+        // Then find the matching closing brace
+        for (let i = classStart; i < content.length; i++) {
+          if (content[i] === '{') bracesCount++;
+          if (content[i] === '}') bracesCount--;
+          
+          if (bracesCount === 0) {
+            classEnd = i;
+            break;
+          }
+        }
+        
+        // Get the class body
+        const classBody = content.substring(classStart, classEnd);
+        
+        // Find methods in the class body
+        let methodMatch;
+        while ((methodMatch = classMethodRegex.exec(classBody)) !== null) {
+          const methodName = methodMatch[1];
+          
+          // Skip constructor and methods that aren't valid identifiers
+          if (methodName === 'constructor' || !methodName.match(/^\w+$/)) continue;
+          
+          // Find the line number
+          const upToMethod = content.substring(0, classStart + methodMatch.index);
+          const lineNumber = upToMethod.split('\n').length;
+          
+          // Extract method body
+          let methodCode = "";
+          let methodBracesCount = 1;
+          let methodStart = classStart + methodMatch.index;
+          let methodEnd = methodStart + methodMatch[0].length;
+          
+          // Find the closing brace of the method
+          for (let i = methodEnd; i < classEnd; i++) {
+            if (content[i] === '{') methodBracesCount++;
+            if (content[i] === '}') methodBracesCount--;
+            
+            if (methodBracesCount === 0) {
+              methodEnd = i + 1;
+              break;
+            }
+          }
+          
+          methodCode = content.substring(methodStart, methodEnd);
+          
+          // Create a range for the method
+          const range = new monaco.Range(
+            lineNumber,
+            1,
+            lineNumber + methodCode.split('\n').length - 1,
+            1
+          );
+          
+          detectedFunctions.push({
+            lineNumber,
+            name: methodName,
+            code: methodCode,
+            range
+          });
+        }
+      }
+    } else if (detectedLanguage === 'python') {
+      // Match Python function definitions
+      const lines = allLines;
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const match = line.match(/^\s*def\s+(\w+)\s*\(/);
+        
+        if (match && match[1]) {
+          const functionName = match[1];
+          const lineNumber = i + 1;
+          
+          // Extract function body by finding all indented lines
+          let j = i + 1;
+          let functionCode = line + '\n';
+          const baseIndentation = line.indexOf('def');
+          
+          // Continue until we find a line with same or less indentation
+          while (j < lines.length) {
+            const nextLine = lines[j];
+            if (nextLine.trim() === '') {
+              functionCode += nextLine + '\n';
+              j++;
+              continue;
+            }
+            
+            const indentation = nextLine.indexOf(nextLine.trim());
+            if (indentation <= baseIndentation && nextLine.trim() !== '') {
+              break;
+            }
+            
+            functionCode += nextLine + '\n';
+            j++;
+          }
+          
+          const range = new monaco.Range(
+            lineNumber,
+            1,
+            lineNumber + functionCode.split('\n').length - 1,
+            1
+          );
+          
+          detectedFunctions.push({
+            lineNumber,
+            name: functionName,
+            code: functionCode,
+            range
+          });
+        }
+        
+        // Also detect Python class methods
+        const classMatch = line.match(/^\s*class\s+(\w+)/);
+        if (classMatch && classMatch[1]) {
+          const className = classMatch[1];
+          const classLineNumber = i + 1;
+          const classIndentation = line.indexOf('class');
+          
+          // Skip to the class body
+          let k = i + 1;
+          while (k < lines.length) {
+            const methodLine = lines[k];
+            if (methodLine.trim() === '') {
+              k++;
+              continue;
+            }
+            
+            const methodIndentation = methodLine.indexOf(methodLine.trim());
+            if (methodIndentation <= classIndentation) {
+              // We've left the class body
+              break;
+            }
+            
+            // Check if this is a method definition
+            const methodMatch = methodLine.match(/^\s*def\s+(\w+)\s*\(/);
+            if (methodMatch && methodMatch[1]) {
+              const methodName = methodMatch[1];
+              const methodLineNumber = k + 1;
+              
+              // Skip __init__ and other dunder methods
+              if (methodName.startsWith('__') && methodName.endsWith('__')) {
+                k++;
+                continue;
+              }
+              
+              // Extract method body
+              let m = k + 1;
+              let methodCode = methodLine + '\n';
+              const methodBaseIndentation = methodIndentation;
+              
+              // Continue until we find a line with same or less indentation
+              while (m < lines.length) {
+                const nextLine = lines[m];
+                if (nextLine.trim() === '') {
+                  methodCode += nextLine + '\n';
+                  m++;
+                  continue;
+                }
+                
+                const nextIndentation = nextLine.indexOf(nextLine.trim());
+                if (nextIndentation <= methodBaseIndentation && nextLine.trim() !== '') {
+                  break;
+                }
+                
+                methodCode += nextLine + '\n';
+                m++;
+              }
+              
+              const range = new monaco.Range(
+                methodLineNumber,
+                1,
+                methodLineNumber + methodCode.split('\n').length - 1,
+                1
+              );
+              
+              detectedFunctions.push({
+                lineNumber: methodLineNumber,
+                name: methodName,
+                code: methodCode,
+                range
+              });
+              
+              // Update k to skip the method body we just processed
+              k = m - 1;
+            }
+            
+            k++;
+          }
+        }
+      }
+    }
+    
+    // Store the detected functions
+    detectedFunctionsRef.current = detectedFunctions;
+    
+    // Add an "Explain" button next to each function
+    for (const func of detectedFunctions) {
+      addExplainButton(func.lineNumber, func.name);
+    }
+  };
+
+  // Remove all explain widgets
+  const removeAllExplainWidgets = () => {
+    if (!editor.current) return;
+    
+    // Remove all existing explain widgets
+    for (const widget of explainWidgetsRef.current) {
+      editor.current.removeContentWidget(widget);
+    }
+    
+    explainWidgetsRef.current = [];
+  };
+
+  // Add an "Explain" button widget next to a function declaration
+  const addExplainButton = (lineNumber: number, functionName: string) => {
+    if (!editor.current) return;
+    
+    const widget = {
+      getId: () => `explain-button-${lineNumber}-${functionName}`,
+      getDomNode: () => {
+        const node = document.createElement('div');
+        node.className = 'explain-function-button';
+        node.textContent = 'Explain';
+        node.style.fontSize = '11px';
+        node.style.padding = '2px 6px';
+        node.style.background = 'var(--accent-color)';
+        node.style.color = 'var(--bg-primary)';
+        node.style.borderRadius = '4px';
+        node.style.cursor = 'pointer';
+        node.style.opacity = '0.7';
+        node.style.transition = 'opacity 0.2s';
+        node.style.marginLeft = '8px';
+        node.style.display = 'inline-block';
+        
+        node.onmouseover = () => {
+          node.style.opacity = '1';
+        };
+        
+        node.onmouseout = () => {
+          node.style.opacity = '0.7';
+        };
+        
+        node.onclick = async () => {
+          // Find the function with this line number
+          const func = detectedFunctionsRef.current.find(f => 
+            f.lineNumber === lineNumber && f.name === functionName);
+          
+          if (func) {
+            await explainFunction(func.name, func.code);
+          }
+        };
+        
+        return node;
+      },
+      getPosition: () => {
+        // Position after the function name
+        return {
+          position: {
+            lineNumber: lineNumber,
+            column: 1000 // Position at end of line
+          },
+          preference: [
+            monaco.editor.ContentWidgetPositionPreference.EXACT
+          ]
+        };
+      }
+    };
+    
+    editor.current.addContentWidget(widget);
+    explainWidgetsRef.current.push(widget);
+  };
+
+  // Function to generate and show explanation for a function
+  const explainFunction = async (functionName: string, functionCode: string) => {
+    if (!file || !file.path) {
+      console.error('Cannot explain function: File data incomplete');
+      ToastManager.show('Cannot explain function: File data incomplete', 'error');
+      return;
+    }
+
+    try {
+      // Show loading dialog immediately
+      setFunctionExplanationDialog({
+        isOpen: true,
+        functionName,
+        explanation: '',
+        isLoading: true,
+        isStreaming: false
+      });
+
+      // Show feedback that we're starting the explanation
+      ToastManager.show(`Explaining function: ${functionName}...`, 'info');
+      
+      // Find any functions that are called within this function
+      const calledFunctions = findCalledFunctions(functionCode);
+      
+      // Get the full content to find helper functions
+      const model = editor.current?.getModel();
+      const content = model?.getValue() || '';
+      
+      // Build helper functions context
+      let helperFunctionsContext = '';
+      
+      if (calledFunctions.length > 0) {
+        // Look for the helper function definitions in the file content
+        for (const calledFunc of calledFunctions) {
+          const helperFunc = detectedFunctionsRef.current.find(f => f.name === calledFunc);
+          if (helperFunc) {
+            helperFunctionsContext += `\n\n/* Helper function: ${calledFunc} */\n${helperFunc.code}`;
+          }
+        }
+      }
+      
+      console.log(`Found ${calledFunctions.length} called functions:`, calledFunctions);
+      
+      // Use a string builder to collect the streaming response
+      let streamedExplanation = '';
+      
+      // Call the function explanation service with streaming
+      await AIFileService.getFunctionExplanation(
+        file.path,
+        functionName,
+        functionCode + helperFunctionsContext, // Include any helper functions
+        (chunk) => {
+          // Update the explanation text with each chunk
+          streamedExplanation += chunk;
+          setFunctionExplanationDialog(prev => ({
+            ...prev,
+            explanation: streamedExplanation,
+            isLoading: false,
+            isStreaming: true
+          }));
+        }
+      );
+      
+      // Update with the final result and mark streaming as complete
+      setFunctionExplanationDialog(prev => ({
+        ...prev,
+        isStreaming: false
+      }));
+      
+      ToastManager.show(`Explanation ready for ${functionName}`, 'success');
+      
+    } catch (error) {
+      console.error('Error explaining function:', error);
+      ToastManager.show('Error generating function explanation', 'error');
+      
+      // Update state to show error in dialog
+      setFunctionExplanationDialog(prev => ({
+        ...prev,
+        explanation: "An error occurred while generating the explanation. Please try again later.",
+        isLoading: false,
+        isStreaming: false
+      }));
+    }
+  };
+
+  // Helper function to find functions called within a function
+  const findCalledFunctions = (functionCode: string): string[] => {
+    const calledFunctions: string[] = [];
+    
+    // Get all detected functions from the current file
+    const allFunctionNames = detectedFunctionsRef.current.map(f => f.name);
+    
+    // Look for each function name in the function code
+    for (const funcName of allFunctionNames) {
+      // Skip the function itself
+      if (functionCode.startsWith(`function ${funcName}`) || 
+          functionCode.startsWith(`const ${funcName}`) ||
+          functionCode.startsWith(`let ${funcName}`) ||
+          functionCode.startsWith(`var ${funcName}`)) {
+        continue;
+      }
+      
+      // Simple regex to find function calls: functionName(...)
+      // This is a basic approach and may have false positives
+      const callRegex = new RegExp(`[^a-zA-Z0-9_]${funcName}\\s*\\(`, 'g');
+      
+      // Also look for method calls: obj.functionName(...)
+      const methodCallRegex = new RegExp(`\\.${funcName}\\s*\\(`, 'g');
+      
+      // Check if the function is called (and not just declared)
+      if (callRegex.test(functionCode) || methodCallRegex.test(functionCode)) {
+        calledFunctions.push(funcName);
+      }
+    }
+    
+    return calledFunctions;
+  };
+
   if (!file) {
     return <div>No file loaded</div>;
   }
+  
+  // Render the explanation content for the modal
+  const renderExplanationContent = () => {
+    if (functionExplanationDialog.isLoading) {
+      return (
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', marginBottom: '15px' }}>
+            <div className="enhanced-pulse" style={{ 
+              width: '10px', 
+              height: '10px', 
+              borderRadius: '50%', 
+              background: 'var(--accent-color)',
+              marginRight: '8px'
+            }}></div>
+            <span>Waiting for model...</span>
+          </div>
+        </div>
+      );
+    }
+    
+    if (functionExplanationDialog.isStreaming && functionExplanationDialog.explanation === '') {
+      return <span className="blinking-cursor">|</span>;
+    }
+    
+    return (
+      <div style={{ 
+        fontFamily: 'var(--font-mono)', 
+        borderLeft: '3px solid var(--accent-color)',
+        paddingLeft: '15px',
+        backgroundColor: 'rgba(0, 122, 204, 0.05)'
+      }}>
+        {functionExplanationDialog.explanation}
+        {functionExplanationDialog.isStreaming && <span className="blinking-cursor">|</span>}
+      </div>
+    );
+  };
 
   return (
     <div className="editor-pane">
@@ -1046,57 +1686,72 @@ DO NOT include the [CURSOR] marker in your response. Provide ONLY the completion
         style={{ width: '100%', height: '100%' }}
       />
       
+      {/* Use the generic Modal component for function explanation */}
+      <Modal
+        isOpen={functionExplanationDialog.isOpen}
+        onClose={() => setFunctionExplanationDialog(prev => ({ ...prev, isOpen: false }))}
+        title={`Function: ${functionExplanationDialog.functionName}`}
+        content={renderExplanationContent()}
+        isStreaming={functionExplanationDialog.isStreaming}
+      />
+      
       {showPromptInput && (
         <div className="prompt-overlay">
+          <h3 style={{ margin: '0 0 10px', color: 'var(--accent-color)' }}>
+            Enter your code prompt:
+          </h3>
           <form onSubmit={handlePromptSubmit}>
-            <input
-              type="text"
+            <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
-              placeholder="Ask AI anything..."
               style={{
                 width: '100%',
-                padding: '8px 12px',
-                border: '1px solid var(--border-color)',
-                borderRadius: '4px',
+                height: '100px',
+                padding: '8px',
                 background: 'var(--bg-primary)',
                 color: 'var(--text-primary)',
-                fontSize: '14px',
+                border: '1px solid var(--border-color)',
+                borderRadius: '4px',
+                resize: 'vertical',
+                fontFamily: 'var(--font-mono)',
               }}
+              placeholder="Describe what you want to do with your code..."
               autoFocus
             />
-            <div style={{ 
-              marginTop: '10px', 
-              display: 'flex', 
-              justifyContent: 'flex-end',
-              gap: '8px'
-            }}>
+            <div style={{ marginTop: '15px', display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
               <button
                 type="button"
                 onClick={() => setShowPromptInput(false)}
                 style={{
-                  padding: '6px 12px',
+                  padding: '8px 16px',
+                  background: 'transparent',
+                  color: 'var(--text-secondary)',
                   border: '1px solid var(--border-color)',
                   borderRadius: '4px',
-                  background: 'var(--bg-primary)',
-                  color: 'var(--text-primary)',
                   cursor: 'pointer',
+                  transition: 'background 0.2s',
                 }}
+                onMouseOver={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
+                onMouseOut={(e) => { e.currentTarget.style.background = 'transparent'; }}
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 style={{
-                  padding: '6px 12px',
-                  border: '1px solid var(--accent-color)',
-                  borderRadius: '4px',
+                  padding: '8px 16px',
                   background: 'var(--accent-color)',
-                  color: 'white',
+                  color: 'var(--bg-primary)',
+                  border: 'none',
+                  borderRadius: '4px',
                   cursor: 'pointer',
+                  fontWeight: 'bold',
+                  transition: 'opacity 0.2s',
                 }}
+                onMouseOver={(e) => { e.currentTarget.style.opacity = '0.9'; }}
+                onMouseOut={(e) => { e.currentTarget.style.opacity = '1'; }}
               >
-                Ask AI
+                Submit
               </button>
             </div>
           </form>

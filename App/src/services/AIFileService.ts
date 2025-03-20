@@ -712,7 +712,11 @@ ${content.length > 8000 ? content.substring(0, 8000) + "\n[truncated]" : content
     }
   }
 
-  static async getFileSummary(filePath: string, content: string): Promise<string> {
+  static async getFileSummary(
+    filePath: string, 
+    content: string,
+    onChunk?: (chunk: string) => void
+  ): Promise<string> {
     try {
       // Get model configuration for summary
       const modelConfig = await this.getModelConfigForPurpose('summary');
@@ -729,6 +733,7 @@ ${content.length > 8000 ? content.substring(0, 8000) + "\n[truncated]" : content
       
       // Try each endpoint until one works
       let lastError: Error | null = null;
+      let fullText = '';
       
       for (const endpoint of fallbackEndpoints) {
         try {
@@ -741,7 +746,7 @@ ${content.length > 8000 ? content.substring(0, 8000) + "\n[truncated]" : content
           
           // Create abort controller with timeout
           const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 5000);
+          const timeoutId = setTimeout(() => controller.abort(), 10000); // Longer timeout for streaming
           
           try {
             const response = await fetch(chatEndpoint, {
@@ -766,6 +771,7 @@ ${content.length > 8000 ? content.substring(0, 8000) + "\n[truncated]" : content
                 ],
                 temperature: 0.7,
                 top_p: 0.9,
+                stream: true, // Enable streaming!
               }),
               signal: controller.signal
             });
@@ -777,11 +783,58 @@ ${content.length > 8000 ? content.substring(0, 8000) + "\n[truncated]" : content
               throw new Error(`Failed to get file summary: ${response.statusText}`);
             }
 
-            const data = await response.json();
-            // Extract response from the chat completion format
-            return data.choices && data.choices[0] && data.choices[0].message 
-              ? data.choices[0].message.content.trim() 
-              : '';
+            // Handle the streaming response
+            const reader = response.body?.getReader();
+            if (!reader) {
+              throw new Error('Failed to get response reader');
+            }
+
+            const decoder = new TextDecoder();
+            let done = false;
+
+            while (!done) {
+              const { value, done: readerDone } = await reader.read();
+              done = readerDone;
+
+              if (value) {
+                const chunk = decoder.decode(value, { stream: true });
+                
+                // Parse the chunk which may contain multiple JSON objects
+                const lines = chunk
+                  .split('\n')
+                  .filter(line => line.trim().startsWith('data:') && !line.includes('[DONE]'));
+                
+                for (const line of lines) {
+                  try {
+                    // Extract the JSON content after 'data:'
+                    const jsonStr = line.replace(/^data:\s*/, '').trim();
+                    if (!jsonStr) continue;
+                    
+                    const json = JSON.parse(jsonStr);
+                    
+                    if (json.choices && json.choices[0] && json.choices[0].delta && json.choices[0].delta.content) {
+                      const textChunk = json.choices[0].delta.content;
+                      fullText += textChunk;
+                      
+                      // Call the callback with the new chunk if provided
+                      if (onChunk) {
+                        onChunk(textChunk);
+                      }
+                    }
+                  } catch (e) {
+                    console.error('Error parsing streaming JSON:', e, line);
+                  }
+                }
+              }
+            }
+            
+            // Clean up the response
+            fullText = fullText
+              .replace(/undefined$/, '')
+              .replace(/```\w*\s*|\s*```/g, '')
+              .trim();
+              
+            return fullText;
           } finally {
             // Ensure the timeout is cleared
             clearTimeout(timeoutId);
@@ -884,5 +937,197 @@ ${content.length > 8000 ? content.substring(0, 8000) + "\n[truncated]" : content
     };
     
     return extension in fileTypes ? fileTypes[extension] : extension.toUpperCase();
+  }
+
+  static async getFunctionExplanation(
+    filePath: string, 
+    functionName: string, 
+    functionCode: string, 
+    onChunk?: (chunk: string) => void
+  ): Promise<string> {
+    try {
+      // Get model configuration for summary
+      const modelConfig = await this.getModelConfigForPurpose('summary');
+      const modelId = modelConfig.modelId;
+      let apiEndpoint = modelConfig.apiEndpoint;
+      
+      // List of fallback endpoints to try in order (same as file summary)
+      const fallbackEndpoints = [
+        apiEndpoint, // Try the configured endpoint first
+        'http://localhost:11434/v1', // Default Ollama endpoint
+        'http://localhost:1234/v1',  // Alternative port
+        'http://127.0.0.1:11434/v1', // Try with IP instead of localhost
+      ];
+      
+      // Detect if helper functions are included
+      const helperFunctionsIncluded = functionCode.includes('/* Helper function:');
+      
+      // Try each endpoint until one works
+      let lastError: Error | null = null;
+      let fullText = '';
+      
+      for (const endpoint of fallbackEndpoints) {
+        try {
+          // Form the API endpoint for chat completions
+          const chatEndpoint = endpoint.endsWith('/v1') 
+            ? `${endpoint}/chat/completions` 
+            : (endpoint.endsWith('/') ? `${endpoint}v1/chat/completions` : `${endpoint}/v1/chat/completions`);
+
+          console.log(`Trying endpoint for function explanation: ${chatEndpoint}`);
+          
+          // Create abort controller with timeout
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 10000); // Longer timeout for streaming
+          
+          try {
+            // Create a better prompt that handles helper functions
+            let promptContent = `Explain the function "${functionName}" in the file "${filePath}". Provide a concise explanation of what this function does, its parameters, and what it returns.`;
+            
+            // If helper functions are included, add specific instructions
+            if (helperFunctionsIncluded) {
+              promptContent += `\n\nThis function uses helper functions that are included after the main function code. Take into account how these helper functions contribute to the main function's behavior.`;
+            }
+            
+            promptContent += `\n\nFunction Code:\n${functionCode}`;
+            
+            const response = await fetch(chatEndpoint, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                model: modelId,
+                messages: [
+                  {
+                    role: "system",
+                    content: "You are a helpful AI that provides concise explanations of code functions. You focus on clarity and technical precision. When helper functions are included, explain how they support the main function."
+                  },
+                  {
+                    role: "user",
+                    content: promptContent
+                  }
+                ],
+                temperature: 0.7,
+                top_p: 0.9,
+                stream: true, // Enable streaming!
+              }),
+              signal: controller.signal
+            });
+
+            // Clear the timeout since the request completed
+            clearTimeout(timeoutId);
+
+            if (!response.ok) {
+              throw new Error(`Failed to get function explanation: ${response.statusText}`);
+            }
+
+            // Handle the streaming response
+            const reader = response.body?.getReader();
+            if (!reader) {
+              throw new Error('Failed to get response reader');
+            }
+
+            const decoder = new TextDecoder();
+            let done = false;
+
+            while (!done) {
+              const { value, done: readerDone } = await reader.read();
+              done = readerDone;
+
+              if (value) {
+                const chunk = decoder.decode(value, { stream: true });
+                
+                // Parse the chunk which may contain multiple JSON objects
+                const lines = chunk
+                  .split('\n')
+                  .filter(line => line.trim().startsWith('data:') && !line.includes('[DONE]'));
+                
+                for (const line of lines) {
+                  try {
+                    // Extract the JSON content after 'data:'
+                    const jsonStr = line.replace(/^data:\s*/, '').trim();
+                    if (!jsonStr) continue;
+                    
+                    const json = JSON.parse(jsonStr);
+                    
+                    if (json.choices && json.choices[0] && json.choices[0].delta && json.choices[0].delta.content) {
+                      const textChunk = json.choices[0].delta.content;
+                      fullText += textChunk;
+                      
+                      // Call the callback with the new chunk if provided
+                      if (onChunk) {
+                        onChunk(textChunk);
+                      }
+                    }
+                  } catch (e) {
+                    console.error('Error parsing streaming JSON:', e, line);
+                  }
+                }
+              }
+            }
+            
+            // Clean up the response
+            fullText = fullText
+              .replace(/undefined$/, '')
+              .replace(/```\w*\s*|\s*```/g, '')
+              .trim();
+              
+            return fullText;
+          } finally {
+            // Ensure the timeout is cleared
+            clearTimeout(timeoutId);
+          }
+        } catch (fetchError) {
+          console.error(`Error with endpoint ${endpoint}:`, fetchError);
+          lastError = fetchError as Error;
+          // Continue to next endpoint
+          continue;
+        }
+      }
+      
+      // If we've tried all endpoints and none worked
+      console.error('All endpoints failed for function explanation:', lastError);
+      return this.generateSimpleFunctionExplanation(functionName, functionCode);
+    } catch (error) {
+      console.error('Error getting function explanation:', error);
+      return this.generateSimpleFunctionExplanation(functionName, functionCode);
+    }
+  }
+
+  // Simple fallback generator for function explanation when LLM server is not available
+  private static generateSimpleFunctionExplanation(functionName: string, functionCode: string): string {
+    try {
+      // Count lines of code
+      const lines = functionCode.split('\n').length;
+      
+      // Look for parameters in the function signature
+      const paramMatch = functionCode.match(/\(([^)]*)\)/);
+      const params = paramMatch ? paramMatch[1].split(',').filter(p => p.trim().length > 0) : [];
+      
+      // Check if the function has a return statement
+      const hasReturn = functionCode.includes('return ');
+      
+      // Construct a simple explanation
+      let explanation = `"${functionName}" is a function with ${lines} lines of code`;
+      
+      if (params.length > 0) {
+        explanation += ` that takes ${params.length} parameter${params.length > 1 ? 's' : ''}`;
+      } else {
+        explanation += ' that takes no parameters';
+      }
+      
+      if (hasReturn) {
+        explanation += ' and returns a value';
+      } else {
+        explanation += ' and does not explicitly return a value';
+      }
+      
+      explanation += '.';
+      
+      return explanation;
+    } catch (error) {
+      console.error('Error generating simple function explanation:', error);
+      return `Function: ${functionName} (Unable to generate explanation)`;
+    }
   }
 } 
