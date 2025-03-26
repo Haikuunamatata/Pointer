@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { FileSystemService } from '../services/FileSystemService';
 import { ModelConfig, EditorSettings, ThemeSettings, AppSettings, ModelAssignments, DiscordRpcSettings } from '../types';
 import * as monaco from 'monaco-editor';
 import ColorInput from './ColorInput';
+import { presetThemes } from '../themes/presetThemes';
 // Add electron API import with proper typing
 // @ts-ignore
 const electron = window.require ? window.require('electron') : null;
@@ -57,32 +58,6 @@ const defaultDiscordRpcSettings: DiscordRpcSettings = {
   button2Url: '',
 };
 
-// List of available models
-const availableModels = [
-  { id: 'deepseek-coder-v2-lite-instruct', name: 'DeepSeek Coder Lite', provider: 'local' },
-  { id: 'llama3-8b-instruct', name: 'Llama 3 8B Instruct', provider: 'local' },
-  { id: 'codellama-7b-instruct', name: 'CodeLlama 7B Instruct', provider: 'local' },
-  { id: 'mistral-7b-instruct-v0.2', name: 'Mistral 7B Instruct', provider: 'local' },
-  { id: 'gpt-3.5-turbo', name: 'GPT-3.5 Turbo', provider: 'openai' },
-  { id: 'gpt-4', name: 'GPT-4', provider: 'openai' },
-  { id: 'gpt-4-turbo', name: 'GPT-4 Turbo', provider: 'openai' },
-  { id: 'claude-3-opus', name: 'Claude 3 Opus', provider: 'anthropic' },
-  { id: 'claude-3-sonnet', name: 'Claude 3 Sonnet', provider: 'anthropic' },
-  { id: 'claude-3-haiku', name: 'Claude 3 Haiku', provider: 'anthropic' },
-  { id: 'gemini-pro', name: 'Gemini Pro', provider: 'google' },
-  { id: 'gemini-ultra', name: 'Gemini Ultra', provider: 'google' },
-  { id: 'custom', name: 'Custom Model', provider: 'custom' },
-];
-
-// List of model providers
-const modelProviders = [
-  { id: 'local', name: 'Local (Ollama)' },
-  { id: 'openai', name: 'OpenAI' },
-  { id: 'anthropic', name: 'Anthropic' },
-  { id: 'google', name: 'Google AI' },
-  { id: 'custom', name: 'Custom Provider' },
-];
-
 // Categories for sidebar
 const settingsCategories = [
   { id: 'models', name: 'LLM Models' },
@@ -101,6 +76,328 @@ const getSettingsPath = (): string => {
   } else {
     return './settings';
   }
+};
+
+// Theme preview component for the theme library
+const ThemePreview: React.FC<{ theme: ThemeSettings; name: string; onSelect: () => void }> = ({ theme, name, onSelect }) => {
+  return (
+    <div 
+      onClick={onSelect}
+      style={{
+        width: '200px',
+        height: '150px',
+        border: '1px solid var(--border-primary)',
+        borderRadius: '8px',
+        overflow: 'hidden',
+        cursor: 'pointer',
+        transition: 'transform 0.2s, box-shadow 0.2s',
+        position: 'relative',
+        boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.transform = 'translateY(-4px)';
+        e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.transform = 'translateY(0)';
+        e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,0.1)';
+      }}
+    >
+      {/* Theme preview - titlebar */}
+      <div style={{
+        height: '24px',
+        backgroundColor: theme.customColors.titlebarBg || theme.customColors.bgPrimary || '#1e1e1e',
+        borderBottom: `1px solid ${theme.customColors.borderPrimary || '#333'}`,
+        display: 'flex',
+        alignItems: 'center',
+        padding: '0 8px',
+      }}>
+        <div style={{ 
+          width: '10px', 
+          height: '10px', 
+          borderRadius: '50%', 
+          backgroundColor: '#ff5f57', 
+          marginRight: '6px' 
+        }} />
+        <div style={{ 
+          width: '10px', 
+          height: '10px', 
+          borderRadius: '50%', 
+          backgroundColor: '#febc2e', 
+          marginRight: '6px' 
+        }} />
+        <div style={{ 
+          width: '10px', 
+          height: '10px', 
+          borderRadius: '50%', 
+          backgroundColor: '#28c840' 
+        }} />
+      </div>
+      
+      {/* Theme preview - content */}
+      <div style={{
+        display: 'flex',
+        height: 'calc(100% - 24px)',
+      }}>
+        {/* Sidebar */}
+        <div style={{
+          width: '30px',
+          backgroundColor: theme.customColors.activityBarBg || theme.customColors.bgPrimary || '#1e1e1e',
+          height: '100%',
+          borderRight: `1px solid ${theme.customColors.borderPrimary || '#333'}`,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          padding: '8px 0',
+          gap: '8px',
+        }}>
+          <div style={{ 
+            width: '16px', 
+            height: '16px', 
+            backgroundColor: theme.customColors.activityBarFg || theme.customColors.textSecondary || '#8a8a8a',
+            opacity: 0.6,
+            borderRadius: '2px'
+          }} />
+          <div style={{ 
+            width: '16px', 
+            height: '16px', 
+            backgroundColor: theme.customColors.accentColor || '#0078d4',
+            borderRadius: '2px'
+          }} />
+          <div style={{ 
+            width: '16px', 
+            height: '16px', 
+            backgroundColor: theme.customColors.activityBarFg || theme.customColors.textSecondary || '#8a8a8a',
+            opacity: 0.6,
+            borderRadius: '2px'
+          }} />
+        </div>
+        
+        {/* Main content */}
+        <div style={{
+          flex: 1,
+          backgroundColor: theme.editorColors['editor.background'] || theme.customColors.bgSecondary || '#1e1e1e',
+          padding: '2px 0 0 4px',
+          display: 'flex',
+          flexDirection: 'column',
+        }}>
+          {/* Code lines */}
+          <div style={{ 
+            fontSize: '9px', 
+            display: 'flex', 
+            lineHeight: '1.3',
+            color: theme.editorColors['editor.foreground'] || theme.customColors.textPrimary || '#d4d4d4',
+            fontFamily: 'monospace'
+          }}>
+            <div style={{ 
+              color: theme.editorColors['editorLineNumber.foreground'] || '#858585',
+              width: '14px',
+              textAlign: 'right',
+              marginRight: '6px',
+            }}>1</div>
+            <span style={{ color: theme.tokenColors?.find(t => t.token === 'keyword')?.foreground || '#569cd6' }}>
+              function
+            </span>
+            <span style={{ color: theme.tokenColors?.find(t => t.token === 'function')?.foreground || '#dcdcaa' }}>
+              &nbsp;example
+            </span>
+            () {'{'}
+          </div>
+          <div style={{ 
+            fontSize: '9px', 
+            display: 'flex', 
+            lineHeight: '1.3',
+            color: theme.editorColors['editor.foreground'] || theme.customColors.textPrimary || '#d4d4d4',
+            fontFamily: 'monospace'
+          }}>
+            <div style={{ 
+              color: theme.editorColors['editorLineNumber.foreground'] || '#858585',
+              width: '14px',
+              textAlign: 'right',
+              marginRight: '6px',
+            }}>2</div>
+            &nbsp;&nbsp;<span style={{ color: theme.tokenColors?.find(t => t.token === 'keyword')?.foreground || '#569cd6' }}>
+              const
+            </span>
+            <span style={{ color: theme.tokenColors?.find(t => t.token === 'variable')?.foreground || '#9cdcfe' }}>
+              &nbsp;str
+            </span>
+            &nbsp;=&nbsp;
+            <span style={{ color: theme.tokenColors?.find(t => t.token === 'string')?.foreground || '#ce9178' }}>
+              "hello"
+            </span>;
+          </div>
+          <div style={{ 
+            fontSize: '9px', 
+            display: 'flex', 
+            lineHeight: '1.3',
+            color: theme.editorColors['editor.foreground'] || theme.customColors.textPrimary || '#d4d4d4',
+            fontFamily: 'monospace'
+          }}>
+            <div style={{ 
+              color: theme.editorColors['editorLineNumber.foreground'] || '#858585',
+              width: '14px',
+              textAlign: 'right',
+              marginRight: '6px',
+            }}>3</div>
+            &nbsp;&nbsp;<span style={{ color: theme.tokenColors?.find(t => t.token === 'keyword')?.foreground || '#569cd6' }}>
+              return
+            </span>
+            <span style={{ color: theme.tokenColors?.find(t => t.token === 'variable')?.foreground || '#9cdcfe' }}>
+              &nbsp;str
+            </span>;
+          </div>
+          <div style={{ 
+            fontSize: '9px', 
+            display: 'flex', 
+            lineHeight: '1.3',
+            color: theme.editorColors['editor.foreground'] || theme.customColors.textPrimary || '#d4d4d4',
+            fontFamily: 'monospace'
+          }}>
+            <div style={{ 
+              color: theme.editorColors['editorLineNumber.foreground'] || '#858585',
+              width: '14px',
+              textAlign: 'right',
+              marginRight: '6px',
+            }}>4</div>
+            {'}'}
+          </div>
+        </div>
+      </div>
+      
+      {/* Theme name overlay */}
+      <div style={{
+        position: 'absolute',
+        bottom: '0',
+        left: '0',
+        right: '0',
+        padding: '6px',
+        backgroundColor: 'rgba(0,0,0,0.6)',
+        color: '#fff',
+        fontSize: '12px',
+        fontWeight: 'bold',
+        backdropFilter: 'blur(2px)',
+      }}>
+        {name}
+      </div>
+    </div>
+  );
+};
+
+// Theme library modal component
+const ThemeLibraryModal: React.FC<{ 
+  isVisible: boolean; 
+  onClose: () => void; 
+  onSelectTheme: (theme: ThemeSettings) => void 
+}> = ({ isVisible, onClose, onSelectTheme }) => {
+  if (!isVisible) return null;
+  
+  return (
+    <div style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: 'rgba(0,0,0,0.7)',
+      display: 'flex',
+      justifyContent: 'center',
+      alignItems: 'center',
+      zIndex: 1000,
+      backdropFilter: 'blur(3px)',
+    }}>
+      <div style={{
+        width: '80%',
+        maxWidth: '900px',
+        maxHeight: '80vh',
+        backgroundColor: 'var(--bg-primary)',
+        borderRadius: '8px',
+        boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+      }}>
+        {/* Header */}
+        <div style={{
+          padding: '16px 20px',
+          borderBottom: '1px solid var(--border-primary)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+        }}>
+          <h3 style={{ margin: 0, fontSize: '16px' }}>Theme Library</h3>
+          <button
+            onClick={onClose}
+            style={{
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              color: 'var(--text-secondary)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: '24px',
+              height: '24px',
+              borderRadius: '4px',
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+        
+        {/* Theme grid */}
+        <div style={{
+          padding: '20px',
+          overflowY: 'auto',
+          flex: 1,
+        }}>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+            gap: '20px',
+          }}>
+            {Object.entries(presetThemes).map(([name, theme]) => (
+              <ThemePreview 
+                key={name} 
+                name={name} 
+                theme={theme} 
+                onSelect={() => {
+                  onSelectTheme(theme);
+                  onClose();
+                }} 
+              />
+            ))}
+          </div>
+        </div>
+        
+        {/* Footer */}
+        <div style={{
+          padding: '16px 20px',
+          borderTop: '1px solid var(--border-primary)',
+          display: 'flex',
+          justifyContent: 'flex-end',
+        }}>
+          <button
+            onClick={onClose}
+            style={{
+              padding: '8px 16px',
+              borderRadius: '4px',
+              border: '1px solid var(--border-primary)',
+              background: 'var(--bg-secondary)',
+              color: 'var(--text-secondary)',
+              fontSize: '13px',
+              cursor: 'pointer',
+            }}
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 };
 
 export function Settings({ isVisible, onClose, initialSettings }: SettingsProps) {
@@ -143,6 +440,7 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
       statusbarFg: '',
       activityBarBg: '',
       activityBarFg: '',
+      inlineCodeColor: '#cc0000', // Default inline code color
     },
     editorColors: {
       "editor.background": "#1e1e1e",
@@ -167,6 +465,9 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
   const [discordRpcSettings, setDiscordRpcSettings] = useState<DiscordRpcSettings>({...defaultDiscordRpcSettings});
   const [isLoading, setIsLoading] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+
+  // Add state for theme library modal
+  const [isThemeLibraryVisible, setIsThemeLibraryVisible] = useState(false);
 
   // Load the settings
   useEffect(() => {
@@ -438,9 +739,9 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
     // Apply the custom theme
     monaco.editor.setTheme('custom-theme');
 
-    // Apply custom UI colors
+    // Apply theme changes to the UI
     Object.entries(themeSettings.customColors).forEach(([key, value]) => {
-      if (value) {
+      if (value && typeof value === 'string') {
         const cssVarName = `--${key.replace(/([A-Z])/g, '-$1').toLowerCase()}`;
         // For CSS variables, we can keep the alpha channel
         document.documentElement.style.setProperty(cssVarName, value);
@@ -476,11 +777,28 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
 
   // Handle change for theme settings
   const handleThemeSettingChange = (field: string, value: any) => {
-    setThemeSettings(prev => ({
-      ...prev,
+    setThemeSettings({
+      ...themeSettings,
       [field]: value
-    }));
+    });
     setHasUnsavedChanges(true);
+    
+    // Apply theme changes immediately if it's customColors
+    if (field === 'customColors' && typeof value === 'object') {
+      // Make custom extensions immediately available to FileExplorer
+      window.appSettings = window.appSettings || {};
+      window.appSettings.theme = window.appSettings.theme || {};
+      window.appSettings.theme.customColors = window.appSettings.theme.customColors || {};
+      
+      // Handle custom file extensions
+      if (value.customFileExtensions) {
+        window.appSettings.theme.customColors.customFileExtensions = 
+          { ...value.customFileExtensions };
+      }
+      
+      // Dispatch theme-changed event to notify components
+      window.dispatchEvent(new Event('theme-changed'));
+    }
   };
 
   // Handle change for Discord RPC settings
@@ -562,18 +880,24 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
   };
 
   const handleCustomColorChange = (key: keyof ThemeSettings['customColors'], value: string) => {
-    setThemeSettings(prev => ({
-      ...prev,
-      customColors: {
-        ...prev.customColors,
-        [key]: value
-      }
-    }));
-    setHasUnsavedChanges(true);
+    const newCustomColors = {
+      ...themeSettings.customColors,
+      [key]: value
+    };
 
+    setThemeSettings({
+      ...themeSettings,
+      customColors: newCustomColors
+    });
+
+    setHasUnsavedChanges(true);
+    
     // Update CSS variable
     const cssVarName = `--${key.replace(/([A-Z])/g, '-$1').toLowerCase()}`;
     document.documentElement.style.setProperty(cssVarName, value);
+    
+    // Dispatch theme-changed event to notify components like FileExplorer
+    window.dispatchEvent(new Event('theme-changed'));
   };
 
   // Add handler for editor color changes
@@ -1053,8 +1377,82 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                 {/* Theme Settings */}
                 {activeCategory === 'theme' && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                    <h3 style={{ margin: '0 0 0 0', fontSize: '16px' }}>Theme & Editor Settings</h3>
+                    <div style={{ 
+                      display: 'flex', 
+                      justifyContent: 'space-between', 
+                      alignItems: 'center'
+                    }}>
+                      <h3 style={{ margin: '0 0 0 0', fontSize: '16px' }}>Theme & Editor Settings</h3>
+                      <button
+                        onClick={() => setIsThemeLibraryVisible(true)}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          color: 'var(--text-secondary)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          width: '28px',
+                          height: '28px',
+                          borderRadius: '4px',
+                        }}
+                        title="Browse Theme Library"
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <rect x="2" y="2" width="7" height="7" rx="1" />
+                          <rect x="15" y="2" width="7" height="7" rx="1" />
+                          <rect x="2" y="15" width="7" height="7" rx="1" />
+                          <rect x="15" y="15" width="7" height="7" rx="1" />
+                        </svg>
+                      </button>
+                    </div>
                     
+                    {/* Theme Library Modal */}
+                    <ThemeLibraryModal 
+                      isVisible={isThemeLibraryVisible} 
+                      onClose={() => setIsThemeLibraryVisible(false)} 
+                      onSelectTheme={(theme) => {
+                        setThemeSettings(theme);
+                        setHasUnsavedChanges(true);
+                      }}
+                    />
+                    
+                    {/* Theme Preset Selector */}
+                    <div style={{ 
+                      display: 'flex', 
+                      gap: '12px',
+                      marginTop: '8px',
+                      marginBottom: '8px'
+                    }}>
+                      <select
+                        onChange={(e) => {
+                          const selectedTheme = presetThemes[e.target.value];
+                          if (selectedTheme) {
+                            setThemeSettings(selectedTheme);
+                            setHasUnsavedChanges(true);
+                          }
+                        }}
+                        style={{
+                          padding: '6px 12px',
+                          background: 'var(--bg-secondary)',
+                          border: '1px solid var(--border-primary)',
+                          borderRadius: '4px',
+                          color: 'var(--text-primary)',
+                          fontSize: '13px',
+                          cursor: 'pointer',
+                          flex: 1,
+                        }}
+                      >
+                        <option value="">Select a preset theme...</option>
+                        {Object.keys(presetThemes).map((themeName) => (
+                          <option key={themeName} value={themeName}>
+                            {themeName}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
                     {/* Theme Export/Import Section */}
                     <div style={{ 
                       display: 'flex', 
@@ -1226,6 +1624,12 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                             onChange={(value) => handleCustomColorChange('textSecondary', value)}
                             variable="--text-secondary"
                           />
+                          <ColorInput
+                            label="Inline Code"
+                            value={themeSettings.customColors.inlineCodeColor || ''}
+                            onChange={(value) => handleCustomColorChange('inlineCodeColor', value)}
+                            variable="--inline-code-color"
+                          />
                         </div>
 
                         {/* Border Colors */}
@@ -1243,6 +1647,153 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                             onChange={(value) => handleCustomColorChange('borderPrimary', value)}
                             variable="--border-primary"
                           />
+                        </div>
+
+                        {/* Explorer Colors */}
+                        <div>
+                          <h5 style={{ margin: '8px 0', fontSize: '13px' }}>Explorer Colors</h5>
+                          <ColorInput
+                            label="Folder Name"
+                            value={themeSettings.customColors.explorerFolderFg || ''}
+                            onChange={(value) => handleCustomColorChange('explorerFolderFg', value)}
+                            variable="--explorer-folder-fg"
+                          />
+                          <ColorInput
+                            label="Expanded Folder"
+                            value={themeSettings.customColors.explorerFolderExpandedFg || ''}
+                            onChange={(value) => handleCustomColorChange('explorerFolderExpandedFg', value)}
+                            variable="--explorer-folder-expanded-fg"
+                          />
+                          <ColorInput
+                            label="File Name"
+                            value={themeSettings.customColors.explorerFileFg || ''}
+                            onChange={(value) => handleCustomColorChange('explorerFileFg', value)}
+                            variable="--explorer-file-fg"
+                          />
+                        </div>
+
+                        {/* Custom File Extensions */}
+                        <div>
+                          <h5 style={{ margin: '8px 0', fontSize: '13px' }}>Custom File Extensions</h5>
+                          <p style={{ fontSize: '12px', opacity: 0.7, marginBottom: '8px' }}>
+                            Set custom colors for specific file extensions
+                          </p>
+                          
+                          {/* Display existing custom extensions */}
+                          {Object.entries(themeSettings.customColors.customFileExtensions || {}).map(([ext, color], index) => (
+                            <div key={index} style={{ display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
+                              <input
+                                type="text"
+                                placeholder="Extension"
+                                value={ext}
+                                onChange={(e) => {
+                                  const newExt = e.target.value.toLowerCase().trim();
+                                  const newCustomExtensions = {...(themeSettings.customColors.customFileExtensions || {})};
+                                  
+                                  // Remove old extension and add with new key
+                                  if (newExt && newExt !== ext) {
+                                    const colorValue = newCustomExtensions[ext];
+                                    delete newCustomExtensions[ext];
+                                    newCustomExtensions[newExt] = colorValue;
+                                    
+                                    const newCustomColors = {
+                                      ...themeSettings.customColors,
+                                      customFileExtensions: newCustomExtensions
+                                    };
+                                    
+                                    handleThemeSettingChange('customColors', newCustomColors);
+                                  }
+                                }}
+                                style={{
+                                  width: '80px',
+                                  padding: '4px 8px',
+                                  marginRight: '8px',
+                                  border: '1px solid var(--border-color)',
+                                  background: 'var(--bg-secondary)',
+                                  color: 'var(--text-primary)',
+                                }}
+                              />
+                              <input
+                                type="color"
+                                value={color}
+                                onChange={(e) => {
+                                  const newCustomExtensions = {...(themeSettings.customColors.customFileExtensions || {})};
+                                  newCustomExtensions[ext] = e.target.value;
+                                  
+                                  const newCustomColors = {
+                                    ...themeSettings.customColors,
+                                    customFileExtensions: newCustomExtensions
+                                  };
+                                  
+                                  handleThemeSettingChange('customColors', newCustomColors);
+                                }}
+                                style={{
+                                  width: '30px',
+                                  height: '30px',
+                                  padding: '0',
+                                  marginRight: '8px',
+                                  border: 'none',
+                                  background: 'transparent',
+                                }}
+                              />
+                              <button
+                                onClick={() => {
+                                  const newCustomExtensions = {...(themeSettings.customColors.customFileExtensions || {})};
+                                  delete newCustomExtensions[ext];
+                                  
+                                  const newCustomColors = {
+                                    ...themeSettings.customColors,
+                                    customFileExtensions: newCustomExtensions
+                                  };
+                                  
+                                  handleThemeSettingChange('customColors', newCustomColors);
+                                }}
+                                style={{
+                                  background: 'transparent',
+                                  border: 'none',
+                                  color: 'var(--error-color)',
+                                  cursor: 'pointer',
+                                  fontSize: '16px',
+                                }}
+                              >
+                                ×
+                              </button>
+                            </div>
+                          ))}
+                          
+                          {/* Add new extension button */}
+                          <button
+                            onClick={() => {
+                              // Get existing extensions or create a new object
+                              const existingExtensions = themeSettings.customColors.customFileExtensions || {};
+                              
+                              // Create a new extension with a default color
+                              const newExtensions = {
+                                ...existingExtensions,
+                                'ext': '#ffffff'  // Default color
+                              };
+                              
+                              // Update the theme settings
+                              const newCustomColors = {
+                                ...themeSettings.customColors,
+                                customFileExtensions: newExtensions
+                              };
+                              
+                              handleThemeSettingChange('customColors', newCustomColors);
+                            }}
+                            style={{
+                              padding: '4px 8px',
+                              background: 'var(--bg-accent)',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '4px',
+                              cursor: 'pointer',
+                              fontSize: '12px',
+                              marginBottom: '8px',
+                            }}
+                          >
+                            Add Custom Extension
+                          </button>
                         </div>
 
                         {/* Accent Colors */}
@@ -1303,10 +1854,10 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                           />
                         </div>
                       </div>
-                    </div>
-                    
+                        </div>
+
                     {/* Editor Behavior Settings Section */}
-                    <div>
+                        <div>
                       <h4 style={{ margin: '16px 0 8px 0', fontSize: '14px' }}>Editor Behavior</h4>
                       <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
                         Customize how the editor behaves
@@ -1317,8 +1868,8 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                           <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px' }}>
                             Font Family
                           </label>
-                          <input
-                            type="text"
+                              <input
+                                type="text"
                             value={editorSettings.fontFamily}
                             onChange={(e) => handleEditorSettingChange('fontFamily', e.target.value)}
                             style={{
@@ -1732,6 +2283,7 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                                 statusbarFg: '',
                                 activityBarBg: '',
                                 activityBarFg: '',
+                                inlineCodeColor: '#cc0000', // Default inline code color
                               },
                               editorColors: {
                                 "editor.background": "#1e1e1e",
@@ -1755,9 +2307,9 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                             });
 
                             setHasUnsavedChanges(true);
-                          }
-                          }}
-                          style={{
+                                  }
+                                }}
+                                style={{
                             padding: '8px 16px',
                             background: 'var(--accent-color)',
                             border: 'none',
@@ -1893,6 +2445,7 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                                 statusbarFg: '',
                                 activityBarBg: '',
                                 activityBarFg: '',
+                                inlineCodeColor: '#cc0000', // Default inline code color
                               },
                               editorColors: {
                                 "editor.background": "#1e1e1e",
@@ -1972,7 +2525,7 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                             style={{
                               width: '100%',
                               padding: '8px',
-                              background: 'var(--bg-secondary)',
+                                  background: 'var(--bg-secondary)',
                               border: '1px solid var(--border-primary)',
                               borderRadius: '4px',
                               color: 'var(--text-primary)',

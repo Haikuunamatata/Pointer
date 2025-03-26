@@ -65,6 +65,7 @@ declare global {
     fileSystem?: Record<string, FileSystemItem>;
     applyCustomTheme?: () => void;
     loadSettings?: () => Promise<void>;
+    appSettings?: Record<string, any>;
   }
 }
 
@@ -230,11 +231,20 @@ const App: React.FC = () => {
 
           // Apply custom UI colors
           Object.entries(themeSettings.customColors).forEach(([key, value]) => {
-            if (value) {
+            if (value && typeof value === 'string') {
               const cssVarName = `--${key.replace(/([A-Z])/g, '-$1').toLowerCase()}`;
               document.documentElement.style.setProperty(cssVarName, value);
             }
           });
+          
+          // Store customFileExtensions for file explorer to access
+          if (themeSettings.customColors.customFileExtensions) {
+            window.appSettings = window.appSettings || {};
+            window.appSettings.theme = window.appSettings.theme || {};
+            window.appSettings.theme.customColors = window.appSettings.theme.customColors || {};
+            window.appSettings.theme.customColors.customFileExtensions = 
+              { ...themeSettings.customColors.customFileExtensions };
+          }
         }
 
         // Process Discord RPC settings
@@ -275,6 +285,24 @@ const App: React.FC = () => {
     
     // Apply the custom theme
     monaco.editor.setTheme('custom-theme');
+    
+    // Apply custom UI colors from the current settings
+    const themeSettings = window.appSettings?.theme;
+    if (themeSettings?.customColors) {
+      // Make custom extension colors available to the FileExplorer component
+      window.appSettings = window.appSettings || {};
+      window.appSettings.theme = window.appSettings.theme || {};
+      window.appSettings.theme.customColors = window.appSettings.theme.customColors || {};
+      
+      // Make a copy of the custom file extensions for the FileExplorer to access
+      if (themeSettings.customColors.customFileExtensions) {
+        window.appSettings.theme.customColors.customFileExtensions = 
+          { ...themeSettings.customColors.customFileExtensions };
+      }
+      
+      // Notify components that the theme has changed
+      window.dispatchEvent(new Event('theme-changed'));
+    }
   };
 
   // Expose the custom theme function to the window object for use by other components
@@ -1509,6 +1537,26 @@ const App: React.FC = () => {
                 items={fileSystem.items}
                 onEditorChange={(newEditor) => {
                   editor.current = newEditor;
+                  // Set up a resize observer for the editor container
+                  if (editorRef.current) {
+                    const resizeObserver = new ResizeObserver((entries) => {
+                      const entry = entries[0];
+                      if (entry && editor.current) {
+                        // Use requestAnimationFrame to ensure smooth updates
+                        requestAnimationFrame(() => {
+                          try {
+                            editor.current?.layout({
+                              width: entry.contentRect.width,
+                              height: entry.contentRect.height
+                            });
+                          } catch (error) {
+                            console.error('Error updating editor layout:', error);
+                          }
+                        });
+                      }
+                    });
+                    resizeObserver.observe(editorRef.current);
+                  }
                 }}
                 onTabClose={handleTabClose}
                 isGridLayout={isGridLayout}
@@ -1521,12 +1569,26 @@ const App: React.FC = () => {
               <LLMChat
                 isVisible={isLLMChatVisible}
                 onClose={() => setIsLLMChatVisible(false)}
-                onResize={(width) => {
-                  window.dispatchEvent(new Event('resize'));
-                  setWidth(width);
+                onResize={(newWidth) => {
+                  setWidth(newWidth);
+                  // Force editor layout update with proper timing
+                  if (editor.current) {
+                    // Use a small delay to ensure the DOM has updated
+                    setTimeout(() => {
+                      requestAnimationFrame(() => {
+                        try {
+                          editor.current?.layout();
+                          // Dispatch a resize event after the layout update
+                          window.dispatchEvent(new Event('resize'));
+                        } catch (error) {
+                          console.error('Error updating editor layout:', error);
+                        }
+                      });
+                    }, 0);
+                  }
                 }}
                 currentChatId={currentChatId}
-                onSelectChat={(chatId) => setCurrentChatId(chatId)}
+                onSelectChat={setCurrentChatId}
               />
             )}
           </div>

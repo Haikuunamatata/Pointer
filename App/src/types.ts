@@ -67,6 +67,47 @@ export interface ThemeSettings {
     statusbarFg?: string;
     activityBarBg?: string;
     activityBarFg?: string;
+    inlineCodeColor?: string;
+    
+    // Explorer Colors
+    explorerFolderFg?: string;
+    explorerFolderExpandedFg?: string;
+    explorerFileFg?: string;
+    /**
+     * @deprecated Use customFileExtensions instead
+     */
+    explorerFileJavaScriptFg?: string;
+    /**
+     * @deprecated Use customFileExtensions instead
+     */
+    explorerFileTypeScriptFg?: string;
+    /**
+     * @deprecated Use customFileExtensions instead
+     */
+    explorerFileJsonFg?: string;
+    /**
+     * @deprecated Use customFileExtensions instead
+     */
+    explorerFileHtmlFg?: string;
+    /**
+     * @deprecated Use customFileExtensions instead
+     */
+    explorerFileCssFg?: string;
+    /**
+     * @deprecated Use customFileExtensions instead
+     */
+    explorerFileMarkdownFg?: string;
+    /**
+     * @deprecated Use customFileExtensions instead
+     */
+    explorerFileYamlFg?: string;
+    /**
+     * @deprecated Use customFileExtensions instead
+     */
+    explorerFileImageFg?: string;
+    
+    // Custom file extension colors - key is the extension, value is the color
+    customFileExtensions?: Record<string, string>;
   };
   // Monaco Editor Colors
   editorColors: {

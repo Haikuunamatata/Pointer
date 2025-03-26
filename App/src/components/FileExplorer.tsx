@@ -8,6 +8,13 @@ declare global {
   interface Window {
     applyCustomTheme?: () => void;
     loadSettings?: () => Promise<void>;
+    appSettings?: {
+      theme?: {
+        customColors?: {
+          customFileExtensions?: Record<string, string>;
+        };
+      };
+    };
   }
 }
 
@@ -198,6 +205,7 @@ const FileExplorerItem: React.FC<{
           display: 'flex',
           alignItems: 'center',
           flexShrink: 0,
+          color: item.id === currentFileId ? 'var(--accent-color)' : isHovered ? 'var(--border-color)' : 'var(--text-primary)',
         }}>
           {item.type === 'directory' ? (
             <FolderIcon isOpen={isExpanded} />
@@ -403,6 +411,21 @@ const handleDelete = (item: FileSystemItem, onDeleteItem: (item: FileSystemItem)
   }
 };
 
+// Helper function to get the appropriate color for a file based on its extension
+const getFileColor = (filename: string): string => {
+  const ext = filename.split('.').pop()?.toLowerCase() || '';
+  
+  // First check if there's a custom color for this extension in the theme settings
+  const customExtensions = window.appSettings?.theme?.customColors?.customFileExtensions || {};
+  
+  if (ext && customExtensions[ext]) {
+    return customExtensions[ext];
+  }
+  
+  // Otherwise use the default file color
+  return 'var(--explorer-file-fg, #CCCCCC)';
+};
+
 const FileExplorer: React.FC<FileExplorerProps> = ({
   items,
   rootId,
@@ -417,6 +440,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [hoveredFolder, setHoveredFolder] = useState<string | null>(null);
   const [loadingFolders, setLoadingFolders] = useState<Set<string>>(new Set());
+  const [themeVersion, setThemeVersion] = useState<number>(0);
   const [contextMenu, setContextMenu] = useState<{
     isOpen: boolean;
     x: number;
@@ -428,6 +452,23 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
     y: 0,
     itemId: null,
   });
+
+  // Theme change listener
+  useEffect(() => {
+    // Function to handle theme changes
+    const handleThemeChange = () => {
+      console.log('Theme changed, updating FileExplorer colors');
+      setThemeVersion(prev => prev + 1); // Increment to trigger re-render
+    };
+
+    // Add event listener for theme changes
+    window.addEventListener('theme-changed', handleThemeChange);
+
+    // Clean up
+    return () => {
+      window.removeEventListener('theme-changed', handleThemeChange);
+    };
+  }, []);
 
   const handleFolderClick = async (folderId: string) => {
     const newExpanded = new Set(expandedFolders);
@@ -719,6 +760,13 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
             display: 'flex',
             alignItems: 'center',
             flexShrink: 0,
+            color: isSelected 
+              ? 'var(--accent-color)' 
+              : item.type === 'directory' 
+                ? isExpanded
+                  ? 'var(--explorer-folder-expanded-fg, #C8C8C8)'
+                  : 'var(--explorer-folder-fg, #C8C8C8)'
+                : getFileColor(item.name),
           }}>
             {item.type === 'directory' ? (
               <FolderIcon isOpen={isExpanded} />
@@ -731,8 +779,10 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
             color: isSelected 
               ? 'var(--accent-color)' 
               : item.type === 'directory' 
-                ? '#C8C8C8' 
-                : '#CCCCCC',
+                ? isExpanded
+                  ? 'var(--explorer-folder-expanded-fg, #C8C8C8)'
+                  : 'var(--explorer-folder-fg, #C8C8C8)'
+                : getFileColor(item.name),
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap',

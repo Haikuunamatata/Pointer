@@ -1,16 +1,9 @@
 .resize-handle {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 4px;
-  cursor: col-resize;
-  background: transparent;
-  transition: background-color 0.2s ease;
+  display: none; /* Disable old handle since we're using inline styles now */
 }
 
 .resize-handle:hover {
-  background: var(--accent-color);
+  display: none;
 }
 
 .chat-switcher {
@@ -36,7 +29,7 @@
 }
 
 .chat-button:hover {
-  background: var(--bg-hover);
+  background-color: var(--bg-hover) !important;
 }
 
 .chat-button:last-child {
@@ -46,15 +39,18 @@
 .settings-button {
   background: none;
   border: none;
-  padding: 4px;
   color: var(--text-secondary);
   cursor: pointer;
+  padding: 5px;
+  border-radius: 4px;
   display: flex;
   align-items: center;
-  transition: color 0.2s ease;
+  justify-content: center;
+  transition: background-color 0.2s;
 }
 
 .settings-button:hover {
+  background-color: var(--bg-hover);
   color: var(--text-primary);
 }
 
@@ -269,7 +265,12 @@
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .success-output {
@@ -315,4 +316,43 @@
 
 .output-container:hover button, .error-container:hover button {
   opacity: 1;
+}
+
+/* Message styling for the barebones Builder */
+.message.user {
+  background-color: var(--accent-color-transparent);
+  align-self: flex-end;
+}
+
+.message.assistant {
+  background-color: var(--bg-secondary);
+  align-self: flex-start;
+}
+
+.message-content {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.message-content code {
+  background-color: rgba(0, 0, 0, 0.2);
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-family: 'Fira Code', 'Consolas', monospace;
+  font-size: 12px;
+}
+
+.message-content pre {
+  margin: 0;
+}
+
+/* Hide scrollbar for Chrome, Safari and Opera */
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Hide scrollbar for IE, Edge and Firefox */
+.hide-scrollbar {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
 } 
