@@ -726,6 +726,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   const [chats, setChats] = useState<ChatSession[]>([]);
   const [isChatListVisible, setIsChatListVisible] = useState(false);
   const [chatTitle, setChatTitle] = useState<string>('');
+  const [editingMessageIndex, setEditingMessageIndex] = useState<number | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
@@ -1118,6 +1119,86 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
     }
   }, [messages, currentChatId]);
 
+  // Add this before the return statement
+  const handleEditMessage = (index: number) => {
+    const message = messages[index];
+    if (message.role === 'user') {
+      setEditingMessageIndex(index);
+      setInput(message.content);
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setEditingMessageIndex(null);
+    setInput('');
+  };
+
+  const handleSubmitEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!input.trim() || isProcessing || editingMessageIndex === null) return;
+    
+    try {
+      setIsProcessing(true);
+      
+      // Update the edited message
+      const updatedMessages = [...messages];
+      updatedMessages[editingMessageIndex] = { role: 'user', content: input };
+      
+      // Remove all messages after the edited message
+      updatedMessages.splice(editingMessageIndex + 1);
+      
+      setMessages(updatedMessages);
+      setInput('');
+      setEditingMessageIndex(null);
+
+      // Add a temporary message for streaming
+      setMessages(prev => [...prev, { role: 'assistant', content: '' }]);
+
+      // Get model configuration from localStorage
+      const modelConfigStr = localStorage.getItem('modelConfig');
+      const modelConfig = modelConfigStr ? JSON.parse(modelConfigStr) : {
+        id: 'default-model',
+        name: 'Default Model',
+        temperature: 0.7,
+        maxTokens: -1,
+        topP: 1,
+        frequencyPenalty: 0,
+        presencePenalty: 0,
+      };
+
+      // Prepare messages for API
+      const messagesForAPI = updatedMessages
+        .map(msg => ({ role: msg.role, content: msg.content }));
+      
+      // Call the LMStudio API
+      await lmStudio.createStreamingChatCompletion({
+        model: modelConfig.id || modelConfig.name,
+        messages: messagesForAPI,
+        temperature: modelConfig.temperature,
+        max_tokens: modelConfig.maxTokens,
+        top_p: modelConfig.topP,
+        frequency_penalty: modelConfig.frequencyPenalty,
+        presence_penalty: modelConfig.presencePenalty,
+        onUpdate: (content: string) => {
+          setMessages(prev => {
+            const newMessages = [...prev];
+            newMessages[newMessages.length - 1] = {
+              role: 'assistant',
+              content: content
+            };
+            return newMessages;
+          });
+        }
+      });
+
+    } catch (error) {
+      console.error('Error in handleSubmitEdit:', error);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   if (!isVisible) return null;
 
   return (
@@ -1304,38 +1385,112 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
           // Check if message has think blocks
           const hasThinkBlocks = message.content.includes('<think>');
           
+          // Calculate if this message should be faded
+          const shouldBeFaded = editingMessageIndex !== null && index + 1 > editingMessageIndex;
+          
           // If it's a thinking message, render it differently
           if (hasThinkBlocks) {
             return (
-              <div key={index} style={{ width: '100%' }}>
+              <div 
+                key={index} 
+                style={{ 
+                  width: '100%',
+                  opacity: shouldBeFaded ? 0.33 : 1,
+                  transition: 'opacity 0.2s ease',
+                }}
+              >
                 <MessageRenderer message={message} />
-          </div>
+              </div>
             );
           }
 
           // Regular message
           return (
-              <div
-                key={index}
-              className={`message ${message.role === 'assistant' ? 'assistant' : 'user'}`}
-                style={{
-                background: message.role === 'assistant' ? 'var(--bg-secondary)' : 'var(--bg-primary)',
-                padding: '12px',
-                borderRadius: '8px',
-                alignSelf: message.role === 'assistant' ? 'flex-start' : 'flex-end',
-                maxWidth: '85%',
-                border: message.role === 'assistant' ? 'none' : '1px solid var(--border-primary)',
+            <div
+              key={index}
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: message.role === 'assistant' ? 'flex-start' : 'flex-end',
+                position: 'relative',
+                width: '100%',
+                opacity: shouldBeFaded ? 0.5 : 1,
+                transition: 'opacity 0.2s ease',
               }}
             >
-                  <MessageRenderer message={message} />
+              <div
+                className={`message ${message.role === 'assistant' ? 'assistant' : 'user'}`}
+                style={{
+                  background: message.role === 'assistant' ? 'var(--bg-secondary)' : 'var(--bg-primary)',
+                  padding: '12px',
+                  borderRadius: '8px',
+                  maxWidth: '85%',
+                  border: message.role === 'assistant' ? 'none' : '1px solid var(--border-primary)',
+                }}
+              >
+                <MessageRenderer message={message} />
+              </div>
+              {message.role === 'user' && (
+                <div
+                  style={{
+                    marginTop: '4px',
+                    display: 'flex',
+                    justifyContent: 'flex-end',
+                    paddingRight: '4px',
+                  }}
+                  className="edit-button-container"
+                >
+                  <button
+                    className="edit-button"
+                    onClick={() => handleEditMessage(index + 1)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '3px',
+                      background: 'none',
+                      border: 'none',
+                      color: 'var(--text-tertiary)',
+                      cursor: shouldBeFaded ? 'not-allowed' : 'pointer',
+                      padding: '2px 4px',
+                      borderRadius: '3px',
+                      fontSize: '11px',
+                      transition: 'all 0.2s ease',
+                      opacity: shouldBeFaded ? 0.3 : 0.7,
+                      pointerEvents: shouldBeFaded ? 'none' : 'auto',
+                    }}
+                    onMouseEnter={(e: React.MouseEvent<HTMLButtonElement>) => {
+                      if (!shouldBeFaded) {
+                        e.currentTarget.style.background = 'var(--bg-hover)';
+                        e.currentTarget.style.opacity = '1';
+                        e.currentTarget.style.color = 'var(--text-secondary)';
+                      }
+                    }}
+                    onMouseLeave={(e: React.MouseEvent<HTMLButtonElement>) => {
+                      if (!shouldBeFaded) {
+                        e.currentTarget.style.background = 'none';
+                        e.currentTarget.style.opacity = '0.7';
+                        e.currentTarget.style.color = 'var(--text-tertiary)';
+                      }
+                    }}
+                    title={shouldBeFaded ? "Can't edit while another message is being edited" : "Edit message"}
+                    disabled={shouldBeFaded}
+                  >
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                    </svg>
+                    <span>Edit</span>
+                  </button>
                 </div>
+              )}
+            </div>
           );
         })}
         <div ref={messagesEndRef} />
       </div>
 
       <form
-        onSubmit={handleSubmit}
+        onSubmit={editingMessageIndex !== null ? handleSubmitEdit : handleSubmit}
         style={{
           borderTop: '1px solid var(--border-primary)',
           padding: '12px',
@@ -1345,26 +1500,26 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         }}
       >
         <div
-              style={{
+          style={{
             position: 'relative',
-                display: 'flex',
+            display: 'flex',
             flexDirection: 'column',
             gap: '8px',
-              }}
-            >
-            <textarea
-              value={input}
+          }}
+        >
+          <textarea
+            value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Type your message..."
-              style={{
+            placeholder={editingMessageIndex !== null ? "Edit your message..." : "Type your message..."}
+            style={{
               width: '100%',
               padding: '12px',
               borderRadius: '4px',
               border: '1px solid var(--border-primary)',
               background: 'var(--bg-primary)',
-                color: 'var(--text-primary)',
+              color: 'var(--text-primary)',
               resize: 'none',
-                fontSize: '13px',
+              fontSize: '13px',
               minHeight: '60px',
               maxHeight: '150px',
               overflow: 'auto',
@@ -1373,53 +1528,78 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
-                handleSubmit(e);
+                if (editingMessageIndex !== null) {
+                  handleSubmitEdit(e);
+                } else {
+                  handleSubmit(e);
+                }
+              } else if (e.key === 'Escape' && editingMessageIndex !== null) {
+                handleCancelEdit();
               }
             }}
             disabled={isProcessing}
           />
           <div
-                    style={{
-                      display: 'flex',
+            style={{
+              display: 'flex',
               justifyContent: 'flex-end',
               marginTop: '8px',
+              gap: '8px',
             }}
           >
-          {isProcessing ? (
-            <button
-              onClick={handleCancel}
-              style={{
-                padding: '8px 16px',
-                borderRadius: '4px',
-                border: '1px solid var(--border-primary)',
-                background: 'var(--bg-secondary)',
-                color: 'var(--text-error)',
-                cursor: 'pointer',
-                fontSize: '13px',
-                fontWeight: 500,
-              }}
-              type="button"
-            >
-              Cancel
-            </button>
-          ) : (
-            <button
-              type="submit"
-              disabled={!input.trim()}
-              style={{
-                padding: '8px 16px',
-                borderRadius: '4px',
-                border: '1px solid var(--border-primary)',
-                background: input.trim() ? 'var(--accent-color)' : 'var(--bg-secondary)',
-                color: input.trim() ? 'white' : 'var(--text-secondary)',
-                cursor: input.trim() ? 'pointer' : 'not-allowed',
-                fontSize: '13px',
-                fontWeight: 500,
-              }}
-            >
-              Send
-            </button>
-          )}
+            {editingMessageIndex !== null && (
+              <button
+                onClick={handleCancelEdit}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: '4px',
+                  border: '1px solid var(--border-primary)',
+                  background: 'var(--bg-secondary)',
+                  color: 'var(--text-secondary)',
+                  cursor: 'pointer',
+                  fontSize: '13px',
+                  fontWeight: 500,
+                }}
+                type="button"
+              >
+                Cancel
+              </button>
+            )}
+            {isProcessing ? (
+              <button
+                onClick={handleCancel}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: '4px',
+                  border: '1px solid var(--border-primary)',
+                  background: 'var(--bg-secondary)',
+                  color: 'var(--text-error)',
+                  cursor: 'pointer',
+                  fontSize: '13px',
+                  fontWeight: 500,
+                }}
+                type="button"
+              >
+                Cancel
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={!input.trim()}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: '4px',
+                  border: '1px solid var(--border-primary)',
+                  background: input.trim() ? 'var(--accent-color)' : 'var(--bg-secondary)',
+                  color: input.trim() ? 'white' : 'var(--text-secondary)',
+                  cursor: input.trim() ? 'pointer' : 'not-allowed',
+                  fontSize: '13px',
+                  fontWeight: 500,
+                }}
+              >
+                {editingMessageIndex !== null ? 'Update' : 'Send'}
+              </button>
+            )}
           </div>
         </div>
       </form>
