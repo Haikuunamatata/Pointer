@@ -16,8 +16,8 @@ const styles = {
     position: 'fixed' as const,
     bottom: '1rem',
     right: '1rem',
-    backgroundColor: '#1e1e1e',
-    color: '#d4d4d4',
+    backgroundColor: 'var(--bg-primary)',
+    color: 'var(--text-primary)',
     borderRadius: '0.375rem',
     padding: '0.5rem 0.75rem',
     cursor: 'pointer',
@@ -26,12 +26,12 @@ const styles = {
     alignItems: 'center',
     gap: '0.5rem',
     fontSize: '12px',
-    border: '1px solid #404040',
+    border: '1px solid var(--border-primary)',
     transition: 'background-color 0.2s',
     zIndex: 50,
   },
   indicatorHover: {
-    backgroundColor: '#2d2d2d',
+    backgroundColor: 'var(--bg-hover)',
   },
   modal: {
     position: 'fixed' as const,
@@ -43,7 +43,7 @@ const styles = {
     zIndex: 100,
   },
   modalContent: {
-    backgroundColor: '#1e1e1e',
+    backgroundColor: 'var(--bg-primary)',
     borderRadius: '0.5rem',
     boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
     width: '90vw',
@@ -52,22 +52,29 @@ const styles = {
     display: 'flex',
     flexDirection: 'column' as const,
     overflow: 'hidden',
+    transition: 'all 0.3s ease',
+  },
+  modalContentFullscreen: {
+    width: '100vw',
+    height: '100vh',
+    maxWidth: '100vw',
+    borderRadius: 0,
   },
   modalHeader: {
     padding: '1rem',
-    backgroundColor: '#2d2d2d',
-    borderBottom: '1px solid #404040',
+    backgroundColor: 'var(--bg-secondary)',
+    borderBottom: '1px solid var(--border-primary)',
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
   modalTitle: {
-    color: '#d4d4d4',
+    color: 'var(--text-primary)',
     fontSize: '14px',
     fontWeight: 500,
   },
   modalSubtitle: {
-    color: '#808080',
+    color: 'var(--text-secondary)',
     fontSize: '12px',
     marginTop: '0.25rem',
   },
@@ -82,29 +89,39 @@ const styles = {
     transition: 'all 0.2s',
     cursor: 'pointer',
     border: 'none',
-    color: '#d4d4d4',
+    color: 'var(--text-primary)',
   },
   declineButton: {
     backgroundColor: 'transparent',
-    border: '1px solid #dc2626',
-    color: '#ef4444',
+    border: '1px solid var(--text-error)',
+    color: 'var(--text-error)',
   },
   declineButtonHover: {
-    backgroundColor: 'rgba(220, 38, 38, 0.1)',
+    backgroundColor: 'var(--bg-error)',
   },
   acceptButton: {
-    backgroundColor: '#059669',
+    backgroundColor: 'var(--accent-color)',
     border: '1px solid transparent',
   },
   acceptButtonHover: {
-    backgroundColor: '#047857',
+    backgroundColor: 'var(--accent-color-hover)',
   },
   closeButton: {
     backgroundColor: 'transparent',
     marginLeft: '0.5rem',
   },
   closeButtonHover: {
-    backgroundColor: 'rgba(75, 85, 99, 0.2)',
+    backgroundColor: 'var(--bg-hover)',
+  },
+  fullscreenButton: {
+    backgroundColor: 'transparent',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '0.375rem',
+  },
+  fullscreenButtonHover: {
+    backgroundColor: 'var(--bg-hover)',
   },
   editorContainer: {
     flex: 1,
@@ -116,11 +133,12 @@ const styles = {
   },
   fileList: {
     width: '200px',
-    borderRight: '1px solid var(--border-color)',
+    borderRight: '1px solid var(--border-primary)',
     backgroundColor: 'var(--bg-secondary)',
     display: 'flex',
     flexDirection: 'column' as const,
     overflow: 'auto',
+    position: 'relative' as const,
   },
   fileItem: {
     padding: '8px 12px',
@@ -133,7 +151,7 @@ const styles = {
     transition: 'background-color 0.2s ease',
   },
   fileItemActive: {
-    backgroundColor: 'var(--bg-selected)',
+    backgroundColor: 'var(--bg-hover)',
     borderLeft: '2px solid var(--accent-color)',
   },
   fileItemIcon: {
@@ -145,6 +163,23 @@ const styles = {
     display: 'flex',
     flex: 1,
     overflow: 'hidden',
+    position: 'relative' as const,
+  },
+  resizeHandle: {
+    width: '4px',
+    position: 'absolute' as const,
+    top: 0,
+    bottom: 0,
+    right: 0,
+    cursor: 'col-resize',
+    backgroundColor: 'transparent',
+    zIndex: 10,
+    '&:hover': {
+      backgroundColor: 'var(--accent-color)',
+    },
+    '&.active': {
+      backgroundColor: 'var(--accent-color)',
+    }
   },
 };
 
@@ -165,7 +200,7 @@ const ANIMATION_STYLES = `
       box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
     }
     50% {
-      box-shadow: 0 0 8px rgba(255, 255, 255, 0.2);
+      box-shadow: 0 0 8px var(--accent-color);
     }
   }
 
@@ -178,12 +213,12 @@ const ANIMATION_STYLES = `
   }
 
   .diff-indicator-icon {
-    color: #10b981;
+    color: var(--accent-color);
     transition: transform 0.2s;
   }
 
   .diff-indicator-text {
-    color: #10b981;
+    color: var(--accent-color);
     font-weight: 500;
   }
 `;
@@ -194,12 +229,20 @@ export const DiffViewer: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isHovering, setIsHovering] = useState<{[key: string]: boolean}>({});
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [fileListWidth, setFileListWidth] = useState(200);
+  const [isResizing, setIsResizing] = useState(false);
+  
   const diffEditorRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const fileListRef = useRef<HTMLDivElement>(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     const unsubscribe = FileChangeEventService.subscribe(async (filePath, oldContent, newContent) => {
+      // Check if there's already a diff for this file path
+      const existingDiffIndex = diffs.findIndex(diff => diff.filePath === filePath);
+      
       // First try to get the actual current content of the file
       try {
         const response = await fetch(`http://localhost:23816/read-file?path=${encodeURIComponent(filePath)}`);
@@ -209,6 +252,33 @@ export const DiffViewer: React.FC = () => {
       } catch (error) {
         console.error('Error reading current file content:', error);
       }
+
+      // If there's an existing diff, update it instead of adding a new one
+      if (existingDiffIndex !== -1) {
+        const updatedDiffs = [...diffs];
+        updatedDiffs[existingDiffIndex] = {
+          filePath,
+          oldContent,
+          newContent,
+          timestamp: Date.now()
+        };
+        setDiffs(updatedDiffs);
+        setCurrentDiffIndex(existingDiffIndex);
+      } else {
+        // Add a new diff
+        setDiffs(prevDiffs => [...prevDiffs, {
+          filePath,
+          oldContent,
+          newContent,
+          timestamp: Date.now()
+        }]);
+        setCurrentDiffIndex(diffs.length);
+      }
+      
+      // Open the modal to show the diff
+      setIsModalOpen(true);
+      // Force refresh the diff editor to show the latest content
+      setRefreshKey(prev => prev + 1);
 
       // Update the current editor if it's the file being changed
       const currentFile = window.getCurrentFile?.();
@@ -282,16 +352,6 @@ export const DiffViewer: React.FC = () => {
           }
         }
       }
-
-      setDiffs(prev => [
-        {
-          filePath,
-          oldContent,
-          newContent,
-          timestamp: Date.now()
-        },
-        ...prev.filter(d => d.filePath !== filePath)
-      ].slice(0, 10));
     });
 
     return () => {
@@ -346,6 +406,7 @@ export const DiffViewer: React.FC = () => {
         originalEditable: false,
         renderIndicators: true,
         renderMarginRevertIcon: true,
+        enableSplitViewResizing: true,
       });
 
       const fileExtension = currentDiff.filePath.split('.').pop() || '';
@@ -369,13 +430,32 @@ export const DiffViewer: React.FC = () => {
       // Set editor options for better diff visibility
       diffEditorRef.current.updateOptions({
         renderSideBySide: true,
-        enableSplitViewResizing: false,
+        enableSplitViewResizing: true,
         originalEditable: false,
         lineNumbers: 'on',
         folding: false,
         renderIndicators: true,
         renderMarginRevertIcon: true,
       });
+
+      // Add custom styles for the split view grabber to make it more visible
+      if (!document.getElementById('split-view-styles')) {
+        const styleSheet = document.createElement('style');
+        styleSheet.id = 'split-view-styles';
+        styleSheet.textContent = `
+          .monaco-diff-editor .diffViewport {
+            background-color: var(--border-primary) !important;
+            width: 5px !important;
+            cursor: col-resize !important;
+          }
+          .monaco-diff-editor .diffViewport:hover,
+          .monaco-diff-editor .diffViewport.active {
+            background-color: var(--accent-color) !important;
+            width: 5px !important;
+          }
+        `;
+        document.head.appendChild(styleSheet);
+      }
 
       setTimeout(() => {
         diffEditorRef.current?.layout();
@@ -413,30 +493,45 @@ export const DiffViewer: React.FC = () => {
     setIsProcessing(true);
     
     try {
-      const modifiedContent = diffEditorRef.current?.getModifiedEditor().getValue() || '';
-      await FileSystemService.saveFile(currentDiff.filePath, modifiedContent);
+      // Use FileChangeEventService to accept the diff
+      const success = await FileChangeEventService.acceptDiff(currentDiff.filePath);
       
-      // Create a new array without the current diff
-      const newDiffs = diffs.filter((_, i) => i !== currentDiffIndex);
-      
-      // Update the current open file if this is the file being changed
-      const currentFile = window.getCurrentFile?.();
-      if (currentFile?.path === currentDiff.filePath && window.editor) {
-        window.editor.setValue(modifiedContent);
-      }
+      if (success) {
+        // Create a new array without the current diff
+        const newDiffs = diffs.filter((_, i) => i !== currentDiffIndex);
+        
+        // Calculate the new index for the diffs array after removing the current item
+        const newIndex = currentDiffIndex >= newDiffs.length ? 0 : currentDiffIndex;
+        
+        // Refresh the diff view with the new state
+        refreshDiffView(newDiffs, newIndex);
+      } else {
+        // If the accept failed, try the original method
+        const modifiedContent = diffEditorRef.current?.getModifiedEditor().getValue() || '';
+        await FileSystemService.saveFile(currentDiff.filePath, modifiedContent);
+        
+        // Create a new array without the current diff
+        const newDiffs = diffs.filter((_, i) => i !== currentDiffIndex);
+        
+        // Update the current open file if this is the file being changed
+        const currentFile = window.getCurrentFile?.();
+        if (currentFile?.path === currentDiff.filePath && window.editor) {
+          window.editor.setValue(modifiedContent);
+        }
 
-      // Reload the file in the file system
-      const fileId = Object.entries(window.fileSystem?.items || {})
-        .find(([_, item]) => item.path === currentDiff.filePath)?.[0];
-      if (fileId && window.reloadFileContent) {
-        await window.reloadFileContent(fileId);
-      }
+        // Reload the file in the file system
+        const fileId = Object.entries(window.fileSystem?.items || {})
+          .find(([_, item]) => item.path === currentDiff.filePath)?.[0];
+        if (fileId && window.reloadFileContent) {
+          await window.reloadFileContent(fileId);
+        }
 
-      // Calculate the new index for the diffs array after removing the current item
-      const newIndex = currentDiffIndex >= newDiffs.length ? 0 : currentDiffIndex;
-      
-      // Refresh the diff view with the new state
-      refreshDiffView(newDiffs, newIndex);
+        // Calculate the new index for the diffs array after removing the current item
+        const newIndex = currentDiffIndex >= newDiffs.length ? 0 : currentDiffIndex;
+        
+        // Refresh the diff view with the new state
+        refreshDiffView(newDiffs, newIndex);
+      }
     } catch (error) {
       console.error('Error accepting changes:', error);
     } finally {
@@ -444,17 +539,110 @@ export const DiffViewer: React.FC = () => {
     }
   };
 
-  const handleReject = () => {
+  const handleReject = async () => {
     if (isProcessing) return;
     
-    // Create a new array without the current diff
-    const newDiffs = diffs.filter((_, i) => i !== currentDiffIndex);
+    setIsProcessing(true);
     
-    // Calculate the new index for the diffs array after removing the current item
-    const newIndex = currentDiffIndex >= newDiffs.length ? 0 : currentDiffIndex;
+    try {
+      const currentDiff = diffs[currentDiffIndex];
+      
+      // Use FileChangeEventService to reject the diff
+      FileChangeEventService.rejectDiff(currentDiff.filePath);
+      
+      // Create a new array without the current diff
+      const newDiffs = diffs.filter((_, i) => i !== currentDiffIndex);
+      
+      // Calculate the new index for the diffs array after removing the current item
+      const newIndex = currentDiffIndex >= newDiffs.length ? 0 : currentDiffIndex;
+      
+      // Refresh the file explorer using a custom event
+      try {
+        const refreshEvent = new CustomEvent('file-explorer-refresh');
+        window.dispatchEvent(refreshEvent);
+      } catch (error) {
+        console.error('Error dispatching refresh event:', error);
+      }
+      
+      // Refresh the diff view with the new state
+      refreshDiffView(newDiffs, newIndex);
+    } catch (error) {
+      console.error('Error rejecting changes:', error);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleAcceptAll = async () => {
+    if (diffs.length === 0 || isProcessing) return;
     
-    // Refresh the diff view with the new state
-    refreshDiffView(newDiffs, newIndex);
+    setIsProcessing(true);
+    
+    try {
+      // Use FileChangeEventService to accept all diffs
+      const success = await FileChangeEventService.acceptAllDiffs();
+      
+      if (success) {
+        // Refresh the diff view with the new state
+        refreshDiffView([], 0);
+      } else {
+        // Try the fallback method for each diff individually
+        for (const diff of diffs) {
+          try {
+            const modifiedContent = diff.newContent;
+            await FileSystemService.saveFile(diff.filePath, modifiedContent);
+            
+            // Update the current open file if this is the file being changed
+            const currentFile = window.getCurrentFile?.();
+            if (currentFile?.path === diff.filePath && window.editor) {
+              window.editor.setValue(modifiedContent);
+            }
+            
+            // Reload the file in the file system
+            const fileId = Object.entries(window.fileSystem?.items || {})
+              .find(([_, item]) => item.path === diff.filePath)?.[0];
+            if (fileId && window.reloadFileContent) {
+              await window.reloadFileContent(fileId);
+            }
+          } catch (error) {
+            console.error(`Error accepting changes for ${diff.filePath}:`, error);
+          }
+        }
+        
+        // Refresh the diff view with the new state
+        refreshDiffView([], 0);
+      }
+    } catch (error) {
+      console.error('Error accepting all changes:', error);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleRejectAll = async () => {
+    if (isProcessing) return;
+    
+    setIsProcessing(true);
+    
+    try {
+      // Use FileChangeEventService to reject all diffs
+      FileChangeEventService.rejectAllDiffs();
+      
+      // Refresh the file explorer using a custom event
+      try {
+        const refreshEvent = new CustomEvent('file-explorer-refresh');
+        window.dispatchEvent(refreshEvent);
+      } catch (error) {
+        console.error('Error dispatching refresh event:', error);
+      }
+      
+      // Refresh the diff view with the new state
+      refreshDiffView([], 0);
+    } catch (error) {
+      console.error('Error rejecting all changes:', error);
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const getLanguageFromExtension = (ext: string): string => {
@@ -482,9 +670,83 @@ export const DiffViewer: React.FC = () => {
 
       return () => {
         styleSheet.remove();
+        // Also remove split-view-styles when component unmounts
+        const splitViewStyles = document.getElementById('split-view-styles');
+        if (splitViewStyles) {
+          splitViewStyles.remove();
+        }
       };
     }
   }, []);
+
+  const toggleFullscreen = () => {
+    setIsFullscreen(!isFullscreen);
+    // Force the diff editor to re-layout when fullscreen changes
+    setTimeout(() => {
+      diffEditorRef.current?.layout();
+    }, 100);
+  };
+
+  // Add resize functionality for the file list
+  const startResize = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+  };
+
+  // Handle mouse move during resize
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing || !fileListRef.current) return;
+      
+      const containerRect = fileListRef.current.parentElement?.getBoundingClientRect();
+      if (!containerRect) return;
+      
+      let newWidth = e.clientX - containerRect.left;
+      
+      // Set minimum and maximum width constraints
+      newWidth = Math.max(100, Math.min(newWidth, 400));
+      
+      setFileListWidth(newWidth);
+      
+      // Force re-layout of the diff editor
+      diffEditorRef.current?.layout();
+    };
+    
+    const handleMouseUp = () => {
+      setIsResizing(false);
+    };
+    
+    if (isResizing) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+    }
+    
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizing]);
+
+  // Add keyboard shortcuts for fullscreen (F11 or ESC to exit)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (isModalOpen) {
+        if (e.key === 'F11') {
+          e.preventDefault();
+          toggleFullscreen();
+        } else if (e.key === 'Escape' && isFullscreen) {
+          e.preventDefault();
+          setIsFullscreen(false);
+        }
+      }
+    };
+    
+    document.addEventListener('keydown', handleKeyDown);
+    
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isModalOpen, isFullscreen]);
 
   if (diffs.length === 0) {
     return null;
@@ -526,7 +788,12 @@ export const DiffViewer: React.FC = () => {
 
       {isModalOpen && (
         <div style={styles.modal}>
-          <div style={styles.modalContent}>
+          <div 
+            style={{
+              ...styles.modalContent,
+              ...(isFullscreen ? styles.modalContentFullscreen : {})
+            }}
+          >
             <div style={styles.modalHeader}>
               <div>
                 <div style={styles.modalTitle}>Review Changes</div>
@@ -535,6 +802,38 @@ export const DiffViewer: React.FC = () => {
                 </div>
               </div>
               <div style={styles.buttonGroup}>
+                {diffs.length > 1 && (
+                  <>
+                    <button
+                      onClick={handleRejectAll}
+                      disabled={isProcessing}
+                      onMouseEnter={() => setIsHovering({ ...isHovering, declineAll: true })}
+                      onMouseLeave={() => setIsHovering({ ...isHovering, declineAll: false })}
+                      style={{
+                        ...styles.buttonBase,
+                        ...styles.declineButton,
+                        ...(isHovering.declineAll ? styles.declineButtonHover : {}),
+                        ...(isProcessing ? styles.disabledButton : {})
+                      }}
+                    >
+                      Reject All
+                    </button>
+                    <button
+                      onClick={handleAcceptAll}
+                      disabled={isProcessing}
+                      onMouseEnter={() => setIsHovering({ ...isHovering, acceptAll: true })}
+                      onMouseLeave={() => setIsHovering({ ...isHovering, acceptAll: false })}
+                      style={{
+                        ...styles.buttonBase,
+                        ...styles.acceptButton,
+                        ...(isHovering.acceptAll ? styles.acceptButtonHover : {}),
+                        ...(isProcessing ? styles.disabledButton : {})
+                      }}
+                    >
+                      Accept All
+                    </button>
+                  </>
+                )}
                 <button
                   onClick={handleReject}
                   disabled={isProcessing}
@@ -547,7 +846,7 @@ export const DiffViewer: React.FC = () => {
                     ...(isProcessing ? styles.disabledButton : {})
                   }}
                 >
-                  Decline
+                  Reject
                 </button>
                 <button
                   onClick={handleAccept}
@@ -561,7 +860,28 @@ export const DiffViewer: React.FC = () => {
                     ...(isProcessing ? styles.disabledButton : {})
                   }}
                 >
-                  {isProcessing ? 'Accepting...' : 'Accept Changes'}
+                  {isProcessing ? 'Accepting...' : 'Accept'}
+                </button>
+                <button
+                  onClick={toggleFullscreen}
+                  onMouseEnter={() => setIsHovering({ ...isHovering, fullscreen: true })}
+                  onMouseLeave={() => setIsHovering({ ...isHovering, fullscreen: false })}
+                  style={{
+                    ...styles.buttonBase,
+                    ...styles.fullscreenButton,
+                    ...(isHovering.fullscreen ? styles.fullscreenButtonHover : {})
+                  }}
+                  title={isFullscreen ? 'Exit Fullscreen (ESC)' : 'Fullscreen (F11)'}
+                >
+                  {isFullscreen ? (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3" />
+                    </svg>
+                  ) : (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
+                    </svg>
+                  )}
                 </button>
                 <button
                   onClick={() => setIsModalOpen(false)}
@@ -578,7 +898,13 @@ export const DiffViewer: React.FC = () => {
               </div>
             </div>
             <div style={styles.diffContainer}>
-              <div style={styles.fileList}>
+              <div 
+                ref={fileListRef}
+                style={{
+                  ...styles.fileList,
+                  width: `${fileListWidth}px`,
+                }}
+              >
                 {diffs.map((diff, index) => {
                   const fileName = diff.filePath.split('/').pop() || diff.filePath;
                   const isActive = index === currentDiffIndex;
@@ -606,6 +932,14 @@ export const DiffViewer: React.FC = () => {
                     </div>
                   );
                 })}
+                <div 
+                  className={isResizing ? 'active' : ''}
+                  style={{
+                    ...styles.resizeHandle,
+                    backgroundColor: isResizing ? 'var(--accent-color)' : 'transparent',
+                  }}
+                  onMouseDown={startResize}
+                />
               </div>
               <div ref={containerRef} style={styles.editorContainer} />
             </div>

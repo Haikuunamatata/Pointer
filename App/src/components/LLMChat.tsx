@@ -5,6 +5,8 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { v4 as uuidv4 } from 'uuid';
 import '../styles/LLMChat.css';
+import { DiffViewer } from './DiffViewer';
+import { FileChangeEventService } from '../services/FileChangeEventService';
 
 interface Message {
   role: 'system' | 'user' | 'assistant';
@@ -45,132 +47,277 @@ console.log(hello);
 This will display the filename above the code block to provide better context.`
 };
 
-// Copy button component for code blocks
-const CopyButton: React.FC<{ content: string }> = ({ content }) => {
+// Combined actions button component for code blocks
+const CodeActionsButton: React.FC<{ content: string; filename: string }> = ({ content, filename }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(content);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+    setIsOpen(false);
+  };
+
+  const handleInsert = async () => {
+    setIsProcessing(true);
+    // Declare originalContent at the function scope so it's accessible in the catch blocks
+    let originalContent = '';
+    
+    try {
+      // Check if file exists first
+      
+      // Get directory path for the file
+      const directoryPath = filename.substring(0, filename.lastIndexOf('/'));
+      
+      try {
+        // Try to read the file
+        const response = await fetch(`http://localhost:23816/read-file?path=${encodeURIComponent(filename)}`);
+        if (response.ok) {
+          originalContent = await response.text();
+        } else {
+          // If file doesn't exist, check if we need to create directories
+          if (directoryPath) {
+            // Try to create the directory structure
+            const createDirResponse = await fetch(`http://localhost:23816/create-dir?path=${encodeURIComponent(directoryPath)}`, {
+              method: 'POST',
+            });
+            
+            if (!createDirResponse.ok) {
+              console.log(`Created directory structure: ${directoryPath}`);
+            }
+          }
+          
+          // For non-existing files, we'll use empty content
+          originalContent = '';
+        }
+      } catch (error) {
+        console.error('Error reading file:', error);
+        // For errors, use empty content
+        originalContent = '';
+      }
+
+      // Get the Insert-Model configuration
+      const insertModelConfigStr = localStorage.getItem('insertModelConfig');
+      const insertModelConfig = insertModelConfigStr ? JSON.parse(insertModelConfigStr) : {
+        id: 'insert-model',
+        name: 'Insert Model',
+        temperature: 0.2, // Lower temperature for more focused merging
+        maxTokens: -1,
+      };
+
+      // Use the Insert-Model API endpoint for merging
+      const response = await fetch('http://localhost:23816/v1/insert', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: insertModelConfig.id || insertModelConfig.name,
+          original_file: {
+            name: filename,
+            content: originalContent
+          },
+          new_code: content,
+          temperature: insertModelConfig.temperature || 0.2,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to merge code: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      const mergedContent = result.merged_content;
+
+      // Use the FileChangeEventService to trigger the diff viewer
+      FileChangeEventService.emitChange(filename, originalContent, mergedContent);
+    } catch (error) {
+      console.error('Error during insert:', error);
+      // Fallback to using the chat model if the Insert-Model fails
+      try {
+        console.log('Falling back to chat model for insertion...');
+        
+        // Get model configuration from localStorage
+        const modelConfigStr = localStorage.getItem('modelConfig');
+        const modelConfig = modelConfigStr ? JSON.parse(modelConfigStr) : {
+          id: 'default-model',
+          name: 'Default Model',
+          temperature: 0.3,
+          maxTokens: -1,
+          topP: 1,
+          frequencyPenalty: 0,
+          presencePenalty: 0,
+        };
+
+        // Create a prompt for the AI to merge the changes
+        const mergePrompt = `You are a code merging expert. You need to analyze and merge code changes intelligently.
+
+${originalContent ? `EXISTING FILE (${filename}):\n\`\`\`\n${originalContent}\n\`\`\`\n` : `The file ${filename} is new and will be created.\n`}
+
+${originalContent ? 'NEW CHANGES:' : 'NEW FILE CONTENT:'}
+\`\`\`
+${content}
+\`\`\`
+
+Task:
+${originalContent ? 
+  '1. If the new changes are a complete file, determine if they should replace the existing file entirely\n2. If the new changes are partial (e.g., a single function), merge them into the appropriate location\n3. Preserve any existing functionality that isn\'t being explicitly replaced' : 
+  '1. This is a new file, so use the provided content directly.'
+}
+4. Ensure the merged code is properly formatted and maintains consistency
+5. Consider the project structure when merging (e.g., for imports)
+
+Return ONLY the final merged code without any explanations. The code should be ready to use as-is.`;
+
+        // Use the lmStudio service for merging
+        const result = await lmStudio.createChatCompletion({
+          model: modelConfig.id || modelConfig.name,
+          messages: [
+            {
+              role: 'system',
+              content: 'You are a code merging expert. Return only the merged code without any explanations.'
+            },
+            {
+              role: 'user',
+              content: mergePrompt
+            }
+          ],
+          temperature: 0.3,
+          max_tokens: -1,
+          stream: false
+        });
+
+        const mergedContent = result.choices[0].message.content.trim();
+
+        // Use the FileChangeEventService to trigger the diff viewer
+        FileChangeEventService.emitChange(filename, originalContent, mergedContent);
+      } catch (fallbackError) {
+        console.error('Fallback insertion also failed:', fallbackError);
+      }
+    } finally {
+      setIsProcessing(false);
+      setIsOpen(false);
+    }
   };
 
   return (
-    <button
-      onClick={handleCopy}
-      style={{
-        position: 'absolute',
-        right: '10px',
-        top: '10px',
-        background: copied ? 'var(--accent-color-transparent)' : 'rgba(30, 30, 30, 0.7)',
-        border: 'none',
-        borderRadius: '4px',
-        padding: '6px 10px',
-        color: copied ? 'var(--accent-color)' : 'var(--text-secondary)',
-        cursor: 'pointer',
-        transition: 'all 0.2s ease',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: '5px',
-        backdropFilter: 'blur(3px)',
-        fontSize: '12px',
-        fontWeight: 'bold',
-        boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
-        transform: copied ? 'scale(1.05)' : 'scale(1)',
-        zIndex: 5,
-      }}
-      title={copied ? 'Copied!' : 'Copy code'}
-    >
-      {copied ? (
-        <>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <polyline points="20 6 9 17 4 12" />
-        </svg>
-          <span>Copied!</span>
-        </>
-      ) : (
-        <>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-        </svg>
-          <span>Copy</span>
-        </>
-      )}
-    </button>
-  );
-};
-
-// Language badge component for code blocks
-const LanguageBadge: React.FC<{ language: string }> = ({ language }) => {
-  if (!language) return null;
-
-  return (
-    <div
-      style={{
-        position: 'absolute',
-        left: '10px',
-        top: '10px',
-        background: 'rgba(30, 30, 30, 0.7)',
-        borderRadius: '4px',
-        padding: '3px 8px',
-        color: 'var(--text-secondary)',
-        fontSize: '11px',
-        fontWeight: 'bold',
-        textTransform: 'uppercase',
-        letterSpacing: '0.5px',
-        boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
-        backdropFilter: 'blur(3px)',
-        zIndex: 5,
-      }}
-    >
-      {language}
-    </div>
-  );
-};
-
-// Filename display component for code blocks
-const FilenameBar: React.FC<{ filename: string }> = ({ filename }) => {
-  if (!filename) return null;
-
-  return (
-    <div
-      style={{
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        background: 'rgba(40, 44, 52, 0.9)',
-        padding: '8px 16px',
-        borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-        color: 'var(--text-secondary)',
+    <div style={{ position: 'relative' }}>
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        style={{
+          position: 'absolute',
+          right: '10px',
+          top: '10px',
+          background: 'rgba(30, 30, 30, 0.7)',
+          border: 'none',
+          borderRadius: '4px',
+          padding: '6px 10px',
+          color: 'var(--text-secondary)',
+          cursor: 'pointer',
+          transition: 'all 0.2s ease',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '5px',
+          backdropFilter: 'blur(3px)',
           fontSize: '12px',
-        fontFamily: 'var(--font-mono)',
-        display: 'flex',
-        alignItems: 'center',
-        backdropFilter: 'blur(3px)',
-        zIndex: 4,
-      }}
-    >
-      <svg 
-        width="14" 
-        height="14" 
-        viewBox="0 0 24 24" 
-        fill="none" 
-        stroke="currentColor" 
-        strokeWidth="2"
-        style={{ marginRight: '8px' }}
+          fontWeight: 'bold',
+          boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+          zIndex: 5,
+        }}
+        title="Code actions"
       >
-        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-        <polyline points="14 2 14 8 20 8"></polyline>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <circle cx="12" cy="12" r="1" />
+          <circle cx="12" cy="5" r="1" />
+          <circle cx="12" cy="19" r="1" />
         </svg>
-      {filename}
+      </button>
+
+      {isOpen && (
+        <div
+          style={{
+            position: 'absolute',
+            right: '10px',
+            top: '40px',
+            background: 'var(--bg-primary)',
+            border: '1px solid var(--border-primary)',
+            borderRadius: '4px',
+            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.2)',
+            zIndex: 6,
+            minWidth: '150px',
+            overflow: 'hidden',
+          }}
+        >
+          <button
+            onClick={handleCopy}
+            style={{
+              width: '100%',
+              padding: '8px 12px',
+              background: 'none',
+              border: 'none',
+              color: copied ? 'var(--accent-color)' : 'var(--text-primary)',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              fontSize: '12px',
+              transition: 'background-color 0.2s ease',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = 'var(--bg-hover)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = 'transparent';
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+            </svg>
+            {copied ? 'Copied!' : 'Copy code'}
+          </button>
+          {filename && (
+            <button
+              onClick={handleInsert}
+              disabled={isProcessing}
+              style={{
+                width: '100%',
+                padding: '8px 12px',
+                background: 'none',
+                border: 'none',
+                color: isProcessing ? 'var(--accent-color)' : 'var(--text-primary)',
+                cursor: isProcessing ? 'default' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                fontSize: '12px',
+                transition: 'background-color 0.2s ease',
+              }}
+              onMouseEnter={(e) => {
+                if (!isProcessing) {
+                  e.currentTarget.style.backgroundColor = 'var(--bg-hover)';
+                }
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = 'transparent';
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+              {isProcessing ? 'Processing...' : 'Insert code'}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 };
 
-// Add this near the top with other component definitions
+// Update CollapsibleCodeBlock component to use the new combined button
 const CollapsibleCodeBlock: React.FC<{ language: string; filename?: string; content: string }> = ({ language, filename, content }) => {
   const [isCollapsed, setIsCollapsed] = useState(true);
   const [isHovered, setIsHovered] = useState(false);
@@ -196,48 +343,45 @@ const CollapsibleCodeBlock: React.FC<{ language: string; filename?: string; cont
     >
       <div 
         style={{
-          position: 'absolute',
-          right: '10px',
-          top: '10px',
+          position: 'relative',
           display: 'flex',
-          gap: '8px',
-          zIndex: 5,
+          flexDirection: 'column',
         }}
       >
-        <CopyButton content={content} />
-            </div>
-      <div
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          background: 'rgba(40, 44, 52, 0.9)',
-          padding: '8px 16px',
-          borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-          color: 'var(--text-secondary)',
-          fontSize: '12px', 
-          fontFamily: 'var(--font-mono)',
-          display: 'flex', 
-          alignItems: 'center',
-          backdropFilter: 'blur(3px)',
-          zIndex: 4,
-        }}
-      >
-        <svg 
-          width="14" 
-          height="14" 
-          viewBox="0 0 24 24" 
-          fill="none" 
-          stroke="currentColor" 
-          strokeWidth="2"
-          style={{ marginRight: '8px' }}
+        <div
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            background: 'rgba(40, 44, 52, 0.9)',
+            padding: '8px 16px',
+            borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+            color: 'var(--text-secondary)',
+            fontSize: '12px',
+            fontFamily: 'var(--font-mono)',
+            display: 'flex',
+            alignItems: 'center',
+            backdropFilter: 'blur(3px)',
+            zIndex: 4,
+          }}
         >
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-          <polyline points="14 2 14 8 20 8"></polyline>
-        </svg>
-        {filename || `${language}.${getFileExtension(language)}`}
-          </div>
+          <svg 
+            width="14" 
+            height="14" 
+            viewBox="0 0 24 24" 
+            fill="none" 
+            stroke="currentColor" 
+            strokeWidth="2"
+            style={{ marginRight: '8px' }}
+          >
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+          </svg>
+          {filename || `${language}.${getFileExtension(language)}`}
+        </div>
+        <CodeActionsButton content={content} filename={filename || ''} />
+      </div>
       <div style={{ 
         maxHeight: isCollapsible ? '200px' : 'none',
         overflow: 'hidden',
@@ -285,7 +429,7 @@ const CollapsibleCodeBlock: React.FC<{ language: string; filename?: string; cont
         >
           {content}
         </SyntaxHighlighter>
-          </div>
+      </div>
       {isCollapsible && (
         <div
           style={{
@@ -348,7 +492,7 @@ const CollapsibleCodeBlock: React.FC<{ language: string; filename?: string; cont
   );
 };
 
-// Add this near the top with other interfaces
+// Add this near the top with other component definitions
 interface ThinkTimes {
   [key: string]: number;
 }
@@ -717,6 +861,80 @@ const getFileExtension = (language: string): string => {
   return extensionMap[language.toLowerCase()] || 'txt';
 };
 
+// Add this section before the LLMChat component
+const AutoInsertIndicator = ({ count, isProcessing }: { count: number; isProcessing: boolean }) => {
+  if (count === 0) return null;
+  
+  return (
+    <div 
+      style={{
+        position: 'fixed',
+        bottom: '1rem',
+        left: '1rem',
+        backgroundColor: 'var(--bg-primary)',
+        color: 'var(--text-primary)',
+        borderRadius: '0.375rem',
+        padding: '0.5rem 0.75rem',
+        boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '0.5rem',
+        fontSize: '12px',
+        border: '1px solid var(--border-primary)',
+        zIndex: 50,
+        transition: 'all 0.3s ease',
+      }}
+    >
+      {isProcessing ? (
+        <svg 
+          width="14" 
+          height="14" 
+          viewBox="0 0 24 24" 
+          fill="none" 
+          stroke="var(--accent-color)" 
+          strokeWidth="2"
+          className="rotating-svg"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+        </svg>
+      ) : (
+        <svg 
+          width="14" 
+          height="14" 
+          viewBox="0 0 24 24" 
+          fill="none" 
+          stroke="var(--accent-color)" 
+          strokeWidth="2"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+      )}
+      <span style={{ color: 'var(--text-primary)' }}>
+        {isProcessing ? 
+          `Auto-inserting code (${count} remaining)...` : 
+          `${count} code ${count === 1 ? 'block' : 'blocks'} queued for insertion`
+        }
+      </span>
+    </div>
+  );
+};
+
+// Keyframe animation styles for the spinner
+const AUTO_INSERT_STYLES = `
+  @keyframes rotate {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  .rotating-svg {
+    animation: rotate 1.5s linear infinite;
+  }
+`;
+
 export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectChat }: LLMChatProps) {
   const [messages, setMessages] = useState<Message[]>([INITIAL_SYSTEM_MESSAGE]);
   const [input, setInput] = useState('');
@@ -727,6 +945,9 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   const [isChatListVisible, setIsChatListVisible] = useState(false);
   const [chatTitle, setChatTitle] = useState<string>('');
   const [editingMessageIndex, setEditingMessageIndex] = useState<number | null>(null);
+  // Add state for tracking pending code inserts
+  const [pendingInserts, setPendingInserts] = useState<{filename: string; content: string}[]>([]);
+  const [autoInsertInProgress, setAutoInsertInProgress] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
@@ -990,7 +1211,194 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
     setIsChatListVisible(false);
   };
 
-  // Handle submission of messages
+  // Function to extract code blocks with filenames from message content
+  const extractCodeBlocks = (content: string) => {
+    const codeBlockRegex = /```(\w+):([^\n]+)\n([\s\S]*?)```/g;
+    const codeBlocks: {language: string; filename: string; content: string}[] = [];
+    
+    let match;
+    while ((match = codeBlockRegex.exec(content)) !== null) {
+      const [_, language, filename, code] = match;
+      if (filename && code) {
+        codeBlocks.push({
+          language,
+          filename,
+          content: code
+        });
+      }
+    }
+    
+    return codeBlocks;
+  };
+
+  // Process auto-insert for code blocks
+  const processAutoInsert = async () => {
+    if (pendingInserts.length === 0 || autoInsertInProgress) return;
+    
+    setAutoInsertInProgress(true);
+    const currentInsert = pendingInserts[0];
+    // Declare originalContent at the function scope so it's accessible in the catch blocks
+    let originalContent = '';
+    
+    try {
+      // Check if file exists first
+      
+      // Get directory path for the file
+      const directoryPath = currentInsert.filename.substring(0, currentInsert.filename.lastIndexOf('/'));
+      
+      try {
+        // Try to read the file
+        const response = await fetch(`http://localhost:23816/read-file?path=${encodeURIComponent(currentInsert.filename)}`);
+        if (response.ok) {
+          originalContent = await response.text();
+        } else {
+          // If file doesn't exist, check if we need to create directories
+          if (directoryPath) {
+            // Try to create the directory structure
+            const createDirResponse = await fetch(`http://localhost:23816/create-dir?path=${encodeURIComponent(directoryPath)}`, {
+              method: 'POST',
+            });
+            
+            if (!createDirResponse.ok) {
+              console.log(`Created directory structure: ${directoryPath}`);
+            }
+          }
+          
+          // For non-existing files, we'll use empty content
+          originalContent = '';
+        }
+      } catch (error) {
+        console.error('Error reading file:', error);
+        // For errors, use empty content
+        originalContent = '';
+      }
+
+      // Get the Insert-Model configuration
+      const insertModelConfigStr = localStorage.getItem('insertModelConfig');
+      const insertModelConfig = insertModelConfigStr ? JSON.parse(insertModelConfigStr) : {
+        id: 'insert-model',
+        name: 'Insert Model',
+        temperature: 0.2, // Lower temperature for more focused merging
+        maxTokens: -1,
+      };
+
+      // Use the Insert-Model API endpoint for merging
+      const response = await fetch('http://localhost:23816/v1/insert', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: insertModelConfig.id || insertModelConfig.name,
+          original_file: {
+            name: currentInsert.filename,
+            content: originalContent
+          },
+          new_code: currentInsert.content,
+          temperature: insertModelConfig.temperature || 0.2,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to merge code: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      const mergedContent = result.merged_content;
+
+      // Use the FileChangeEventService to trigger the diff viewer
+      FileChangeEventService.emitChange(currentInsert.filename, originalContent, mergedContent);
+      
+      // Remove the processed insert from the queue
+      setPendingInserts(prev => prev.slice(1));
+    } catch (error) {
+      console.error('Error during auto-insert:', error);
+      // Fallback to using the chat model if the Insert-Model fails
+      try {
+        console.log('Falling back to chat model for auto-insertion...');
+        
+        // Get model configuration from localStorage
+        const modelConfigStr = localStorage.getItem('modelConfig');
+        const modelConfig = modelConfigStr ? JSON.parse(modelConfigStr) : {
+          id: 'default-model',
+          name: 'Default Model',
+          temperature: 0.3,
+          maxTokens: -1,
+          frequencyPenalty: 0,
+          presencePenalty: 0,
+        };
+
+        // Create a prompt for the AI to merge the changes
+        const mergePrompt = `You are a code merging expert. You need to analyze and merge code changes intelligently.
+
+${originalContent ? `EXISTING FILE (${currentInsert.filename}):\n\`\`\`\n${originalContent}\n\`\`\`\n` : `The file ${currentInsert.filename} is new and will be created.\n`}
+
+${originalContent ? 'NEW CHANGES:' : 'NEW FILE CONTENT:'}
+\`\`\`
+${currentInsert.content}
+\`\`\`
+
+Task:
+${originalContent ? 
+  '1. If the new changes are a complete file, determine if they should replace the existing file entirely\n2. If the new changes are partial (e.g., a single function), merge them into the appropriate location\n3. Preserve any existing functionality that isn\'t being explicitly replaced' : 
+  '1. This is a new file, so use the provided content directly.'
+}
+4. Ensure the merged code is properly formatted and maintains consistency
+5. Consider the project structure when merging (e.g., for imports)
+
+Return ONLY the final merged code without any explanations. The code should be ready to use as-is.`;
+
+        // Use the lmStudio service for merging
+        const result = await lmStudio.createChatCompletion({
+          model: modelConfig.id || modelConfig.name,
+          messages: [
+            {
+              role: 'system',
+              content: 'You are a code merging expert. Return only the merged code without any explanations.'
+            },
+            {
+              role: 'user',
+              content: mergePrompt
+            }
+          ],
+          temperature: 0.3,
+          max_tokens: -1,
+          stream: false
+        });
+
+        const mergedContent = result.choices[0].message.content.trim();
+
+        // Use the FileChangeEventService to trigger the diff viewer
+        FileChangeEventService.emitChange(currentInsert.filename, originalContent, mergedContent);
+        
+        // Remove the processed insert from the queue
+        setPendingInserts(prev => prev.slice(1));
+      } catch (fallbackError) {
+        console.error('Fallback auto-insertion also failed:', fallbackError);
+        // Remove the failed insert and continue with others
+        setPendingInserts(prev => prev.slice(1));
+      }
+    } finally {
+      setAutoInsertInProgress(false);
+    }
+  };
+
+  // Auto-accept all pending changes
+  const autoAcceptChanges = async () => {
+    try {
+      // Use the FileChangeEventService to accept all diffs
+      await FileChangeEventService.acceptAllDiffs();
+    } catch (error) {
+      console.error('Error auto-accepting changes:', error);
+    }
+  };
+
+  // Run auto-insert whenever pendingInserts changes
+  useEffect(() => {
+    processAutoInsert();
+  }, [pendingInserts, autoInsertInProgress]);
+
+  // Handle submission of messages with auto-insert
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -998,6 +1406,9 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
     
     try {
       setIsProcessing(true);
+      
+      // Auto-accept any pending changes before sending new message
+      await autoAcceptChanges();
       
       // Add user message
       const userMessage: Message = { role: 'user', content: input };
@@ -1028,6 +1439,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         .map(msg => ({ role: msg.role, content: msg.content }));
       
       // Call the LMStudio API
+      let finalContent = '';
       await lmStudio.createStreamingChatCompletion({
         model: modelConfig.id || modelConfig.name,
         messages: messagesForAPI,
@@ -1037,6 +1449,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         frequency_penalty: modelConfig.frequencyPenalty,
         presence_penalty: modelConfig.presencePenalty,
         onUpdate: (content: string) => {
+          finalContent = content;
           setMessages(prev => {
             const newMessages = [...prev];
             newMessages[newMessages.length - 1] = {
@@ -1047,6 +1460,16 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
           });
         }
       });
+      
+      // After the response is complete, extract code blocks and queue them for auto-insert
+      const codeBlocks = extractCodeBlocks(finalContent);
+      if (codeBlocks.length > 0) {
+        // Queue all code blocks with filenames for auto-insert
+        setPendingInserts(prev => [
+          ...prev,
+          ...codeBlocks.map(block => ({ filename: block.filename, content: block.content }))
+        ]);
+      }
 
     } catch (error) {
       console.error('Error in handleSubmit:', error);
@@ -1141,6 +1564,9 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
     try {
       setIsProcessing(true);
       
+      // Auto-accept any pending changes before sending new message
+      await autoAcceptChanges();
+      
       // Update the edited message
       const updatedMessages = [...messages];
       updatedMessages[editingMessageIndex] = { role: 'user', content: input };
@@ -1172,6 +1598,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         .map(msg => ({ role: msg.role, content: msg.content }));
       
       // Call the LMStudio API
+      let finalContent = '';
       await lmStudio.createStreamingChatCompletion({
         model: modelConfig.id || modelConfig.name,
         messages: messagesForAPI,
@@ -1181,6 +1608,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         frequency_penalty: modelConfig.frequencyPenalty,
         presence_penalty: modelConfig.presencePenalty,
         onUpdate: (content: string) => {
+          finalContent = content;
           setMessages(prev => {
             const newMessages = [...prev];
             newMessages[newMessages.length - 1] = {
@@ -1191,6 +1619,16 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
           });
         }
       });
+      
+      // After the response is complete, extract code blocks and queue them for auto-insert
+      const codeBlocks = extractCodeBlocks(finalContent);
+      if (codeBlocks.length > 0) {
+        // Queue all code blocks with filenames for auto-insert
+        setPendingInserts(prev => [
+          ...prev,
+          ...codeBlocks.map(block => ({ filename: block.filename, content: block.content }))
+        ]);
+      }
 
     } catch (error) {
       console.error('Error in handleSubmitEdit:', error);
@@ -1199,410 +1637,432 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
     }
   };
 
+  // Add styles for the auto-insert spinner animation
+  useEffect(() => {
+    if (!document.getElementById('auto-insert-styles')) {
+      const styleSheet = document.createElement('style');
+      styleSheet.id = 'auto-insert-styles';
+      styleSheet.textContent = AUTO_INSERT_STYLES;
+      document.head.appendChild(styleSheet);
+
+      return () => {
+        styleSheet.remove();
+      };
+    }
+  }, []);
+
   if (!isVisible) return null;
 
   return (
-    <div
-      ref={containerRef}
-      style={{
-        width: `${width}px`,
-        height: '100%',
-        backgroundColor: 'var(--bg-primary)',
-        borderLeft: '1px solid var(--border-primary)',
-        display: 'flex',
-        flexDirection: 'column',
-        position: 'absolute',
-        right: 0,
-        top: 0,
-        zIndex: 10,
-      }}
-    >
-      {/* Resize handle */}
+    <>
       <div
-        onMouseDown={handleResizeStart}
+        ref={containerRef}
         style={{
-          position: 'absolute',
-          left: 0,
-          top: 0,
-          bottom: 0,
-          width: '6px',
-          cursor: 'col-resize',
-          backgroundColor: isResizing ? 'var(--accent-color)' : 'transparent',
-          opacity: isResizing ? 0.8 : 0,
-          transition: 'opacity 0.2s',
-          zIndex: 20,
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.opacity = '0.4';
-          e.currentTarget.style.backgroundColor = 'var(--accent-color)';
-        }}
-        onMouseLeave={(e) => {
-          if (!isResizing) {
-            e.currentTarget.style.opacity = '0';
-            e.currentTarget.style.backgroundColor = 'transparent';
-          }
-        }}
-      />
-
-      <div
-        style={{
-          padding: '8px',
-          borderBottom: '1px solid var(--border-primary)',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          background: 'var(--bg-secondary)',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <h3 style={{ margin: 5, color: 'var(--text-primary)', fontSize: '13px' }}>Builder</h3>
-            <div className="chat-switcher">
-              <button
-                onClick={() => setIsChatListVisible(!isChatListVisible)}
-                className="settings-button"
-              title="Switch chats"
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                </svg>
-              </button>
-
-              {isChatListVisible && (
-                <div
-                  className="chat-switcher-dropdown"
-                  style={{
-                    position: 'absolute',
-                    top: '100%',
-                    left: 0,
-                    background: 'var(--bg-primary)',
-                    border: '1px solid var(--border-primary)',
-                    borderRadius: '4px',
-                    boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-                    zIndex: 1000,
-                    minWidth: '200px',
-                    maxHeight: '400px',
-                    overflowY: 'auto',
-                  }}
-                >
-                  <div
-                    style={{
-                      padding: '8px',
-                      borderBottom: '1px solid var(--border-primary)',
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                    }}
-                  >
-                    <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Recent Chats</span>
-                    <button
-                    onClick={handleNewChat}
-                      style={{
-                        background: 'none',
-                        border: 'none',
-                        color: 'var(--text-primary)',
-                        cursor: 'pointer',
-                        fontSize: '12px',
-                        padding: '4px 8px',
-                      }}
-                    >
-                      New Chat
-                    </button>
-                  </div>
-                {chats.length === 0 ? (
-                  <div style={{ padding: '10px', color: 'var(--text-secondary)', fontSize: '12px' }}>
-                    No saved chats
-                  </div>
-                ) : (
-                  chats.map(chat => (
-                    <button
-                      key={chat.id}
-                      className="chat-button"
-                      onClick={() => handleSelectChat(chat.id)}
-                      style={{
-                        width: '100%',
-                        padding: '8px 12px',
-                        background: chat.id === currentChatId ? 'var(--bg-hover)' : 'none',
-                        border: 'none',
-                        borderBottom: '1px solid var(--border-primary)',
-                        color: 'var(--text-primary)',
-                        cursor: 'pointer',
-                        textAlign: 'left',
-                        fontSize: '12px',
-                      }}
-                    >
-                      <div style={{ fontSize: '13px', fontWeight: chat.id === currentChatId ? 'bold' : 'normal' }}>
-                        {chat.name}
-                      </div>
-                      <div style={{ 
-                        fontSize: '11px', 
-                        color: 'var(--text-secondary)',
-                        marginTop: '2px' 
-                      }}>
-                        {new Date(chat.createdAt).toLocaleString()}
-                      </div>
-                    </button>
-                  ))
-                )}
-                </div>
-              )}
-            </div>
-          </div>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <button
-            onClick={handleNewChat}
-            className="settings-button"
-            title="New Chat"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M12 5v14M5 12h14" />
-            </svg>
-          </button>
-        <button
-          onClick={onClose}
-            className="settings-button"
-            title="Close"
-        >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-        </button>
-        </div>
-      </div>
-
-      <div
-        ref={chatContainerRef}
-        style={{
-          flex: 1,
-          overflowY: 'auto',
-          padding: '16px',
+          width: `${width}px`,
+          height: '100%',
+          backgroundColor: 'var(--bg-primary)',
+          borderLeft: '1px solid var(--border-primary)',
           display: 'flex',
           flexDirection: 'column',
-          gap: '16px',
+          position: 'absolute',
+          right: 0,
+          top: 0,
+          zIndex: 10,
         }}
       >
-        {messages.slice(1).map((message, index) => {
-          // Check if message has think blocks
-          const hasThinkBlocks = message.content.includes('<think>');
-          
-          // Calculate if this message should be faded
-          const shouldBeFaded = editingMessageIndex !== null && index + 1 > editingMessageIndex;
-          
-          // If it's a thinking message, render it differently
-          if (hasThinkBlocks) {
+        {/* Resize handle */}
+        <div
+          onMouseDown={handleResizeStart}
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: '6px',
+            cursor: 'col-resize',
+            backgroundColor: isResizing ? 'var(--accent-color)' : 'transparent',
+            opacity: isResizing ? 0.8 : 0,
+            transition: 'opacity 0.2s',
+            zIndex: 20,
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.opacity = '0.4';
+            e.currentTarget.style.backgroundColor = 'var(--accent-color)';
+          }}
+          onMouseLeave={(e) => {
+            if (!isResizing) {
+              e.currentTarget.style.opacity = '0';
+              e.currentTarget.style.backgroundColor = 'transparent';
+            }
+          }}
+        />
+
+        <div
+          style={{
+            padding: '8px',
+            borderBottom: '1px solid var(--border-primary)',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            background: 'var(--bg-secondary)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <h3 style={{ margin: 5, color: 'var(--text-primary)', fontSize: '13px' }}>Chat</h3>
+              <div className="chat-switcher">
+                <button
+                  onClick={() => setIsChatListVisible(!isChatListVisible)}
+                  className="settings-button"
+                title="Switch chats"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                  </svg>
+                </button>
+
+                {isChatListVisible && (
+                  <div
+                    className="chat-switcher-dropdown"
+                    style={{
+                      position: 'absolute',
+                      top: '100%',
+                      left: 0,
+                      background: 'var(--bg-primary)',
+                      border: '1px solid var(--border-primary)',
+                      borderRadius: '4px',
+                      boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                      zIndex: 1000,
+                      minWidth: '200px',
+                      maxHeight: '400px',
+                      overflowY: 'auto',
+                    }}
+                  >
+                    <div
+                      style={{
+                        padding: '8px',
+                        borderBottom: '1px solid var(--border-primary)',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Recent Chats</span>
+                      <button
+                      onClick={handleNewChat}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: 'var(--text-primary)',
+                          cursor: 'pointer',
+                          fontSize: '12px',
+                          padding: '4px 8px',
+                        }}
+                      >
+                        New Chat
+                      </button>
+                    </div>
+                  {chats.length === 0 ? (
+                    <div style={{ padding: '10px', color: 'var(--text-secondary)', fontSize: '12px' }}>
+                      No saved chats
+                    </div>
+                  ) : (
+                    chats.map(chat => (
+                      <button
+                        key={chat.id}
+                        className="chat-button"
+                        onClick={() => handleSelectChat(chat.id)}
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px',
+                          background: chat.id === currentChatId ? 'var(--bg-hover)' : 'none',
+                          border: 'none',
+                          borderBottom: '1px solid var(--border-primary)',
+                          color: 'var(--text-primary)',
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                          fontSize: '12px',
+                        }}
+                      >
+                        <div style={{ fontSize: '13px', fontWeight: chat.id === currentChatId ? 'bold' : 'normal' }}>
+                          {chat.name}
+                        </div>
+                        <div style={{ 
+                          fontSize: '11px', 
+                          color: 'var(--text-secondary)',
+                          marginTop: '2px' 
+                        }}>
+                          {new Date(chat.createdAt).toLocaleString()}
+                        </div>
+                      </button>
+                    ))
+                  )}
+                  </div>
+                )}
+              </div>
+            </div>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button
+              onClick={handleNewChat}
+              className="settings-button"
+              title="New Chat"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+            </button>
+          <button
+            onClick={onClose}
+              className="settings-button"
+              title="Close"
+          >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+          </button>
+          </div>
+        </div>
+
+        <div
+          ref={chatContainerRef}
+          style={{
+            flex: 1,
+            overflowY: 'auto',
+            padding: '16px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '16px',
+          }}
+        >
+          {messages.slice(1).map((message, index) => {
+            // Check if message has think blocks
+            const hasThinkBlocks = message.content.includes('<think>');
+            
+            // Calculate if this message should be faded
+            const shouldBeFaded = editingMessageIndex !== null && index + 1 > editingMessageIndex;
+            
+            // If it's a thinking message, render it differently
+            if (hasThinkBlocks) {
+              return (
+                <div 
+                  key={index} 
+                  style={{ 
+                    width: '100%',
+                    opacity: shouldBeFaded ? 0.33 : 1,
+                    transition: 'opacity 0.2s ease',
+                  }}
+                >
+                  <MessageRenderer message={message} />
+                </div>
+              );
+            }
+
+            // Regular message
             return (
-              <div 
-                key={index} 
-                style={{ 
+              <div
+                key={index}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: message.role === 'assistant' ? 'flex-start' : 'flex-end',
+                  position: 'relative',
                   width: '100%',
-                  opacity: shouldBeFaded ? 0.33 : 1,
+                  opacity: shouldBeFaded ? 0.5 : 1,
                   transition: 'opacity 0.2s ease',
                 }}
               >
-                <MessageRenderer message={message} />
+                <div
+                  className={`message ${message.role === 'assistant' ? 'assistant' : 'user'}`}
+                  style={{
+                    background: message.role === 'assistant' ? 'var(--bg-secondary)' : 'var(--bg-primary)',
+                    padding: '12px',
+                    borderRadius: '8px',
+                    maxWidth: '85%',
+                    border: message.role === 'assistant' ? 'none' : '1px solid var(--border-primary)',
+                  }}
+                >
+                  <MessageRenderer message={message} />
+                </div>
+                {message.role === 'user' && (
+                  <div
+                    style={{
+                      marginTop: '4px',
+                      display: 'flex',
+                      justifyContent: 'flex-end',
+                      paddingRight: '4px',
+                    }}
+                    className="edit-button-container"
+                  >
+                    <button
+                      className="edit-button"
+                      onClick={() => handleEditMessage(index + 1)}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '3px',
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--text-tertiary)',
+                        cursor: shouldBeFaded ? 'not-allowed' : 'pointer',
+                        padding: '2px 4px',
+                        borderRadius: '3px',
+                        fontSize: '11px',
+                        transition: 'all 0.2s ease',
+                        opacity: shouldBeFaded ? 0.3 : 0.7,
+                        pointerEvents: shouldBeFaded ? 'none' : 'auto',
+                      }}
+                      onMouseEnter={(e: React.MouseEvent<HTMLButtonElement>) => {
+                        if (!shouldBeFaded) {
+                          e.currentTarget.style.background = 'var(--bg-hover)';
+                          e.currentTarget.style.opacity = '1';
+                          e.currentTarget.style.color = 'var(--text-secondary)';
+                        }
+                      }}
+                      onMouseLeave={(e: React.MouseEvent<HTMLButtonElement>) => {
+                        if (!shouldBeFaded) {
+                          e.currentTarget.style.background = 'none';
+                          e.currentTarget.style.opacity = '0.7';
+                          e.currentTarget.style.color = 'var(--text-tertiary)';
+                        }
+                      }}
+                      title={shouldBeFaded ? "Can't edit while another message is being edited" : "Edit message"}
+                      disabled={shouldBeFaded}
+                    >
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                      </svg>
+                      <span>Edit</span>
+                    </button>
+                  </div>
+                )}
               </div>
             );
-          }
+          })}
+          <div ref={messagesEndRef} />
+        </div>
 
-          // Regular message
-          return (
-            <div
-              key={index}
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: message.role === 'assistant' ? 'flex-start' : 'flex-end',
-                position: 'relative',
-                width: '100%',
-                opacity: shouldBeFaded ? 0.5 : 1,
-                transition: 'opacity 0.2s ease',
-              }}
-            >
-              <div
-                className={`message ${message.role === 'assistant' ? 'assistant' : 'user'}`}
-                style={{
-                  background: message.role === 'assistant' ? 'var(--bg-secondary)' : 'var(--bg-primary)',
-                  padding: '12px',
-                  borderRadius: '8px',
-                  maxWidth: '85%',
-                  border: message.role === 'assistant' ? 'none' : '1px solid var(--border-primary)',
-                }}
-              >
-                <MessageRenderer message={message} />
-              </div>
-              {message.role === 'user' && (
-                <div
-                  style={{
-                    marginTop: '4px',
-                    display: 'flex',
-                    justifyContent: 'flex-end',
-                    paddingRight: '4px',
-                  }}
-                  className="edit-button-container"
-                >
-                  <button
-                    className="edit-button"
-                    onClick={() => handleEditMessage(index + 1)}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '3px',
-                      background: 'none',
-                      border: 'none',
-                      color: 'var(--text-tertiary)',
-                      cursor: shouldBeFaded ? 'not-allowed' : 'pointer',
-                      padding: '2px 4px',
-                      borderRadius: '3px',
-                      fontSize: '11px',
-                      transition: 'all 0.2s ease',
-                      opacity: shouldBeFaded ? 0.3 : 0.7,
-                      pointerEvents: shouldBeFaded ? 'none' : 'auto',
-                    }}
-                    onMouseEnter={(e: React.MouseEvent<HTMLButtonElement>) => {
-                      if (!shouldBeFaded) {
-                        e.currentTarget.style.background = 'var(--bg-hover)';
-                        e.currentTarget.style.opacity = '1';
-                        e.currentTarget.style.color = 'var(--text-secondary)';
-                      }
-                    }}
-                    onMouseLeave={(e: React.MouseEvent<HTMLButtonElement>) => {
-                      if (!shouldBeFaded) {
-                        e.currentTarget.style.background = 'none';
-                        e.currentTarget.style.opacity = '0.7';
-                        e.currentTarget.style.color = 'var(--text-tertiary)';
-                      }
-                    }}
-                    title={shouldBeFaded ? "Can't edit while another message is being edited" : "Edit message"}
-                    disabled={shouldBeFaded}
-                  >
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                    </svg>
-                    <span>Edit</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          );
-        })}
-        <div ref={messagesEndRef} />
-      </div>
-
-      <form
-        onSubmit={editingMessageIndex !== null ? handleSubmitEdit : handleSubmit}
-        style={{
-          borderTop: '1px solid var(--border-primary)',
-          padding: '12px',
-          display: 'flex',
-          flexDirection: 'column',
-          background: 'var(--bg-secondary)',
-        }}
-      >
-        <div
+        <form
+          onSubmit={editingMessageIndex !== null ? handleSubmitEdit : handleSubmit}
           style={{
-            position: 'relative',
+            borderTop: '1px solid var(--border-primary)',
+            padding: '12px',
             display: 'flex',
             flexDirection: 'column',
-            gap: '8px',
+            background: 'var(--bg-secondary)',
           }}
         >
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder={editingMessageIndex !== null ? "Edit your message..." : "Type your message..."}
-            style={{
-              width: '100%',
-              padding: '12px',
-              borderRadius: '4px',
-              border: '1px solid var(--border-primary)',
-              background: 'var(--bg-primary)',
-              color: 'var(--text-primary)',
-              resize: 'none',
-              fontSize: '13px',
-              minHeight: '60px',
-              maxHeight: '150px',
-              overflow: 'auto',
-            }}
-            rows={2}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                if (editingMessageIndex !== null) {
-                  handleSubmitEdit(e);
-                } else {
-                  handleSubmit(e);
-                }
-              } else if (e.key === 'Escape' && editingMessageIndex !== null) {
-                handleCancelEdit();
-              }
-            }}
-            disabled={isProcessing}
-          />
           <div
             style={{
+              position: 'relative',
               display: 'flex',
-              justifyContent: 'flex-end',
-              marginTop: '8px',
+              flexDirection: 'column',
               gap: '8px',
             }}
           >
-            {editingMessageIndex !== null && (
-              <button
-                onClick={handleCancelEdit}
-                style={{
-                  padding: '8px 16px',
-                  borderRadius: '4px',
-                  border: '1px solid var(--border-primary)',
-                  background: 'var(--bg-secondary)',
-                  color: 'var(--text-secondary)',
-                  cursor: 'pointer',
-                  fontSize: '13px',
-                  fontWeight: 500,
-                }}
-                type="button"
-              >
-                Cancel
-              </button>
-            )}
-            {isProcessing ? (
-              <button
-                onClick={handleCancel}
-                style={{
-                  padding: '8px 16px',
-                  borderRadius: '4px',
-                  border: '1px solid var(--border-primary)',
-                  background: 'var(--bg-secondary)',
-                  color: 'var(--text-error)',
-                  cursor: 'pointer',
-                  fontSize: '13px',
-                  fontWeight: 500,
-                }}
-                type="button"
-              >
-                Cancel
-              </button>
-            ) : (
-              <button
-                type="submit"
-                disabled={!input.trim()}
-                style={{
-                  padding: '8px 16px',
-                  borderRadius: '4px',
-                  border: '1px solid var(--border-primary)',
-                  background: input.trim() ? 'var(--accent-color)' : 'var(--bg-secondary)',
-                  color: input.trim() ? 'white' : 'var(--text-secondary)',
-                  cursor: input.trim() ? 'pointer' : 'not-allowed',
-                  fontSize: '13px',
-                  fontWeight: 500,
-                }}
-              >
-                {editingMessageIndex !== null ? 'Update' : 'Send'}
-              </button>
-            )}
+            <textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder={editingMessageIndex !== null ? "Edit your message..." : "Type your message..."}
+              style={{
+                width: '100%',
+                padding: '12px',
+                borderRadius: '4px',
+                border: '1px solid var(--border-primary)',
+                background: 'var(--bg-primary)',
+                color: 'var(--text-primary)',
+                resize: 'none',
+                fontSize: '13px',
+                minHeight: '60px',
+                maxHeight: '150px',
+                overflow: 'auto',
+              }}
+              rows={2}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  if (editingMessageIndex !== null) {
+                    handleSubmitEdit(e);
+                  } else {
+                    handleSubmit(e);
+                  }
+                } else if (e.key === 'Escape' && editingMessageIndex !== null) {
+                  handleCancelEdit();
+                }
+              }}
+              disabled={isProcessing}
+            />
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'flex-end',
+                marginTop: '8px',
+                gap: '8px',
+              }}
+            >
+              {editingMessageIndex !== null && (
+                <button
+                  onClick={handleCancelEdit}
+                  style={{
+                    padding: '8px 16px',
+                    borderRadius: '4px',
+                    border: '1px solid var(--border-primary)',
+                    background: 'var(--bg-secondary)',
+                    color: 'var(--text-secondary)',
+                    cursor: 'pointer',
+                    fontSize: '13px',
+                    fontWeight: 500,
+                  }}
+                  type="button"
+                >
+                  Cancel
+                </button>
+              )}
+              {isProcessing ? (
+                <button
+                  onClick={handleCancel}
+                  style={{
+                    padding: '8px 16px',
+                    borderRadius: '4px',
+                    border: '1px solid var(--border-primary)',
+                    background: 'var(--bg-secondary)',
+                    color: 'var(--text-error)',
+                    cursor: 'pointer',
+                    fontSize: '13px',
+                    fontWeight: 500,
+                  }}
+                  type="button"
+                >
+                  Cancel
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={!input.trim()}
+                  style={{
+                    padding: '8px 16px',
+                    borderRadius: '4px',
+                    border: '1px solid var(--border-primary)',
+                    background: input.trim() ? 'var(--accent-color)' : 'var(--bg-secondary)',
+                    color: input.trim() ? 'white' : 'var(--text-secondary)',
+                    cursor: input.trim() ? 'pointer' : 'not-allowed',
+                    fontSize: '13px',
+                    fontWeight: 500,
+                  }}
+                >
+                  {editingMessageIndex !== null ? 'Update' : 'Send'}
+                </button>
+              )}
+            </div>
           </div>
-        </div>
-      </form>
-    </div>
+        </form>
+      </div>
+
+      {/* Auto-insert indicator */}
+      <AutoInsertIndicator 
+        count={pendingInserts.length} 
+        isProcessing={autoInsertInProgress} 
+      />
+    </>
   );
 } 
