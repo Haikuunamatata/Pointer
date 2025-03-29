@@ -7,6 +7,7 @@ import { v4 as uuidv4 } from 'uuid';
 import '../styles/LLMChat.css';
 import { DiffViewer } from './DiffViewer';
 import { FileChangeEventService } from '../services/FileChangeEventService';
+import { AIFileService } from '../services/AIFileService';
 
 interface Message {
   role: 'system' | 'user' | 'assistant';
@@ -80,8 +81,15 @@ const CodeActionsButton: React.FC<{ content: string; filename: string }> = ({ co
           // If file doesn't exist, check if we need to create directories
           if (directoryPath) {
             // Try to create the directory structure
-            const createDirResponse = await fetch(`http://localhost:23816/create-dir?path=${encodeURIComponent(directoryPath)}`, {
+            const createDirResponse = await fetch(`http://localhost:23816/create-directory`, {
               method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                parentId: 'root_' + directoryPath.split('/')[0], // Use root as parent for first level
+                name: directoryPath.split('/').pop() || ''
+              })
             });
             
             if (!createDirResponse.ok) {
@@ -98,38 +106,55 @@ const CodeActionsButton: React.FC<{ content: string; filename: string }> = ({ co
         originalContent = '';
       }
 
-      // Get the Insert-Model configuration
+      // Get model ID for insert purpose
+      const insertModelId = await AIFileService.getModelIdForPurpose('insert');
+      
+      // Get insert model settings from localStorage
       const insertModelConfigStr = localStorage.getItem('insertModelConfig');
       const insertModelConfig = insertModelConfigStr ? JSON.parse(insertModelConfigStr) : {
-        id: 'insert-model',
-        name: 'Insert Model',
-        temperature: 0.2, // Lower temperature for more focused merging
+        temperature: 0.2,
         maxTokens: -1,
       };
 
-      // Use the Insert-Model API endpoint for merging
-      const response = await fetch('http://localhost:23816/v1/insert', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: insertModelConfig.id || insertModelConfig.name,
-          original_file: {
-            name: filename,
-            content: originalContent
+      // Create a prompt for the AI to merge the changes
+      const mergePrompt = `You are a code merging expert. You need to analyze and merge code changes intelligently.
+
+${originalContent ? `EXISTING FILE (${filename}):\n\`\`\`\n${originalContent}\n\`\`\`\n` : `The file ${filename} is new and will be created.\n`}
+
+${originalContent ? 'NEW CHANGES:' : 'NEW FILE CONTENT:'}
+\`\`\`
+${content}
+\`\`\`
+
+Task:
+${originalContent ? 
+  '1. If the new changes are a complete file, determine if they should replace the existing file entirely\n2. If the new changes are partial (e.g., a single function), merge them into the appropriate location\n3. Preserve any existing functionality that isn\'t being explicitly replaced' : 
+  '1. This is a new file, so use the provided content directly.'
+}
+4. Ensure the merged code is properly formatted and maintains consistency
+5. Consider the project structure when merging (e.g., for imports)
+
+Return ONLY the final merged code without any explanations. The code should be ready to use as-is.`;
+
+      // Use the chat completions endpoint for merging
+      const result = await lmStudio.createChatCompletion({
+        model: insertModelId,
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a code merging expert. Return only the merged code without any explanations.'
           },
-          new_code: content,
-          temperature: insertModelConfig.temperature || 0.2,
-        }),
+          {
+            role: 'user',
+            content: mergePrompt
+          }
+        ],
+        temperature: insertModelConfig.temperature || 0.2,
+        max_tokens: insertModelConfig.maxTokens || -1,
+        stream: false
       });
 
-      if (!response.ok) {
-        throw new Error(`Failed to merge code: ${response.statusText}`);
-      }
-
-      const result = await response.json();
-      const mergedContent = result.merged_content;
+      const mergedContent = result.choices[0].message.content.trim();
 
       // Use the FileChangeEventService to trigger the diff viewer
       FileChangeEventService.emitChange(filename, originalContent, mergedContent);
@@ -139,14 +164,14 @@ const CodeActionsButton: React.FC<{ content: string; filename: string }> = ({ co
       try {
         console.log('Falling back to chat model for insertion...');
         
-        // Get model configuration from localStorage
+        // Get chat model ID for fallback
+        const chatModelId = await AIFileService.getModelIdForPurpose('chat');
+        
+        // Get chat model settings from localStorage
         const modelConfigStr = localStorage.getItem('modelConfig');
         const modelConfig = modelConfigStr ? JSON.parse(modelConfigStr) : {
-          id: 'default-model',
-          name: 'Default Model',
           temperature: 0.3,
           maxTokens: -1,
-          topP: 1,
           frequencyPenalty: 0,
           presencePenalty: 0,
         };
@@ -173,7 +198,7 @@ Return ONLY the final merged code without any explanations. The code should be r
 
         // Use the lmStudio service for merging
         const result = await lmStudio.createChatCompletion({
-          model: modelConfig.id || modelConfig.name,
+          model: chatModelId,
           messages: [
             {
               role: 'system',
@@ -184,8 +209,8 @@ Return ONLY the final merged code without any explanations. The code should be r
               content: mergePrompt
             }
           ],
-          temperature: 0.3,
-          max_tokens: -1,
+          temperature: modelConfig.temperature || 0.3,
+          max_tokens: modelConfig.maxTokens || -1,
           stream: false
         });
 
@@ -305,10 +330,25 @@ Return ONLY the final merged code without any explanations. The code should be r
                 e.currentTarget.style.backgroundColor = 'transparent';
               }}
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M12 5v14M5 12h14" />
-              </svg>
-              {isProcessing ? 'Processing...' : 'Insert code'}
+              {isProcessing ? (
+                <svg 
+                  width="14" 
+                  height="14" 
+                  viewBox="0 0 24 24" 
+                  fill="none" 
+                  stroke="currentColor" 
+                  strokeWidth="2"
+                  style={{ animation: 'spin 1s linear infinite' }}
+                >
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="M12 6v6l4 2" />
+                </svg>
+              ) : (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M12 5v14M5 12h14" />
+                </svg>
+              )}
+              {isProcessing ? 'Inserting...' : 'Insert code'}
             </button>
           )}
         </div>
@@ -1059,11 +1099,12 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
     try {
       if (messages.length <= 1) return "New Chat";
       
-      // Get model configuration from localStorage
+      // Get model ID for summary purpose
+      const summaryModelId = await AIFileService.getModelIdForPurpose('summary');
+      
+      // Get model configuration from localStorage for other parameters
       const modelConfigStr = localStorage.getItem('modelConfig');
       const modelConfig = modelConfigStr ? JSON.parse(modelConfigStr) : {
-        id: 'default-model',
-        name: 'Default Model',
         temperature: 0.7,
         maxTokens: 15, // Limit tokens for brief summary
         topP: 1,
@@ -1087,7 +1128,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: modelConfig.id || modelConfig.name,
+          model: summaryModelId,
           messages: summaryPrompt,
           temperature: 0.7,
           max_tokens: 15,
@@ -1255,8 +1296,15 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
           // If file doesn't exist, check if we need to create directories
           if (directoryPath) {
             // Try to create the directory structure
-            const createDirResponse = await fetch(`http://localhost:23816/create-dir?path=${encodeURIComponent(directoryPath)}`, {
+            const createDirResponse = await fetch(`http://localhost:23816/create-directory`, {
               method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                parentId: 'root_' + directoryPath.split('/')[0], // Use root as parent for first level
+                name: directoryPath.split('/').pop() || ''
+              })
             });
             
             if (!createDirResponse.ok) {
@@ -1273,38 +1321,55 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         originalContent = '';
       }
 
-      // Get the Insert-Model configuration
+      // Get model ID for insert purpose
+      const insertModelId = await AIFileService.getModelIdForPurpose('insert');
+      
+      // Get insert model settings from localStorage
       const insertModelConfigStr = localStorage.getItem('insertModelConfig');
       const insertModelConfig = insertModelConfigStr ? JSON.parse(insertModelConfigStr) : {
-        id: 'insert-model',
-        name: 'Insert Model',
-        temperature: 0.2, // Lower temperature for more focused merging
+        temperature: 0.2,
         maxTokens: -1,
       };
 
-      // Use the Insert-Model API endpoint for merging
-      const response = await fetch('http://localhost:23816/v1/insert', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: insertModelConfig.id || insertModelConfig.name,
-          original_file: {
-            name: currentInsert.filename,
-            content: originalContent
+      // Create a prompt for the AI to merge the changes
+      const mergePrompt = `You are a code merging expert. You need to analyze and merge code changes intelligently.
+
+${originalContent ? `EXISTING FILE (${currentInsert.filename}):\n\`\`\`\n${originalContent}\n\`\`\`\n` : `The file ${currentInsert.filename} is new and will be created.\n`}
+
+${originalContent ? 'NEW CHANGES:' : 'NEW FILE CONTENT:'}
+\`\`\`
+${currentInsert.content}
+\`\`\`
+
+Task:
+${originalContent ? 
+  '1. If the new changes are a complete file, determine if they should replace the existing file entirely\n2. If the new changes are partial (e.g., a single function), merge them into the appropriate location\n3. Preserve any existing functionality that isn\'t being explicitly replaced' : 
+  '1. This is a new file, so use the provided content directly.'
+}
+4. Ensure the merged code is properly formatted and maintains consistency
+5. Consider the project structure when merging (e.g., for imports)
+
+Return ONLY the final merged code without any explanations. The code should be ready to use as-is.`;
+
+      // Use the chat completions endpoint for merging
+      const result = await lmStudio.createChatCompletion({
+        model: insertModelId,
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a code merging expert. Return only the merged code without any explanations.'
           },
-          new_code: currentInsert.content,
-          temperature: insertModelConfig.temperature || 0.2,
-        }),
+          {
+            role: 'user',
+            content: mergePrompt
+          }
+        ],
+        temperature: insertModelConfig.temperature || 0.2,
+        max_tokens: insertModelConfig.maxTokens || -1,
+        stream: false
       });
 
-      if (!response.ok) {
-        throw new Error(`Failed to merge code: ${response.statusText}`);
-      }
-
-      const result = await response.json();
-      const mergedContent = result.merged_content;
+      const mergedContent = result.choices[0].message.content.trim();
 
       // Use the FileChangeEventService to trigger the diff viewer
       FileChangeEventService.emitChange(currentInsert.filename, originalContent, mergedContent);
@@ -1317,11 +1382,12 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       try {
         console.log('Falling back to chat model for auto-insertion...');
         
-        // Get model configuration from localStorage
+        // Get chat model ID for fallback
+        const chatModelId = await AIFileService.getModelIdForPurpose('chat');
+        
+        // Get chat model settings from localStorage
         const modelConfigStr = localStorage.getItem('modelConfig');
         const modelConfig = modelConfigStr ? JSON.parse(modelConfigStr) : {
-          id: 'default-model',
-          name: 'Default Model',
           temperature: 0.3,
           maxTokens: -1,
           frequencyPenalty: 0,
@@ -1350,7 +1416,7 @@ Return ONLY the final merged code without any explanations. The code should be r
 
         // Use the lmStudio service for merging
         const result = await lmStudio.createChatCompletion({
-          model: modelConfig.id || modelConfig.name,
+          model: chatModelId,
           messages: [
             {
               role: 'system',
@@ -1361,8 +1427,8 @@ Return ONLY the final merged code without any explanations. The code should be r
               content: mergePrompt
             }
           ],
-          temperature: 0.3,
-          max_tokens: -1,
+          temperature: modelConfig.temperature || 0.3,
+          max_tokens: modelConfig.maxTokens || -1,
           stream: false
         });
 
@@ -1421,11 +1487,12 @@ Return ONLY the final merged code without any explanations. The code should be r
       // Add a temporary message for streaming
       setMessages(prev => [...prev, { role: 'assistant', content: '' }]);
 
-      // Get model configuration from localStorage
+      // Get model ID for chat purpose
+      const chatModelId = await AIFileService.getModelIdForPurpose('chat');
+      
+      // Get model configuration from localStorage for other parameters
       const modelConfigStr = localStorage.getItem('modelConfig');
       const modelConfig = modelConfigStr ? JSON.parse(modelConfigStr) : {
-        id: 'default-model',
-        name: 'Default Model',
         temperature: 0.7,
         maxTokens: -1,
         topP: 1,
@@ -1441,7 +1508,7 @@ Return ONLY the final merged code without any explanations. The code should be r
       // Call the LMStudio API
       let finalContent = '';
       await lmStudio.createStreamingChatCompletion({
-        model: modelConfig.id || modelConfig.name,
+        model: chatModelId,
         messages: messagesForAPI,
         temperature: modelConfig.temperature,
         max_tokens: modelConfig.maxTokens,
@@ -1581,11 +1648,12 @@ Return ONLY the final merged code without any explanations. The code should be r
       // Add a temporary message for streaming
       setMessages(prev => [...prev, { role: 'assistant', content: '' }]);
 
-      // Get model configuration from localStorage
+      // Get model ID for chat purpose
+      const chatModelIdForEdit = await AIFileService.getModelIdForPurpose('chat');
+      
+      // Get model configuration from localStorage for other parameters
       const modelConfigStr = localStorage.getItem('modelConfig');
       const modelConfig = modelConfigStr ? JSON.parse(modelConfigStr) : {
-        id: 'default-model',
-        name: 'Default Model',
         temperature: 0.7,
         maxTokens: -1,
         topP: 1,
@@ -1600,7 +1668,7 @@ Return ONLY the final merged code without any explanations. The code should be r
       // Call the LMStudio API
       let finalContent = '';
       await lmStudio.createStreamingChatCompletion({
-        model: modelConfig.id || modelConfig.name,
+        model: chatModelIdForEdit,
         messages: messagesForAPI,
         temperature: modelConfig.temperature,
         max_tokens: modelConfig.maxTokens,

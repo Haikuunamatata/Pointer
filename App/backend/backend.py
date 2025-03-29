@@ -58,12 +58,6 @@ class RenameRequest(BaseModel):
     path: str
     new_name: str
 
-class InsertCodeRequest(BaseModel):
-    path: str
-    content: str
-    position: Optional[int] = None  # Cursor position for insertion (not used yet)
-    model: Optional[str] = None     # Model ID for possible processing (not used yet)
-
 class RelevantFilesRequest(BaseModel):
     query: str
     max_files: int = 10
@@ -676,36 +670,6 @@ async def rename_item(request: RenameRequest):
             content={"success": False, "error": str(e)}
         )
 
-@app.post("/insert-code")
-async def insert_code(request: InsertCodeRequest):
-    """Insert or replace code in the currently opened file."""
-    if not base_directory:
-        raise HTTPException(status_code=400, detail="No directory opened")
-
-    try:
-        full_path = os.path.abspath(os.path.join(base_directory, request.path))
-        print(f"Inserting code into file: {full_path}")
-        
-        if not os.path.exists(full_path):
-            raise HTTPException(status_code=404, detail="File not found")
-        if not os.path.isfile(full_path):
-            raise HTTPException(status_code=400, detail="Path is not a file")
-
-        # For now, we'll simply replace the entire file content
-        # In the future, we could use the position parameter to insert at cursor
-        with open(full_path, 'w', encoding='utf-8') as f:
-            f.write(request.content)
-
-        # Update the cache if the file is cached
-        if full_path in file_cache:
-            file_cache[full_path] = request.content
-
-        return {'success': True}
-
-    except Exception as e:
-        print(f"Error in insert_code: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
 @app.get("/chats")
 async def list_chats():
     chats_dir = Path(os.environ.get('PROGRAMDATA', 'C:\\ProgramData')) / 'Pointer' / 'data' / 'chats'
@@ -767,47 +731,6 @@ async def save_chat(chat_id: str, chat: dict):
             status_code=500,
             content={"detail": f"Error saving chat: {str(e)}"}
         )
-
-@app.get("/completions")
-async def get_completions(partial: str = ''):
-    if not base_directory:
-        return []
-    
-    # Start with command completions as dictionaries
-    completions = [
-        {"path": "filestructure", "type": "command"},
-        {"path": "files", "type": "command"}
-    ]
-
-    # Add file and directory completions
-    for root, dirs, files in os.walk(base_directory):
-        rel_root = os.path.relpath(root, base_directory)
-        if rel_root == '.':
-            rel_root = ''
-            
-        # Add directories
-        for dir in dirs:
-            path = os.path.join(rel_root, dir)
-            if partial.lower() in path.lower():
-                completions.append({
-                    'path': path,
-                    'type': 'directory'
-                })
-                
-        # Add files
-        for file in files:
-            path = os.path.join(rel_root, file)
-            if partial.lower() in path.lower():
-                completions.append({
-                    'path': path,
-                    'type': 'file'
-                })
-    
-    # Sort by type (commands first, then directories, then files) and then by path
-    return sorted(completions, key=lambda x: (
-        0 if x['type'] == 'command' else 1 if x['type'] == 'directory' else 2,
-        x['path']
-    ))
 
 @app.get("/files")
 async def list_files(currentDir: str | None = None):
