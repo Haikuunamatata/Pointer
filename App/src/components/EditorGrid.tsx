@@ -17,6 +17,7 @@ declare global {
     fileSystem?: Record<string, FileSystemItem>;
     applyCustomTheme?: () => void;
     loadSettings?: () => Promise<void>;
+    editorSettings?: { autoAcceptGhostText: boolean };
   }
 }
 
@@ -34,6 +35,11 @@ const EditorPane: React.FC<EditorPaneProps> = ({ fileId, file, onEditorReady }) 
   const contentRef = useRef<string>('');
   const [showPromptInput, setShowPromptInput] = useState(false);
   const [prompt, setPrompt] = useState('');
+  const [aiResponse, setAiResponse] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [showResponsePreview, setShowResponsePreview] = useState(false);
+  const [showDiff, setShowDiff] = useState(false);
+  const [originalContent, setOriginalContent] = useState('');
   const editorInitializedRef = useRef(false);
   const completionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastPositionRef = useRef<monaco.Position | null>(null);
@@ -861,6 +867,11 @@ DO NOT include the [CURSOR] marker in your response. Provide ONLY the completion
     
     // Log success message
     console.log("Ghost text displayed:", displayText);
+
+    // Check if auto-accept is enabled and accept the ghost text
+    if (window.editorSettings?.autoAcceptGhostText) {
+      acceptGhostText();
+    }
   };
 
   // Remove ghost text from the editor
@@ -950,6 +961,10 @@ DO NOT include the [CURSOR] marker in your response. Provide ONLY the completion
     e.preventDefault();
     if (!prompt.trim()) return;
 
+    setIsLoading(true);
+    setShowResponsePreview(false);
+    setShowDiff(false);
+
     // Get the current selection or cursor position
     const selection = editor.current?.getSelection();
     const position = selection?.getStartPosition();
@@ -958,6 +973,11 @@ DO NOT include the [CURSOR] marker in your response. Provide ONLY the completion
     // Get the current file path
     const currentFile = window.getCurrentFile?.();
     if (!currentFile) return;
+
+    // Store original content for diff
+    if (model) {
+      setOriginalContent(model.getValue());
+    }
 
     // Build enhanced context
     let enhancedContext = `File: ${currentFile.path}`;
@@ -1006,7 +1026,7 @@ DO NOT include the [CURSOR] marker in your response. Provide ONLY the completion
     }
     
     // Create a context-aware prompt with file structure info
-    const contextPrompt = `${enhancedContext}\n\nUser request: ${prompt}`;
+    const contextPrompt = `${enhancedContext}\n\nUser request: ${prompt}\n\nIMPORTANT: Provide ONLY the code changes without any explanation or markdown. The response should be the exact code to insert.`;
     
     try {
       // Use autocompletion model for code completion
@@ -1019,7 +1039,7 @@ DO NOT include the [CURSOR] marker in your response. Provide ONLY the completion
         messages: [
           {
             role: 'system',
-            content: 'You are a coding assistant with deep knowledge of software development. Respond with concise, accurate code that addresses the user\'s needs.'
+            content: 'You are a code completion assistant. Provide ONLY the code changes without any explanation or markdown. The response should be the exact code to insert.'
           },
           {
             role: 'user',
@@ -1031,16 +1051,47 @@ DO NOT include the [CURSOR] marker in your response. Provide ONLY the completion
 
       const aiContent = response.choices[0]?.message?.content;
       if (aiContent) {
-        // Process the AI response directly
-        await AIFileService.processAIResponse(aiContent);
+        // Clean up the response
+        let cleanedResponse = aiContent.trim();
+        // Remove markdown code blocks if present
+        cleanedResponse = cleanedResponse.replace(/```[\w]*\n/g, '').replace(/```/g, '');
+        // Remove any language identifiers
+        cleanedResponse = cleanedResponse.replace(/^(javascript|typescript|python|html|css|java|c\+\+|c#|go|rust|php|ruby|swift|kotlin|scala)\s+/i, '');
+        
+        setAiResponse(cleanedResponse);
+        setShowResponsePreview(true);
       }
     } catch (error) {
       console.error('Error processing AI request:', error);
+    } finally {
+      setIsLoading(false);
     }
+  };
 
-    // Reset the prompt input
-    setPrompt('');
+  const handleInsertResponse = () => {
+    if (!editor.current || !aiResponse) return;
+    
+    const selection = editor.current.getSelection();
+    if (!selection) return;
+    
+    // Insert the AI response after the current cursor position
+    const position = selection.getEndPosition();
+    editor.current.executeEdits('', [{
+      range: new monaco.Range(
+        position.lineNumber,
+        position.column,
+        position.lineNumber,
+        position.column
+      ),
+      text: aiResponse
+    }]);
+    
+    // Close the prompt overlay
     setShowPromptInput(false);
+    setPrompt('');
+    setAiResponse('');
+    setShowResponsePreview(false);
+    setShowDiff(false);
   };
 
   // Function to save the current file
@@ -1697,63 +1748,122 @@ DO NOT include the [CURSOR] marker in your response. Provide ONLY the completion
       
       {showPromptInput && (
         <div className="prompt-overlay">
-          <h3 style={{ margin: '0 0 10px', color: 'var(--accent-color)' }}>
-            Enter your code prompt:
-          </h3>
-          <form onSubmit={handlePromptSubmit}>
-            <textarea
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              style={{
-                width: '100%',
-                height: '100px',
-                padding: '8px',
-                background: 'var(--bg-primary)',
-                color: 'var(--text-primary)',
-                border: '1px solid var(--border-color)',
-                borderRadius: '4px',
-                resize: 'vertical',
-                fontFamily: 'var(--font-mono)',
+          <div className="prompt-header">
+            <h3>AI Code Assistant</h3>
+            <button 
+              className="close-button"
+              onClick={() => {
+                setShowPromptInput(false);
+                setPrompt('');
+                setAiResponse('');
+                setShowResponsePreview(false);
+                setShowDiff(false);
               }}
-              placeholder="Describe what you want to do with your code..."
-              autoFocus
-            />
-            <div style={{ marginTop: '15px', display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-              <button
-                type="button"
-                onClick={() => setShowPromptInput(false)}
-                style={{
-                  padding: '8px 16px',
-                  background: 'transparent',
-                  color: 'var(--text-secondary)',
-                  border: '1px solid var(--border-color)',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  transition: 'background 0.2s',
-                }}
-                onMouseOver={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; }}
-                onMouseOut={(e) => { e.currentTarget.style.background = 'transparent'; }}
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                style={{
-                  padding: '8px 16px',
-                  background: 'var(--accent-color)',
-                  color: 'var(--bg-primary)',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  fontWeight: 'bold',
-                  transition: 'opacity 0.2s',
-                }}
-                onMouseOver={(e) => { e.currentTarget.style.opacity = '0.9'; }}
-                onMouseOut={(e) => { e.currentTarget.style.opacity = '1'; }}
-              >
-                Submit
-              </button>
+            >
+              ×
+            </button>
+          </div>
+          
+          <form onSubmit={handlePromptSubmit}>
+            <div className="prompt-input-container">
+              <textarea
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                placeholder="Describe what you want to do with your code..."
+                autoFocus
+                disabled={isLoading}
+              />
+              {isLoading && (
+                <div className="loading-indicator">
+                  <div className="spinner"></div>
+                  <span>Generating response...</span>
+                </div>
+              )}
             </div>
+            
+            {showResponsePreview && (
+              <div className="response-preview">
+                <div className="preview-header">
+                  <h4>Preview Changes</h4>
+                  <div className="preview-actions">
+                    <button
+                      type="button"
+                      className="toggle-diff-button"
+                      onClick={() => setShowDiff(!showDiff)}
+                    >
+                      {showDiff ? 'Hide Diff' : 'Show Diff'}
+                    </button>
+                  </div>
+                </div>
+                
+                {showDiff ? (
+                  <div className="diff-viewer">
+                    <div className="diff-header">
+                      <span className="diff-label">Original</span>
+                      <span className="diff-label">Changes</span>
+                    </div>
+                    <div className="diff-content">
+                      <div className="diff-original">
+                        <pre><code>{originalContent}</code></pre>
+                      </div>
+                      <div className="diff-changes">
+                        <pre><code>{originalContent + aiResponse}</code></pre>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="response-content">
+                    <pre>
+                      <code>{aiResponse}</code>
+                    </pre>
+                  </div>
+                )}
+                
+                <div className="response-actions">
+                  <button
+                    type="button"
+                    className="insert-button"
+                    onClick={handleInsertResponse}
+                  >
+                    Insert After Cursor
+                  </button>
+                  <button
+                    type="button"
+                    className="regenerate-button"
+                    onClick={handlePromptSubmit}
+                    disabled={isLoading}
+                  >
+                    Regenerate
+                  </button>
+                </div>
+              </div>
+            )}
+            
+            {!showResponsePreview && (
+              <div className="prompt-actions">
+                <button
+                  type="button"
+                  className="cancel-button"
+                  onClick={() => {
+                    setShowPromptInput(false);
+                    setPrompt('');
+                    setAiResponse('');
+                    setShowResponsePreview(false);
+                    setShowDiff(false);
+                  }}
+                  disabled={isLoading}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="submit-button"
+                  disabled={isLoading || !prompt.trim()}
+                >
+                  Generate
+                </button>
+              </div>
+            )}
           </form>
         </div>
       )}

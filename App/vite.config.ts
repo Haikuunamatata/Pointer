@@ -15,7 +15,7 @@ export default defineConfig({
     },
     proxy: {
       '/v1': {
-        target: 'http://192.168.178.169:1234',
+        target: 'http://127.0.0.1:1234',
         changeOrigin: true,
         secure: false,
         ws: true,

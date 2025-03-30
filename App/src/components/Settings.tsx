@@ -418,6 +418,7 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
     formatOnSave: true,
     formatOnPaste: false,
     autoSave: true,
+    autoAcceptGhostText: false,
   });
   const [themeSettings, setThemeSettings] = useState<ThemeSettings>({
     name: 'vs-dark',
@@ -1994,6 +1995,18 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                             Auto Save
                           </label>
                         </div>
+
+                        <div>
+                          <label style={{ display: 'flex', alignItems: 'center', fontSize: '13px' }}>
+                            <input
+                              type="checkbox"
+                              checked={editorSettings.autoAcceptGhostText}
+                              onChange={(e) => handleEditorSettingChange('autoAcceptGhostText', e.target.checked)}
+                              style={{ marginRight: '8px' }}
+                            />
+                            Auto-accept ghost text
+                          </label>
+                        </div>
                       </div>
                     </div>
                     
@@ -2259,6 +2272,7 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                               formatOnSave: true,
                               formatOnPaste: false,
                               autoSave: true,
+                              autoAcceptGhostText: false,
                             });
                             
                             // Default theme settings
@@ -2423,6 +2437,7 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                               formatOnSave: true,
                               formatOnPaste: false,
                               autoSave: true,
+                              autoAcceptGhostText: false,
                             });
                             setThemeSettings({
                               name: 'vs-dark',

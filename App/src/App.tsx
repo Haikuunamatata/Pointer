@@ -17,6 +17,7 @@ import { DiffViewer } from './components/DiffViewer';
 import LoadingScreen from './components/LoadingScreen';
 import { Settings } from './components/Settings';
 import ToastContainer from './components/ToastContainer';
+import Titlebar from './components/Titlebar';
 
 // Initialize language support
 initializeLanguageSupport();
@@ -65,7 +66,16 @@ declare global {
     fileSystem?: Record<string, FileSystemItem>;
     applyCustomTheme?: () => void;
     loadSettings?: () => Promise<void>;
-    appSettings?: Record<string, any>;
+    appSettings?: {
+      theme?: {
+        customColors?: {
+          customFileExtensions?: Record<string, string>;
+        };
+      };
+    };
+    editorSettings?: {
+      autoAcceptGhostText: boolean;
+    };
   }
 }
 
@@ -197,6 +207,11 @@ const App: React.FC = () => {
             formatOnPaste: editorSettings.formatOnPaste,
             formatOnType: editorSettings.formatOnSave,
           });
+
+          // Pass editor settings to window object for ghost text functionality
+          window.editorSettings = {
+            autoAcceptGhostText: editorSettings.autoAcceptGhostText
+          };
         }
         
         // Apply theme settings if they exist
@@ -1299,103 +1314,7 @@ const App: React.FC = () => {
           flexDirection: 'column',
           background: 'var(--bg-primary)',
         }}>
-          <div style={isTopBarCollapsed ? topBarCollapsedStyle : topBarStyle}>
-            <button
-              onClick={handleOpenFolder}
-              style={topBarButtonStyle}
-            >
-              Open Folder
-            </button>
-            <button
-              onClick={handleOpenFile}
-              style={topBarButtonStyle}
-            >
-              Open File
-            </button>
-            <div style={{ width: '1px', height: '16px', background: 'var(--border-color)', margin: '0 4px' }} />
-            <div style={{ position: 'relative' }}>
-              
-              
-              {isChatListVisible && (
-                <div
-                  style={{
-                    position: 'absolute',
-                    top: '100%',
-                    right: 0,
-                    background: 'var(--bg-primary)',
-                    border: '1px solid var(--border-primary)',
-                    borderRadius: '4px',
-                    boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-                    zIndex: 1000,
-                    minWidth: '200px',
-                    maxHeight: '400px',
-                    overflowY: 'auto',
-                  }}
-                >
-                  <div
-                    style={{
-                      padding: '8px',
-                      borderBottom: '1px solid var(--border-primary)',
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                    }}
-                  >
-                    <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Recent Chats</span>
-                    <button
-                      onClick={() => {
-                        setCurrentChatId(uuidv4());
-                        setIsChatListVisible(false);
-                      }}
-                      style={{
-                        background: 'none',
-                        border: 'none',
-                        color: 'var(--text-primary)',
-                        cursor: 'pointer',
-                        fontSize: '12px',
-                        padding: '4px 8px',
-                      }}
-                    >
-                      New Chat
-                    </button>
-                  </div>
-                  {chats.map(chat => (
-                    <button
-                      key={chat.id}
-                      onClick={() => {
-                        setCurrentChatId(chat.id);
-                        setIsChatListVisible(false);
-                      }}
-                      style={{
-                        width: '100%',
-                        padding: '8px 12px',
-                        background: 'none',
-                        border: 'none',
-                        borderBottom: '1px solid var(--border-primary)',
-                        color: 'var(--text-primary)',
-                        cursor: 'pointer',
-                        textAlign: 'left',
-                        fontSize: '12px',
-                        ':hover': {
-                          background: 'var(--bg-hover)',
-                        },
-                      }}
-                    >
-                      <div style={{ fontSize: '13px' }}>{chat.name}</div>
-                      <div style={{ 
-                        fontSize: '11px', 
-                        color: 'var(--text-secondary)',
-                        marginTop: '2px' 
-                      }}>
-                        {new Date(chat.createdAt).toLocaleString()}
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
+          <Titlebar onOpenFolder={handleOpenFolder} onOpenFile={handleOpenFile} />
           <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
             {/* Activity Bar */}
             <div style={{ width: '48px', background: 'var(--bg-secondary)', display: 'flex', flexDirection: 'column' }}>

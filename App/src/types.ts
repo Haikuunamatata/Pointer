@@ -43,6 +43,7 @@ export interface EditorSettings {
   formatOnSave: boolean;
   formatOnPaste: boolean;
   autoSave: boolean;
+  autoAcceptGhostText: boolean;
 }
 
 export interface ThemeSettings {

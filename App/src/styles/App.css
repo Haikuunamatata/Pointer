@@ -15,12 +15,13 @@
   --accent-color: #0e639c;
   --error-color: #f48771;
   
-  --titlebar-bg: #3c3c3c;
+  --titlebar-bg: #1e1e1e;
   --statusbar-bg: #007acc;
   --activity-bar-fg: #ffffff;
   
   /* Typography */
   --font-mono: 'Consolas', 'Courier New', monospace;
+  --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
 }
 
 /* Global styles */
@@ -31,11 +32,113 @@
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+  font-family: var(--font-ui);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   background-color: var(--bg-primary);
   color: var(--text-primary);
+  overflow: hidden;
+}
+
+/* App container */
+.app-container {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Titlebar */
+.titlebar {
+  height: 32px;
+  background-color: var(--titlebar-bg);
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  padding: 0;
+  -webkit-app-region: drag;
+  user-select: none;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.titlebar-left {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-left: 8px;
+  -webkit-app-region: no-drag;
+}
+
+.titlebar-logo {
+  width: 16px;
+  height: 16px;
+  margin-right: 8px;
+}
+
+.titlebar-divider {
+  width: 1px;
+  height: 16px;
+  background-color: var(--border-color);
+  margin: 0 8px;
+}
+
+.titlebar-action-button {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  border-radius: 4px;
+}
+
+.titlebar-action-button:hover {
+  background-color: var(--bg-hover);
+}
+
+.titlebar-title {
+  font-size: 12px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: color 0.2s;
+  -webkit-app-region: no-drag;
+  text-align: center;
+  width: 100%;
+  padding: 0 8px;
+}
+
+.titlebar-title:hover {
+  color: var(--accent-color);
+}
+
+.titlebar-controls {
+  -webkit-app-region: no-drag;
+  display: flex;
+}
+
+.titlebar-button {
+  width: 46px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.titlebar-button:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.titlebar-button.close:hover {
+  background-color: #e81123;
 }
 
 /* Scrollbar styles */
@@ -45,21 +148,28 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--bg-primary);
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
   background: var(--bg-accent);
-  border-radius: 5px;
+  border: 2px solid var(--bg-primary);
+  border-radius: 10px;
+  background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--accent-color);
+  border: 2px solid var(--bg-primary);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 /* Button styles */
 button {
-  font-family: inherit;
+  font-family: var(--font-ui);
   font-size: inherit;
   color: inherit;
   cursor: pointer;
@@ -77,14 +187,15 @@ button:disabled {
 
 /* Input styles */
 input {
-  font-family: inherit;
+  font-family: var(--font-ui);
   font-size: inherit;
   color: inherit;
   background-color: var(--bg-secondary);
   border: 1px solid var(--border-color);
   border-radius: 4px;
-  padding: 4px 8px;
+  padding: 6px 8px;
   outline: none;
+  transition: border-color 0.2s ease;
 }
 
 input:focus {
@@ -103,12 +214,25 @@ input:focus {
   align-items: center;
   justify-content: center;
   z-index: 1000;
+  backdrop-filter: blur(4px);
 }
 
 .modal-content {
-  background: var(--bg-primary);
-  padding: 20px;
-  border-radius: 4px;
-  min-width: 300px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  background: var(--bg-secondary);
+  border-radius: 6px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.24);
+  border: 1px solid var(--border-color);
+  max-width: 90vw;
+  max-height: 90vh;
+  overflow: auto;
+}
+
+/* Focus styles */
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: -2px;
 } 

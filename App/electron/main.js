@@ -377,6 +377,9 @@ async function createWindow() {
       show: false, // Don't show until fully loaded
       icon: getIconPath(), // Set application icon
       title: 'Pointer', // Set window title
+      frame: false, // Remove default frame
+      titleBarStyle: 'hidden',
+      backgroundColor: '#1e1e1e',
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,
@@ -384,6 +387,10 @@ async function createWindow() {
         preload: path.join(__dirname, 'preload.js')
       }
     });
+
+    // Enable Aero Snap and other Windows behaviors
+    mainWindow.setMinimumSize(400, 300);
+    mainWindow.setHasShadow(true);
 
     // Set up window event listeners for debugging
     mainWindow.webContents.on('did-start-loading', () => {
@@ -536,6 +543,33 @@ app.on('activate', () => {
 ipcMain.on('editor-info-update', (event, info) => {
   editorInfo = { ...editorInfo, ...info };
   updateRichPresence();
+});
+
+// Window control handlers
+ipcMain.on('window-minimize', (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (win) win.minimize();
+});
+
+ipcMain.on('window-maximize', (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (win) {
+    if (win.isMaximized()) {
+      win.unmaximize();
+    } else {
+      win.maximize();
+    }
+  }
+});
+
+ipcMain.on('window-close', (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (win) win.close();
+});
+
+ipcMain.handle('window-is-maximized', (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  return win ? win.isMaximized() : false;
 });
 
 ipcMain.on('discord-settings-update', (event, settings) => {

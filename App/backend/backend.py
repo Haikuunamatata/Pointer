@@ -91,7 +91,6 @@ def set_user_workspace_directory(path: str):
     global user_workspace_directory
     if os.path.isdir(path):
         user_workspace_directory = os.path.abspath(path)
-        print(f"Set user workspace directory to: {user_workspace_directory}")
         return True
     return False
 
@@ -160,10 +159,6 @@ def scan_directory(path: str, parent_id: str | None = None) -> dict:
                 relative_path
             )
             
-            # Print file IDs for debugging
-            if not entry.is_dir():
-                print(f"Generated file ID: {entry_id} for path: {relative_path}")
-            
             if entry.is_dir():
                 items[entry_id] = FileInfo(
                     id=entry_id,
@@ -184,21 +179,16 @@ def scan_directory(path: str, parent_id: str | None = None) -> dict:
                                 # Add to cache
                                 file_cache[str(entry)] = content
                             except UnicodeDecodeError as ude:
-                                print(f"Unicode decode error for {entry}: {str(ude)}")
                                 content = '[Error: File encoding not supported]'
                             except PermissionError as pe:
-                                print(f"Permission error reading {entry}: {str(pe)}")
                                 content = '[Error: Permission denied]'
                             except OSError as oe:
-                                print(f"OS error reading {entry}: {str(oe)}")
                                 content = f'[Error: OS Error - {str(oe)}]'
                             except Exception as e:
-                                print(f"Unexpected error reading {entry}: {type(e).__name__} - {str(e)}")
                                 content = f'[Error reading file: {type(e).__name__} - {str(e)}]'
                         else:
                             content = '[File too large to display]'
                     except Exception as e:
-                        print(f"Error accessing file {entry}: {type(e).__name__} - {str(e)}")
                         content = f'[Error: {type(e).__name__} - {str(e)}]'
                 else:
                     content = '[Binary file]'
@@ -213,7 +203,6 @@ def scan_directory(path: str, parent_id: str | None = None) -> dict:
                 )
 
     except Exception as e:
-        print(f"Error in scan_directory: {type(e).__name__} - {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
     return {
@@ -245,7 +234,6 @@ async def open_directory():
         base_directory = path
         # Also set as user workspace directory
         set_user_workspace_directory(path)
-        print(f"Set base directory and user workspace to: {path}")
         return scan_directory(path)
     
     raise HTTPException(status_code=400, detail="No directory selected")
@@ -278,7 +266,6 @@ async def save_file(request: SaveFileRequest):
         if path.startswith('file_'):
             # The path is everything after 'file_'
             path = path[5:]
-            print(f"Extracted path from file ID: {path}")
 
         # Use the path as is, it should be an absolute path or relative to base_directory
         if os.path.isabs(path):
@@ -286,7 +273,6 @@ async def save_file(request: SaveFileRequest):
         else:
             full_path = os.path.abspath(os.path.join(base_directory, path))
             
-        print(f"Saving file to: {full_path}")
         
         # Security check - make sure the path is within base directory if it's a relative path
         # For absolute paths, skip this check as the user explicitly selected the file
@@ -305,7 +291,6 @@ async def save_file(request: SaveFileRequest):
 
         return {'success': True}
     except Exception as e:
-        print(f"Error saving file: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/create-file")
@@ -461,11 +446,9 @@ async def open_specific_directory(request: PathRequest):
         raise HTTPException(status_code=400, detail="Path is not a directory")
     
     base_directory = os.path.abspath(request.path)
-    print(f"Set base directory to: {base_directory}")
     
     # Also set this as the user workspace directory
     set_user_workspace_directory(request.path)
-    print(f"Also set as user workspace directory: {user_workspace_directory}")
     
     return scan_directory(request.path)
 
@@ -482,7 +465,6 @@ async def fetch_folder_contents(request: PathRequest):
         return scan_directory(base_directory)
         
     target_path = os.path.join(base_directory, request.path)
-    print(f"Fetching contents of: {target_path}")
     
     if not os.path.exists(target_path):
         raise HTTPException(status_code=404, detail="Directory not found")
@@ -495,22 +477,17 @@ async def fetch_folder_contents(request: PathRequest):
 async def read_file(path: str, currentDir: str | None = None):
     """Read a file's contents."""
     if not base_directory:
-        print("No base directory set!")
         raise HTTPException(status_code=400, detail="No directory opened")
 
     try:
-        print("\nRead file request:")
         # Normalize base directory path
         normalized_base = os.path.normpath(base_directory).replace('\\', '/')
-        print(f"Normalized base directory: {normalized_base}")
         
         # Normalize current directory if provided
         normalized_current = os.path.normpath(currentDir).replace('\\', '/') if currentDir else None
-        print(f"Normalized current directory: {normalized_current}")
         
         # Normalize requested path
         normalized_path = path.replace('\\', '/')
-        print(f"Normalized requested path: {normalized_path}")
 
         # Try multiple path resolutions
         paths_to_try = [
@@ -519,13 +496,11 @@ async def read_file(path: str, currentDir: str | None = None):
         ]
         paths_to_try = [p for p in paths_to_try if p is not None]
 
-        print(f"Paths to try: {paths_to_try}")
 
         # Try each path
         for try_path in paths_to_try:
             # Normalize the full path
             full_path = os.path.normpath(try_path).replace('\\', '/')
-            print(f"Trying path: {full_path}")
             
             # Security check - make sure the path is within base directory
             if not full_path.startswith(normalized_base):
@@ -586,10 +561,6 @@ async def open_file():
                 response.headers["X-Filename"] = os.path.basename(file_path)
                 response.headers["X-Full-Path"] = abs_path
                 
-                print(f"Opening file: {file_path}")
-                print(f"Absolute path: {abs_path}")
-                print(f"Response headers: {dict(response.headers)}")
-                
                 return response
         except Exception as e:
             print(f"Error reading file: {str(e)}")
@@ -602,7 +573,6 @@ async def read_text(request: PathRequest):
     """Read any text file from any path."""
     try:
         file_path = request.path
-        print(f"Reading text file: {file_path}")
         
         if not os.path.exists(file_path):
             return f"[Error: File not found: {file_path}]"
