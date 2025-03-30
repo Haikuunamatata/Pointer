@@ -377,8 +377,8 @@ async function createWindow() {
       show: false, // Don't show until fully loaded
       icon: getIconPath(), // Set application icon
       title: 'Pointer', // Set window title
-      frame: false, // Remove default frame
-      titleBarStyle: 'hidden',
+      frame: process.platform === 'darwin', // Use native frame on macOS
+      titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden', // Use inset titlebar on macOS
       backgroundColor: '#1e1e1e',
       webPreferences: {
         nodeIntegration: false,

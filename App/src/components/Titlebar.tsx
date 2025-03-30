@@ -68,7 +68,7 @@ const Titlebar: React.FC<TitlebarProps> = ({ onOpenFolder, onOpenFile }) => {
           </svg>
         </button>
       </div>
-      <div className="titlebar-title" onClick={handleTitleClick}>
+      <div className="titlebar-title">
         Pointer
       </div>
       <div className="titlebar-controls">

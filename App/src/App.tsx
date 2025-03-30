@@ -66,6 +66,7 @@ declare global {
     fileSystem?: Record<string, FileSystemItem>;
     applyCustomTheme?: () => void;
     loadSettings?: () => Promise<void>;
+    loadAllSettings?: () => Promise<void>;
     appSettings?: {
       theme?: {
         customColors?: {
@@ -194,24 +195,27 @@ const App: React.FC = () => {
         
         // Apply editor settings if they exist
         if (result.settings.editor && editor.current) {
-          const editorSettings = result.settings.editor;
-          
-          // Apply editor settings to Monaco
-          editor.current.updateOptions({
-            fontFamily: editorSettings.fontFamily,
-            fontSize: editorSettings.fontSize,
-            lineHeight: editorSettings.lineHeight,
-            tabSize: editorSettings.tabSize,
-            insertSpaces: editorSettings.insertSpaces,
-            wordWrap: editorSettings.wordWrap ? 'on' : 'off',
-            formatOnPaste: editorSettings.formatOnPaste,
-            formatOnType: editorSettings.formatOnSave,
-          });
+          // Add a small delay to ensure editor is ready
+          setTimeout(() => {
+            const editorSettings = result.settings.editor;
+            
+            // Apply editor settings to Monaco
+            editor.current?.updateOptions({
+              fontFamily: editorSettings.fontFamily,
+              fontSize: editorSettings.fontSize,
+              lineHeight: editorSettings.lineHeight,
+              tabSize: editorSettings.tabSize,
+              insertSpaces: editorSettings.insertSpaces,
+              wordWrap: editorSettings.wordWrap ? 'on' : 'off',
+              formatOnPaste: editorSettings.formatOnPaste,
+              formatOnType: editorSettings.formatOnSave,
+            });
 
-          // Pass editor settings to window object for ghost text functionality
-          window.editorSettings = {
-            autoAcceptGhostText: editorSettings.autoAcceptGhostText
-          };
+            // Pass editor settings to window object for ghost text functionality
+            window.editorSettings = {
+              autoAcceptGhostText: editorSettings.autoAcceptGhostText
+            };
+          }, 100);
         }
         
         // Apply theme settings if they exist
@@ -241,25 +245,28 @@ const App: React.FC = () => {
             tokenColors: themeSettings.tokenColors || []
           };
           
-          // Create and apply custom Monaco theme
-          applyCustomTheme();
+          // Add a small delay before applying theme
+          setTimeout(() => {
+            // Create and apply custom Monaco theme
+            applyCustomTheme();
 
-          // Apply custom UI colors
-          Object.entries(themeSettings.customColors).forEach(([key, value]) => {
-            if (value && typeof value === 'string') {
-              const cssVarName = `--${key.replace(/([A-Z])/g, '-$1').toLowerCase()}`;
-              document.documentElement.style.setProperty(cssVarName, value);
+            // Apply custom UI colors
+            Object.entries(themeSettings.customColors).forEach(([key, value]) => {
+              if (value && typeof value === 'string') {
+                const cssVarName = `--${key.replace(/([A-Z])/g, '-$1').toLowerCase()}`;
+                document.documentElement.style.setProperty(cssVarName, value);
+              }
+            });
+            
+            // Store customFileExtensions for file explorer to access
+            if (themeSettings.customColors.customFileExtensions) {
+              window.appSettings = window.appSettings || {};
+              window.appSettings.theme = window.appSettings.theme || {};
+              window.appSettings.theme.customColors = window.appSettings.theme.customColors || {};
+              window.appSettings.theme.customColors.customFileExtensions = 
+                { ...themeSettings.customColors.customFileExtensions };
             }
-          });
-          
-          // Store customFileExtensions for file explorer to access
-          if (themeSettings.customColors.customFileExtensions) {
-            window.appSettings = window.appSettings || {};
-            window.appSettings.theme = window.appSettings.theme || {};
-            window.appSettings.theme.customColors = window.appSettings.theme.customColors || {};
-            window.appSettings.theme.customColors.customFileExtensions = 
-              { ...themeSettings.customColors.customFileExtensions };
-          }
+          }, 100);
         }
 
         // Process Discord RPC settings
@@ -330,7 +337,7 @@ const App: React.FC = () => {
     };
   }, []);
 
-  // Load settings on app start
+  // Load settings immediately on component mount
   useEffect(() => {
     loadSettings();
   }, []);
@@ -1194,6 +1201,14 @@ const App: React.FC = () => {
         // Only try to open directory if we're mounted
         if (!mounted) return;
 
+        // Load settings using loadAllSettings
+        if (window.loadAllSettings) {
+          await window.loadAllSettings();
+        } else {
+          // Fallback to loadSettings if loadAllSettings is not available
+          await loadSettings();
+        }
+
         // Try to open directory only if we have a saved path
         const lastDir = localStorage.getItem('lastDirectory');
         if (lastDir) {
@@ -1208,9 +1223,7 @@ const App: React.FC = () => {
               terminalOpen: false,
             }));
           }
-          // Don't set welcome tab even if directory open fails
         }
-        // Don't set welcome tab when no saved directory exists
         
         // Connection is established
         setTimeout(() => {

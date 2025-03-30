@@ -68,6 +68,13 @@ body {
   -webkit-app-region: no-drag;
 }
 
+/* Add padding for macOS traffic lights */
+@media screen and (-webkit-min-device-pixel-ratio: 1) {
+  .titlebar-left {
+    padding-left: 76px; /* Space for traffic lights */
+  }
+}
+
 .titlebar-logo {
   width: 16px;
   height: 16px;
@@ -102,9 +109,9 @@ body {
 .titlebar-title {
   font-size: 12px;
   color: var(--text-primary);
-  cursor: pointer;
+  cursor: default;
   transition: color 0.2s;
-  -webkit-app-region: no-drag;
+  -webkit-app-region: drag;
   text-align: center;
   width: 100%;
   padding: 0 8px;

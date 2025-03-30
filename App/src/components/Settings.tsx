@@ -654,6 +654,14 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
     }
   };
 
+  // Expose loadAllSettings to window object
+  useEffect(() => {
+    window.loadAllSettings = loadAllSettings;
+    return () => {
+      delete window.loadAllSettings;
+    };
+  }, []);
+
   // Save all settings
   const saveAllSettings = async () => {
     setIsLoading(true);
