@@ -58,19 +58,16 @@ const defaultDiscordRpcSettings: DiscordRpcSettings = {
   button2Url: '',
 };
 
-// Categories for sidebar
 const settingsCategories = [
   { id: 'models', name: 'LLM Models' },
-  { id: 'theme', name: 'Theme & Editor' }, // Changed to combined name
+  { id: 'theme', name: 'Theme & Editor' },
   { id: 'discord', name: 'Discord Rich Presence' },
   { id: 'keybindings', name: 'Keybindings' },
   { id: 'terminal', name: 'Terminal' },
   { id: 'advanced', name: 'Advanced' },
 ];
 
-// Helper function to get the platform-specific settings path
 const getSettingsPath = (): string => {
-  // Determine platform-specific path
   if (window.navigator.platform.indexOf('Win') > -1) {
     return 'C:/ProgramData/Pointer/data/settings';
   } else {
@@ -399,7 +396,6 @@ const ThemeLibraryModal: React.FC<{
     </div>
   );
 };
-
 export function Settings({ isVisible, onClose, initialSettings }: SettingsProps) {
   const [activeCategory, setActiveCategory] = useState('models');
   const [activeTab, setActiveTab] = useState('default');
@@ -441,7 +437,7 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
       statusbarFg: '',
       activityBarBg: '',
       activityBarFg: '',
-      inlineCodeColor: '#cc0000', // Default inline code color
+      inlineCodeColor: '#cc0000',
     },
     editorColors: {
       "editor.background": "#1e1e1e",
@@ -467,73 +463,48 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
   const [isLoading, setIsLoading] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
-  // Add state for theme library modal
   const [isThemeLibraryVisible, setIsThemeLibraryVisible] = useState(false);
 
-  // Load the settings
   useEffect(() => {
     if (isVisible) {
-      // Reset loading state
       setIsLoading(true);
-      
-      // Clear any previous settings to ensure we don't show stale data
       setDiscordRpcSettings({...defaultDiscordRpcSettings});
-      
       console.log('Settings opened - initiating full sync with main process');
-      
-      // Load settings with a slight delay to ensure the UI is ready
       const loadSettingsAsync = async () => {
         try {
-          // First, directly request settings from the main process
           if (ipcRenderer) {
-            console.log('Requesting Discord RPC settings directly from main process');
             const rpcSettings = await ipcRenderer.invoke('get-discord-rpc-settings');
             if (rpcSettings) {
-              console.log('Successfully received Discord RPC settings from main process', rpcSettings);
               setDiscordRpcSettings(rpcSettings);
             } else {
               console.warn('No settings received from main process');
             }
           }
-          
-          // Then load all settings (this will load from files as well)
           await loadAllSettings();
-          
         } catch (error) {
           console.error('Error during settings sync:', error);
         } finally {
           setIsLoading(false);
         }
       };
-      
       loadSettingsAsync();
     }
   }, [isVisible]);
 
-  // Load Discord RPC settings from main process
   async function loadDiscordRpcSettings(): Promise<void> {
     try {
       if (ipcRenderer) {
-        console.log('Requesting Discord RPC settings from main process...');
         const rpcSettings = await ipcRenderer.invoke('get-discord-rpc-settings');
         if (rpcSettings) {
-          console.log('Loaded Discord RPC settings from main process:', rpcSettings);
-          
-          // Deep comparison to see if these are actually different
           const currentSettingsJson = JSON.stringify(discordRpcSettings);
           const newSettingsJson = JSON.stringify(rpcSettings);
-          
           if (currentSettingsJson !== newSettingsJson) {
-            console.log('Discord RPC settings changed, updating UI');
-            
-            // Log important settings for debugging
-            console.log('- Enabled:', rpcSettings.enabled);
-            console.log('- Details:', rpcSettings.details);
-            console.log('- Button 1:', rpcSettings.button1Label, rpcSettings.button1Url);
-            console.log('- Button 2:', rpcSettings.button2Label, rpcSettings.button2Url);
-            
-            setDiscordRpcSettings(rpcSettings);
-            setHasUnsavedChanges(false); // Reset unsaved changes flag
+            const updatedSettings = {
+              ...discordRpcSettings,
+              ...rpcSettings
+            };
+            setDiscordRpcSettings(updatedSettings);
+            setHasUnsavedChanges(false);
           } else {
             console.log('Discord RPC settings unchanged');
           }
@@ -547,17 +518,13 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
     } catch (rpcError) {
       console.error('Error loading Discord RPC settings:', rpcError);
     }
-    
-    // If we couldn't load settings, use defaults
     console.log('Using default Discord RPC settings');
     setDiscordRpcSettings({...defaultDiscordRpcSettings});
   }
 
-  // Load settings from localStorage and from the settings directory
   const loadAllSettings = async () => {
     setIsLoading(true);
     try {
-      // First try to load from localStorage for backward compatibility
       const localStorageConfig = localStorage.getItem('modelConfig');
       if (localStorageConfig) {
         const parsed = JSON.parse(localStorageConfig);
@@ -566,80 +533,55 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
           'default': {
             ...prev.default,
             ...parsed,
-            // Ensure the default model has a valid ID 
             id: parsed.id && parsed.id !== 'default-model' ? parsed.id : 'deepseek-coder-v2-lite-instruct'
           }
         }));
       }
-
-      // Load Discord RPC settings from main process
       await loadDiscordRpcSettings();
-
-      // Get the settings path
       const settingsPath = getSettingsPath();
-
-      // Load settings from the settings directory
       const result = await FileSystemService.readSettingsFiles(settingsPath);
       if (result && result.success) {
-        // Process model configs
         if (result.settings.models) {
-          // Make sure all models have valid IDs
           const validatedModels = { ...result.settings.models };
           Object.keys(validatedModels).forEach(key => {
             if (!validatedModels[key].id || validatedModels[key].id === 'default-model') {
               validatedModels[key].id = 'deepseek-coder-v2-lite-instruct';
             }
           });
-          
           setModelConfigs(prev => ({
             ...prev,
             ...validatedModels
           }));
         }
-
-        // Process model assignments with defaults for any missing ones
         if (result.settings.modelAssignments) {
           const assignments = { ...defaultModelAssignments };
-          
-          // Only update the assignments that exist in the settings
           Object.keys(result.settings.modelAssignments).forEach(key => {
-            // Check if the key is a valid assignment type
             if (key === 'chat' || key === 'insert' || key === 'autocompletion' || key === 'summary') {
               assignments[key as keyof ModelAssignments] = result.settings.modelAssignments[key];
             }
           });
-          
           setModelAssignments(assignments);
         } else {
-          // No model assignments in settings, use defaults
           setModelAssignments({...defaultModelAssignments});
         }
-
-        // Process editor settings
         if (result.settings.editor) {
           setEditorSettings(prev => ({
             ...prev,
             ...result.settings.editor
           }));
         }
-
-        // Process theme settings
         if (result.settings.theme) {
           setThemeSettings(prev => ({
             ...prev,
             ...result.settings.theme
           }));
         }
-
-        // Process Discord RPC settings
         if (result.settings.discordRpc) {
           setDiscordRpcSettings(prev => ({
             ...prev,
             ...result.settings.discordRpc
           }));
         }
-        
-        // Load from props if provided
         if (initialSettings?.discordRpc) {
           setDiscordRpcSettings(prev => ({
             ...prev,
@@ -654,7 +596,6 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
     }
   };
 
-  // Expose loadAllSettings to window object
   useEffect(() => {
     window.loadAllSettings = loadAllSettings;
     return () => {
@@ -662,21 +603,13 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
     };
   }, []);
 
-  // Save all settings
   const saveAllSettings = async () => {
     setIsLoading(true);
     try {
-      // Save to localStorage for backward compatibility
       localStorage.setItem('modelConfig', JSON.stringify(modelConfigs.default));
       localStorage.setItem('modelAssignments', JSON.stringify(modelAssignments));
-      
-      // Apply the theme settings
       applyThemeSettings();
-      
-      // Get the settings path
       const settingsPath = getSettingsPath();
-      
-      // Save to the settings directory
       const settings = {
         models: modelConfigs,
         modelAssignments: modelAssignments,
@@ -684,28 +617,19 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
         theme: themeSettings,
         discordRpc: discordRpcSettings,
       };
-
-      // Save settings to the backend
       const result = await FileSystemService.saveSettingsFiles(settingsPath, settings);
-      
       if (result.success) {
         console.log('Settings saved successfully');
       } else {
         console.error('Failed to save settings');
       }
-      
-      // Also send Discord RPC settings to main process for immediate use
       if (ipcRenderer) {
-        // First use the discord-settings-update event which now saves to file
         ipcRenderer.send('discord-settings-update', discordRpcSettings);
         console.log('Discord RPC settings sent to main process via discord-settings-update');
       } else {
         console.log('IPC Renderer not available, skipping Discord RPC settings save');
       }
-      
-      // Reset unsaved changes flag
       setHasUnsavedChanges(false);
-      
       onClose();
     } catch (error) {
       console.error('Error saving settings:', error);
@@ -714,25 +638,18 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
     }
   };
   
-  // Apply theme settings to Monaco editor
   const applyThemeSettings = () => {
-    // Validate the base theme (Monaco only accepts 'vs', 'vs-dark', or 'hc-black', 'hc-light')
     const validBaseThemes = ['vs', 'vs-dark', 'hc-black', 'hc-light'];
     const baseTheme = validBaseThemes.includes(themeSettings.name) 
       ? themeSettings.name as monaco.editor.BuiltinTheme
       : 'vs-dark';
-    
-    // Process colors to ensure they're in a valid format (remove alpha if present)
     const processedEditorColors: Record<string, string> = {};
     Object.entries(themeSettings.editorColors).forEach(([key, value]) => {
       if (value) {
-        // Remove alpha component if present (e.g., #rrggbbaa → #rrggbb)
         const processedValue = value.length > 7 ? value.substring(0, 7) : value;
         processedEditorColors[key] = processedValue;
       }
     });
-    
-    // Create a custom Monaco theme with the specified editor and token colors
     monaco.editor.defineTheme('custom-theme', {
       base: baseTheme,
       inherit: true,
@@ -744,26 +661,19 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
       })),
       colors: processedEditorColors
     });
-    
-    // Apply the custom theme
     monaco.editor.setTheme('custom-theme');
-
-    // Apply theme changes to the UI
     Object.entries(themeSettings.customColors).forEach(([key, value]) => {
       if (value && typeof value === 'string') {
         const cssVarName = `--${key.replace(/([A-Z])/g, '-$1').toLowerCase()}`;
-        // For CSS variables, we can keep the alpha channel
         document.documentElement.style.setProperty(cssVarName, value);
       }
     });
   };
 
-  // Apply theme settings whenever they change
   useEffect(() => {
     applyThemeSettings();
   }, [themeSettings]);
 
-  // Handle change for model configuration
   const handleModelConfigChange = (modelId: string, field: keyof ModelConfig, value: any) => {
     setModelConfigs(prev => ({
       ...prev,
@@ -775,7 +685,6 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
     setHasUnsavedChanges(true);
   };
 
-  // Handle change for editor settings
   const handleEditorSettingChange = (field: string, value: any) => {
     setEditorSettings(prev => ({
       ...prev,
@@ -784,50 +693,33 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
     setHasUnsavedChanges(true);
   };
 
-  // Handle change for theme settings
   const handleThemeSettingChange = (field: string, value: any) => {
     setThemeSettings({
       ...themeSettings,
       [field]: value
     });
     setHasUnsavedChanges(true);
-    
-    // Apply theme changes immediately if it's customColors
     if (field === 'customColors' && typeof value === 'object') {
-      // Make custom extensions immediately available to FileExplorer
       window.appSettings = window.appSettings || {};
       window.appSettings.theme = window.appSettings.theme || {};
       window.appSettings.theme.customColors = window.appSettings.theme.customColors || {};
-      
-      // Handle custom file extensions
       if (value.customFileExtensions) {
         window.appSettings.theme.customColors.customFileExtensions = 
           { ...value.customFileExtensions };
       }
-      
-      // Dispatch theme-changed event to notify components
       window.dispatchEvent(new Event('theme-changed'));
     }
   };
 
-  // Handle change for Discord RPC settings
   const handleDiscordRpcSettingChange = (field: keyof DiscordRpcSettings, value: any) => {
     const updatedSettings = {
       ...discordRpcSettings,
       [field]: value
     };
-    
     setDiscordRpcSettings(updatedSettings);
-    setHasUnsavedChanges(true); // Mark that we have unsaved changes
-    
-    // Send updated settings to main process
+    setHasUnsavedChanges(true);
     if (ipcRenderer) {
-      // Use both methods to ensure immediate update and persistence
-      
-      // This updates the UI and saves to file
       ipcRenderer.send('discord-settings-update', { [field]: value });
-      
-      // This ensures the update is reflected immediately in Discord
       ipcRenderer.invoke('update-discord-rpc-settings', { [field]: value })
         .then((result: { success: boolean, error?: string }) => {
           if (!result.success) {
@@ -840,14 +732,11 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
     } else {
       console.log('IPC Renderer not available, skipping Discord RPC settings save');
     }
-    
-    // Notify parent component if callback provided
     if (initialSettings?.onDiscordSettingsChange) {
       initialSettings.onDiscordSettingsChange({ [field]: value });
     }
   };
 
-  // Add a new model configuration
   const addModelConfig = () => {
     const newId = `model_${Object.keys(modelConfigs).length}`;
     setModelConfigs(prev => ({
@@ -861,7 +750,6 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
     setActiveTab(newId);
   };
 
-  // Delete a model configuration
   const deleteModelConfig = (modelId: string) => {
     if (modelId === 'default') {
       alert('Cannot delete the default model configuration');
@@ -877,7 +765,6 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
     setActiveTab('default');
   };
 
-  // Handle closing the settings dialog
   const handleClose = () => {
     if (hasUnsavedChanges) {
       if (confirm('You have unsaved changes. Are you sure you want to close without saving?')) {
@@ -900,16 +787,11 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
     });
 
     setHasUnsavedChanges(true);
-    
-    // Update CSS variable
     const cssVarName = `--${key.replace(/([A-Z])/g, '-$1').toLowerCase()}`;
     document.documentElement.style.setProperty(cssVarName, value);
-    
-    // Dispatch theme-changed event to notify components like FileExplorer
     window.dispatchEvent(new Event('theme-changed'));
   };
 
-  // Add handler for editor color changes
   const handleEditorColorChange = (key: string, value: string) => {
     setThemeSettings(prev => ({
       ...prev,
@@ -921,7 +803,6 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
     setHasUnsavedChanges(true);
   };
 
-  // Add handler for token color changes
   const handleTokenColorChange = (index: number, field: string, value: string) => {
     setThemeSettings(prev => {
       const newTokenColors = [...(prev.tokenColors || [])];
@@ -937,7 +818,6 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
     setHasUnsavedChanges(true);
   };
 
-  // Add handler to add a new token color rule
   const addTokenColor = () => {
     setThemeSettings(prev => ({
       ...prev,
@@ -946,7 +826,6 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
     setHasUnsavedChanges(true);
   };
 
-  // Add handler to remove a token color rule
   const removeTokenColor = (index: number) => {
     setThemeSettings(prev => {
       const newTokenColors = [...(prev.tokenColors || [])];
@@ -1471,27 +1350,22 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                     }}>
                       <button
                         onClick={() => {
-                          // Prepare the theme data
                           const themeData = {
                             theme: themeSettings,
                             editor: editorSettings
                           };
                           
-                          // Convert to JSON
                           const themeJson = JSON.stringify(themeData, null, 2);
                           
-                          // Create a blob and downloadable link
                           const blob = new Blob([themeJson], { type: 'application/json' });
                           const url = URL.createObjectURL(blob);
                           
-                          // Create a link element and trigger download
                           const a = document.createElement('a');
                           a.href = url;
                           a.download = `pointer-theme-${themeSettings.name.replace(/\s+/g, '-').toLowerCase()}-${new Date().toISOString().split('T')[0]}.json`;
                           document.body.appendChild(a);
                           a.click();
                           
-                          // Clean up
                           document.body.removeChild(a);
                           URL.revokeObjectURL(url);
                         }}
@@ -1540,15 +1414,12 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                                 const content = event.target?.result as string;
                                 const imported = JSON.parse(content);
                                 
-                                // Validate the imported data
                                 if (!imported.theme) {
                                   throw new Error('Invalid theme file: Missing theme settings');
                                 }
-                                
-                                // Update theme settings
+
                                 setThemeSettings(imported.theme);
                                 
-                                // Update editor settings if available
                                 if (imported.editor) {
                                   setEditorSettings(prev => ({
                                     ...prev,
@@ -1562,8 +1433,7 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                                 console.error('Error importing theme:', error);
                                 alert('Failed to import theme: Invalid JSON format');
                               }
-                              
-                              // Reset the file input
+
                               e.target.value = '';
                             };
                             
@@ -1699,7 +1569,6 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                                   const newExt = e.target.value.toLowerCase().trim();
                                   const newCustomExtensions = {...(themeSettings.customColors.customFileExtensions || {})};
                                   
-                                  // Remove old extension and add with new key
                                   if (newExt && newExt !== ext) {
                                     const colorValue = newCustomExtensions[ext];
                                     delete newCustomExtensions[ext];
@@ -1773,16 +1642,13 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                           {/* Add new extension button */}
                           <button
                             onClick={() => {
-                              // Get existing extensions or create a new object
                               const existingExtensions = themeSettings.customColors.customFileExtensions || {};
                               
-                              // Create a new extension with a default color
                               const newExtensions = {
                                 ...existingExtensions,
-                                'ext': '#ffffff'  // Default color
+                                'ext': '#ffffff'
                               };
                               
-                              // Update the theme settings
                               const newCustomColors = {
                                 ...themeSettings.customColors,
                                 customFileExtensions: newExtensions
@@ -2268,7 +2134,6 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                         <button
                           onClick={() => {
                           if (confirm('Are you sure you want to reset all theme and editor settings to defaults?')) {
-                            // Default editor settings
                             setEditorSettings({
                               fontFamily: 'monospace',
                               fontSize: 13,
@@ -2283,7 +2148,6 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                               autoAcceptGhostText: false,
                             });
                             
-                            // Default theme settings
                             setThemeSettings({
                               name: 'vs-dark',
                               customColors: {
@@ -2305,7 +2169,7 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                                 statusbarFg: '',
                                 activityBarBg: '',
                                 activityBarFg: '',
-                                inlineCodeColor: '#cc0000', // Default inline code color
+                                inlineCodeColor: '#cc0000',
                               },
                               editorColors: {
                                 "editor.background": "#1e1e1e",
@@ -2431,7 +2295,6 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                       <button
                         onClick={() => {
                           if (confirm('Are you sure you want to reset all settings to default values?')) {
-                            // Reset all settings
                             setModelConfigs({ 'default': { ...defaultConfig } });
                             setModelAssignments({...defaultModelAssignments});
                             setEditorSettings({
@@ -2468,7 +2331,7 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                                 statusbarFg: '',
                                 activityBarBg: '',
                                 activityBarFg: '',
-                                inlineCodeColor: '#cc0000', // Default inline code color
+                                inlineCodeColor: '#cc0000',
                               },
                               editorColors: {
                                 "editor.background": "#1e1e1e",
@@ -2896,4 +2759,4 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
       </div>
     </div>
   );
-} 
+}

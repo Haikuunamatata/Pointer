@@ -26,7 +26,6 @@ const iconColors = {
 export const getIconForFile = (filename: string) => {
   const extension = filename.split('.').pop()?.toLowerCase() || '';
 
-  // Set icon based on file extension
   switch (extension) {
     case 'js':
       return <JavaScriptIcon />;

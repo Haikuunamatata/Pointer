@@ -12,6 +12,8 @@ python-multipart==0.0.9
 starlette>=0.27.0
 spacy
 websockets
+psutil==5.9.8
+GPUtil==1.4.0
 
 # For OS-specific dependencies, install the appropriate file using:
 # Windows: pip install -r requirements_windows.txt
@@ -20,4 +22,4 @@ websockets
 
 
 # python3 -m spacy download en_core_web_sm
-# Execute this command to download the model
+# Execute this command to download the specific model

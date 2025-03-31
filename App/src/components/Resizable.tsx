@@ -7,7 +7,7 @@ interface ResizableProps {
   maxWidth: number;
   isCollapsed: boolean;
   onCollapse: () => void;
-  shortcutKey?: string; // Optional shortcut key identifier
+  shortcutKey?: string;
 }
 
 const Resizable: React.FC<ResizableProps> = ({
@@ -33,7 +33,6 @@ const Resizable: React.FC<ResizableProps> = ({
     dragStartXRef.current = e.clientX;
     dragStartWidthRef.current = width;
     
-    // Disable text selection while dragging
     document.body.style.userSelect = 'none';
     document.body.style.cursor = 'ew-resize';
   }, [width]);
@@ -43,7 +42,6 @@ const Resizable: React.FC<ResizableProps> = ({
     document.body.style.userSelect = '';
     document.body.style.cursor = '';
     
-    // Cancel any pending animation frame
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
     }
@@ -51,19 +49,16 @@ const Resizable: React.FC<ResizableProps> = ({
 
   const handleMouseMove = useCallback((e: MouseEvent) => {
     if (isDragging) {
-      // Cancel any pending animation frame
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
       }
 
-      // Schedule a new animation frame
       animationFrameRef.current = requestAnimationFrame(() => {
         const deltaX = e.clientX - dragStartXRef.current;
         const newWidth = Math.min(Math.max(dragStartWidthRef.current + deltaX, minWidth), maxWidth);
         
         if (newWidth !== width) {
           setWidth(newWidth);
-          // Trigger a resize event to update the editor layout
           window.dispatchEvent(new Event('resize'));
         }
       });
@@ -82,21 +77,17 @@ const Resizable: React.FC<ResizableProps> = ({
       window.removeEventListener('mouseup', handleMouseUp);
       window.removeEventListener('mouseleave', handleMouseUp);
       
-      // Clean up any pending animation frame
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
       }
     };
   }, [isDragging, handleMouseMove, handleMouseUp]);
 
-  // Double click to reset width
   const handleDoubleClick = useCallback(() => {
     setWidth(defaultWidth);
-    // Trigger a resize event to update the editor layout
     window.dispatchEvent(new Event('resize'));
   }, [defaultWidth]);
 
-  // Add keyboard shortcut handler
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (shortcutKey === 'sidebar' && e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'b') {

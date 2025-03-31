@@ -3,7 +3,6 @@ import { FileSystemItem } from '../types';
 import { FileSystemService } from '../services/FileSystemService';
 import { getIconForFile, FolderIcon, ChevronIcon } from './FileIcons';
 
-// Add a global window declaration at the top of the file if it doesn't exist
 declare global {
   interface Window {
     applyCustomTheme?: () => void;
@@ -99,16 +98,12 @@ const FileExplorerItem: React.FC<{
     setIsLoading(false);
 
     if (result) {
-      // Update the items in the parent component
       const newItems = { ...items };
       Object.entries(result.items).forEach(([id, item]) => {
-        if (id !== result.rootId) { // Don't add the root item as it already exists
+        if (id !== result.rootId) {
           newItems[id] = item;
         }
       });
-      // You'll need to implement this update mechanism in the parent component
-      // For now, we'll just log it
-      console.log('Folder contents loaded:', newItems);
     }
   };
 
@@ -397,10 +392,8 @@ const getAllChildIds = (items: Record<string, FileSystemItem>, parentId: string)
 };
 
 const handleDelete = (item: FileSystemItem, onDeleteItem: (item: FileSystemItem) => void) => {
-  // First delete the item itself
   onDeleteItem(item);
 
-  // If it's a directory, also delete all children
   if (item.type === 'directory') {
     const childIds = getAllChildIds(items, item.id);
     childIds.forEach(childId => {
@@ -411,18 +404,15 @@ const handleDelete = (item: FileSystemItem, onDeleteItem: (item: FileSystemItem)
   }
 };
 
-// Helper function to get the appropriate color for a file based on its extension
 const getFileColor = (filename: string): string => {
   const ext = filename.split('.').pop()?.toLowerCase() || '';
   
-  // First check if there's a custom color for this extension in the theme settings
   const customExtensions = window.appSettings?.theme?.customColors?.customFileExtensions || {};
   
   if (ext && customExtensions[ext]) {
     return customExtensions[ext];
   }
   
-  // Otherwise use the default file color
   return 'var(--explorer-file-fg, #CCCCCC)';
 };
 
@@ -453,18 +443,13 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
     itemId: null,
   });
 
-  // Theme change listener
   useEffect(() => {
-    // Function to handle theme changes
     const handleThemeChange = () => {
-      console.log('Theme changed, updating FileExplorer colors');
-      setThemeVersion(prev => prev + 1); // Increment to trigger re-render
+      setThemeVersion(prev => prev + 1);
     };
 
-    // Add event listener for theme changes
     window.addEventListener('theme-changed', handleThemeChange);
 
-    // Clean up
     return () => {
       window.removeEventListener('theme-changed', handleThemeChange);
     };
@@ -478,11 +463,6 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
       newExpanded.add(folderId);
       const folder = items[folderId];
       if (folder) {
-        console.log('Opening folder:', {
-          id: folderId,
-          path: folder.path,
-          name: folder.name
-        });
         await loadFolderContents(folder.path, folderId);
       }
     }
@@ -534,11 +514,9 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
         itemCount: Object.keys(result.items).length
       });
       
-      // Update the items in the parent component
       const newItems = { ...items };
       Object.entries(result.items).forEach(([id, item]) => {
         if (id !== result.rootId) {
-          // Set the correct parentId for the items
           if (item.parentId === result.rootId) {
             item.parentId = folderId;
           }
@@ -694,7 +672,6 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
     const isLoading = loadingFolders.has(item.path);
     const isSelected = id === currentFileId;
 
-    // Get immediate children only
     const childItems = Object.values(items).filter(i => i.parentId === id);
 
     return (
@@ -703,7 +680,6 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
           onClick={() => {
             if (item.type === 'file') {
               onFileSelect(id);
-              // Reapply theme after file selection
               setTimeout(() => window.applyCustomTheme?.(), 100);
             } else {
               handleFolderClick(id);

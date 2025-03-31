@@ -7,7 +7,6 @@ import { ToastManager } from './Toast';
 import { FileSystemService } from '../services/FileSystemService';
 import Modal from './Modal';
 
-// Interface no longer needed as we're using the generic Modal component
 
 interface TabsProps {
   openFiles: string[];
@@ -54,7 +53,6 @@ const Tabs: React.FC<TabsProps> = ({
     fileId: string;
   } | null>(null);
   
-  // Add state for summary dialog
   const [summaryDialog, setSummaryDialog] = useState<{
     isOpen: boolean;
     fileName: string;
@@ -70,7 +68,6 @@ const Tabs: React.FC<TabsProps> = ({
   const handleTabClick = (fileId: string) => {
     console.log('Tab clicked:', fileId);
     
-    // Apply theme when switching tabs if available on window
     if (window.applyCustomTheme) {
       window.applyCustomTheme();
     }
@@ -105,14 +102,11 @@ const Tabs: React.FC<TabsProps> = ({
     }
 
     try {
-      // Show feedback that we're starting the summarization
       ToastManager.show(`Summarizing ${file.name}...`, 'info');
       
-      // If content is not available, try to load it first
       let fileContent = file.content;
       if (!fileContent) {
         try {
-          // Assuming FileSystemService has a readFile method
           const loadedContent = await FileSystemService.readFile(fileId);
           if (loadedContent) {
             fileContent = loadedContent;
@@ -127,7 +121,6 @@ const Tabs: React.FC<TabsProps> = ({
         }
       }
       
-      // Open the dialog first but mark it as streaming
       setSummaryDialog({
         isOpen: true,
         fileName: file.name,
@@ -135,17 +128,14 @@ const Tabs: React.FC<TabsProps> = ({
         isStreaming: true
       });
       
-      // Initialize accumulated summary
       let accumulatedSummary = '';
       
-      // Now that we have content, call the summary function with streaming
       console.log("Requesting streaming summary for file:", file.path);
       
       const summary = await AIFileService.getFileSummary(
         file.path, 
         fileContent,
         (chunk) => {
-          // Update with each new chunk
           accumulatedSummary += chunk;
           setSummaryDialog(prev => ({
             ...prev,
@@ -154,21 +144,18 @@ const Tabs: React.FC<TabsProps> = ({
         }
       );
 
-      // After streaming is complete, update the final state
       setSummaryDialog(prev => ({
         ...prev,
         summary: summary || accumulatedSummary,
         isStreaming: false
       }));
       
-      // Show toast notification
       ToastManager.show(`Summary ready for ${file.name}`, 'success');
       
     } catch (error) {
       console.error('Error summarizing file:', error);
       ToastManager.show('Error generating file summary', 'error');
       
-      // Make sure to update state to indicate streaming is done, even on error
       setSummaryDialog(prev => ({
         ...prev,
         isStreaming: false
@@ -176,13 +163,10 @@ const Tabs: React.FC<TabsProps> = ({
     }
   };
 
-  // Filter out files that don't exist in the items record
-  // Special case for 'welcome' file which might be restored later
   const validOpenFiles = openFiles.filter(fileId => 
     fileId === 'welcome' || items[fileId]
   );
 
-  // Render the content for the summary dialog
   const renderSummaryContent = () => {
     if (summaryDialog.isStreaming && summaryDialog.summary === '') {
       return <span className="blinking-cursor">|</span>;
@@ -203,7 +187,6 @@ const Tabs: React.FC<TabsProps> = ({
           const file = items[fileId];
           const isActive = fileId === currentFileId;
           
-          // Handle special case for welcome file
           const fileName = fileId === 'welcome' && !file 
             ? 'Welcome' 
             : file?.name || 'Unknown File';
@@ -335,7 +318,6 @@ const Tabs: React.FC<TabsProps> = ({
               {
                 label: 'Summarize',
                 onClick: () => handleSummarizeFile(contextMenu.fileId),
-                // Disable for welcome file as it's not a real file
                 disabled: contextMenu.fileId === 'welcome',
               },
               {
@@ -345,14 +327,13 @@ const Tabs: React.FC<TabsProps> = ({
                     onTabClose(contextMenu.fileId);
                   }
                 },
-                disabled: contextMenu.fileId === 'welcome', // Can't close welcome file
+                disabled: contextMenu.fileId === 'welcome',
               },
             ]}
           />
         )}
       </div>
       
-      {/* Use the generic Modal component instead of the SummaryDialog */}
       <Modal
         isOpen={summaryDialog.isOpen}
         onClose={() => {

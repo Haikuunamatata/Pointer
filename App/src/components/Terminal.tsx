@@ -59,8 +59,8 @@ const Terminal: React.FC<TerminalProps> = ({ isVisible }) => {
   };
 
   const handleTerminalData = (data: string, socket: WebSocket) => {
-    if (data === '\x7F' || data === '\b') { // Backspace character
-      socket.send('\x08'); // Send ASCII backspace character
+    if (data === '\x7F' || data === '\b') {
+      socket.send('\x08');
     } else {
       socket.send(data);
     }
@@ -69,10 +69,8 @@ const Terminal: React.FC<TerminalProps> = ({ isVisible }) => {
   useEffect(() => {
     if (!terminalRef.current || xtermRef.current) return;
 
-    // Wait for the container to be properly sized
     const resizeObserver = new ResizeObserver(() => {
       if (!xtermRef.current && terminalRef.current) {
-        // Initialize xterm.js
         const xterm = new XTerm({
           theme: {
             background: '#1e1e1e',
@@ -95,23 +93,19 @@ const Terminal: React.FC<TerminalProps> = ({ isVisible }) => {
           allowProposedApi: true,
         });
 
-        // Initialize addons
         const fitAddon = new FitAddon();
         const webLinksAddon = new WebLinksAddon();
 
         xterm.loadAddon(fitAddon);
         xterm.loadAddon(webLinksAddon);
 
-        // Store references
         xtermRef.current = xterm;
         fitAddonRef.current = fitAddon;
 
-        // Open terminal in the container
         xterm.open(terminalRef.current);
         fitAddon.fit();
         xterm.focus();
 
-        // Connect to WebSocket
         const socket = new WebSocket('ws://localhost:23816/ws/terminal');
         socketRef.current = socket;
 
@@ -130,14 +124,12 @@ const Terminal: React.FC<TerminalProps> = ({ isVisible }) => {
           xterm.write('\r\nWebSocket Error: Failed to connect to terminal server\r\n');
         };
 
-        // Handle terminal input
         xterm.onData((data) => {
           if (socket.readyState === WebSocket.OPEN) {
             handleTerminalData(data, socket);
           }
         });
 
-        // Handle window resize
         const handleResize = () => {
           requestAnimationFrame(() => {
             fitAddon.fit();
@@ -146,7 +138,6 @@ const Terminal: React.FC<TerminalProps> = ({ isVisible }) => {
 
         window.addEventListener('resize', handleResize);
 
-        // Cleanup function
         return () => {
           window.removeEventListener('resize', handleResize);
           if (socketRef.current) {
@@ -158,10 +149,8 @@ const Terminal: React.FC<TerminalProps> = ({ isVisible }) => {
       }
     });
 
-    // Start observing the container
     resizeObserver.observe(terminalRef.current);
 
-    // Cleanup function if xterm wasn't initialized
     return () => {
       resizeObserver.disconnect();
     };

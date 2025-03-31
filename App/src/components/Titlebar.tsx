@@ -70,8 +70,7 @@ const Titlebar: React.FC<TitlebarProps> = ({
       }
     };
     checkMaximized();
-
-    // Add window event listeners
+  
     window.addEventListener('resize', checkMaximized);
     return () => window.removeEventListener('resize', checkMaximized);
   }, []);
