@@ -20,9 +20,14 @@ import time
 import psutil
 import platform
 import GPUtil
+# Import the git router
+from git_endpoints import router as git_router
 
 app = FastAPI()
 qt_app = QApplication(sys.argv)
+
+# Include the git router
+app.include_router(git_router)
 
 # Enable CORS
 app.add_middleware(
