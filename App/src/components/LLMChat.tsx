@@ -604,7 +604,7 @@ const MessageRenderer: React.FC<{ message: Message }> = ({ message }) => {
                   </li>
                 ),
                 code({ className, children, ...props }: CodeProps) {
-                  const content = String(children).replace(/\n$/, '');
+                  let content = String(children).replace(/\n$/, '');
                   
                   // Check if this is a code block (triple backticks) or inline code (single backtick)
                   const isCodeBlock = content.includes('\n') || content.length > 50;
@@ -635,6 +635,38 @@ const MessageRenderer: React.FC<{ message: Message }> = ({ message }) => {
                     if (match) {
                       language = match[1] || '';
                       filename = match[2] || '';
+                    }
+                  }
+
+                  // If no filename was provided in the className, try to extract it from the first line
+                  if (!filename) {
+                    const lines = content.split('\n');
+                    const firstLine = lines[0].trim();
+                    
+                    // Extract potential filename from any comment style
+                    // Match HTML comments, regular comments, and other common comment styles
+                    const commentPatterns = [
+                      /^<!--\s*(.*?\.[\w]+)\s*-->/, // HTML comments
+                      /^\/\/\s*(.*?\.[\w]+)\s*$/, // Single line comments
+                      /^#\s*(.*?\.[\w]+)\s*$/, // Hash comments
+                      /^\/\*\s*(.*?\.[\w]+)\s*\*\/$/, // Multi-line comments
+                      /^--\s*(.*?\.[\w]+)\s*$/, // SQL comments
+                      /^%\s*(.*?\.[\w]+)\s*$/, // Matlab/LaTeX comments
+                      /^;\s*(.*?\.[\w]+)\s*$/, // Assembly/Lisp comments
+                    ];
+
+                    for (const pattern of commentPatterns) {
+                      const match = firstLine.match(pattern);
+                      if (match && match[1]) {
+                        const potentialPath = match[1].trim();
+                        // Basic check if it looks like a file path (no spaces)
+                        if (!potentialPath.includes(' ')) {
+                          filename = potentialPath;
+                          // Remove the first line from the content since we're using it as the filename
+                          content = lines.slice(1).join('\n').trim();
+                          break;
+                        }
+                      }
                     }
                   }
                   
@@ -710,7 +742,7 @@ const MessageRenderer: React.FC<{ message: Message }> = ({ message }) => {
                   </li>
                 ),
                 code({ className, children, ...props }: CodeProps) {
-                  const content = String(children).replace(/\n$/, '');
+                  let content = String(children).replace(/\n$/, '');
                   
                   // Check if this is a code block (triple backticks) or inline code (single backtick)
                   const isCodeBlock = content.includes('\n') || content.length > 50;
@@ -741,6 +773,38 @@ const MessageRenderer: React.FC<{ message: Message }> = ({ message }) => {
                     if (match) {
                       language = match[1] || '';
                       filename = match[2] || '';
+                    }
+                  }
+
+                  // If no filename was provided in the className, try to extract it from the first line
+                  if (!filename) {
+                    const lines = content.split('\n');
+                    const firstLine = lines[0].trim();
+                    
+                    // Extract potential filename from any comment style
+                    // Match HTML comments, regular comments, and other common comment styles
+                    const commentPatterns = [
+                      /^<!--\s*(.*?\.[\w]+)\s*-->/, // HTML comments
+                      /^\/\/\s*(.*?\.[\w]+)\s*$/, // Single line comments
+                      /^#\s*(.*?\.[\w]+)\s*$/, // Hash comments
+                      /^\/\*\s*(.*?\.[\w]+)\s*\*\/$/, // Multi-line comments
+                      /^--\s*(.*?\.[\w]+)\s*$/, // SQL comments
+                      /^%\s*(.*?\.[\w]+)\s*$/, // Matlab/LaTeX comments
+                      /^;\s*(.*?\.[\w]+)\s*$/, // Assembly/Lisp comments
+                    ];
+
+                    for (const pattern of commentPatterns) {
+                      const match = firstLine.match(pattern);
+                      if (match && match[1]) {
+                        const potentialPath = match[1].trim();
+                        // Basic check if it looks like a file path (no spaces)
+                        if (!potentialPath.includes(' ')) {
+                          filename = potentialPath;
+                          // Remove the first line from the content since we're using it as the filename
+                          content = lines.slice(1).join('\n').trim();
+                          break;
+                        }
+                      }
                     }
                   }
                   

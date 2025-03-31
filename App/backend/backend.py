@@ -17,6 +17,9 @@ import signal
 from keyword_extractor import extract_keywords
 import math
 import time
+import psutil
+import platform
+import GPUtil
 
 app = FastAPI()
 qt_app = QApplication(sys.argv)
@@ -1195,6 +1198,60 @@ async def save_settings_files(request: SaveSettingsRequest):
         return {"success": True}
     except Exception as e:
         print(f"Error saving settings files: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/system-information")
+async def get_system_information():
+    try:
+        # Get OS information
+        os_info = {
+            "system": platform.system(),
+            "release": platform.release(),
+            "version": platform.version(),
+            "machine": platform.machine(),
+            "processor": platform.processor()
+        }
+        
+        # Get RAM information
+        ram = psutil.virtual_memory()
+        ram_info = {
+            "total": ram.total,
+            "available": ram.available,
+            "percent": ram.percent,
+            "used": ram.used,
+            "free": ram.free
+        }
+        
+        # Get CPU information
+        cpu_info = {
+            "physical_cores": psutil.cpu_count(logical=False),
+            "total_cores": psutil.cpu_count(logical=True),
+            "cpu_freq": psutil.cpu_freq()._asdict() if psutil.cpu_freq() else None,
+            "cpu_percent": psutil.cpu_percent(interval=1)
+        }
+        
+        # Get GPU information
+        try:
+            gpus = GPUtil.getGPUs()
+            gpu_info = [{
+                "id": gpu.id,
+                "name": gpu.name,
+                "load": gpu.load * 100,
+                "memory_total": gpu.memoryTotal,
+                "memory_used": gpu.memoryUsed,
+                "memory_free": gpu.memoryFree,
+                "temperature": gpu.temperature
+            } for gpu in gpus]
+        except:
+            gpu_info = []
+        
+        return {
+            "os": os_info,
+            "ram": ram_info,
+            "cpu": cpu_info,
+            "gpu": gpu_info
+        }
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 # Remove the uvicorn.run() call since we're using run.py now

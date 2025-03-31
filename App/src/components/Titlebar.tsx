@@ -19,8 +19,41 @@ interface TitlebarProps {
   onOpenFile?: () => void;
 }
 
+interface SystemInfo {
+  os: {
+    system: string;
+    release: string;
+    version: string;
+    machine: string;
+    processor: string;
+  };
+  ram: {
+    total: number;
+    available: number;
+    percent: number;
+    used: number;
+    free: number;
+  };
+  cpu: {
+    physical_cores: number;
+    total_cores: number;
+    cpu_freq: any;
+    cpu_percent: number;
+  };
+  gpu: Array<{
+    id: number;
+    name: string;
+    load: number;
+    memory_total: number;
+    memory_used: number;
+    memory_free: number;
+    temperature: number;
+  }>;
+}
+
 const Titlebar: React.FC<TitlebarProps> = ({ onOpenFolder, onOpenFile }) => {
   const [isMaximized, setIsMaximized] = useState(false);
+  const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
 
   useEffect(() => {
     const checkMaximized = async () => {
@@ -34,6 +67,22 @@ const Titlebar: React.FC<TitlebarProps> = ({ onOpenFolder, onOpenFile }) => {
     // Add window event listeners
     window.addEventListener('resize', checkMaximized);
     return () => window.removeEventListener('resize', checkMaximized);
+  }, []);
+
+  useEffect(() => {
+    const fetchSystemInfo = async () => {
+      try {
+        const response = await fetch('http://127.0.0.1:23816/system-information');
+        if (response.ok) {
+          const data = await response.json();
+          setSystemInfo(data);
+        }
+      } catch (error) {
+        console.error('Error fetching system information:', error);
+      }
+    };
+
+    fetchSystemInfo();
   }, []);
 
   const handleMinimize = () => {
@@ -52,8 +101,10 @@ const Titlebar: React.FC<TitlebarProps> = ({ onOpenFolder, onOpenFile }) => {
     window.open('https://pointer.f1shy312.com', '_blank');
   };
 
+  const isWindows = systemInfo?.os.system === 'Windows';
+
   return (
-    <div className="titlebar">
+    <div className={`titlebar ${isWindows ? 'windows' : 'macos'}`}>
       <div className="titlebar-left">
         <img src={logo} alt="Pointer Logo" className="titlebar-logo" />
         <div className="titlebar-divider" />

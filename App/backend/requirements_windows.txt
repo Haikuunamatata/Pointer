@@ -7,4 +7,6 @@ python-multipart==0.0.9
 starlette>=0.27.0
 spacy
 websockets
-pywin32 
+pywin32
+psutil==5.9.8
+GPUtil==1.4.0 

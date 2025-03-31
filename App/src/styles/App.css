@@ -60,19 +60,21 @@ body {
   border-bottom: 1px solid var(--border-color);
 }
 
+/* Windows-specific styles */
+.titlebar.windows .titlebar-left {
+  padding-left: 8px;
+}
+
+/* macOS-specific styles */
+.titlebar.macos .titlebar-left {
+  padding-left: 76px; /* Space for traffic lights */
+}
+
 .titlebar-left {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding-left: 8px;
   -webkit-app-region: no-drag;
-}
-
-/* Add padding for macOS traffic lights */
-@media screen and (-webkit-min-device-pixel-ratio: 1) {
-  .titlebar-left {
-    padding-left: 76px; /* Space for traffic lights */
-  }
 }
 
 .titlebar-logo {
