@@ -20,11 +20,70 @@ import time
 import psutil
 import platform
 import GPUtil
+import requests
 # Import the git router
 from git_endpoints import router as git_router
 
 app = FastAPI()
 qt_app = QApplication(sys.argv)
+
+# GitHub API endpoints
+@app.get("/github/user-repos")
+async def get_user_repositories():
+    """Get GitHub repositories for the authenticated user."""
+    # Check if we have a GitHub token in settings
+    token_path = os.path.join("C:/ProgramData/Pointer/data/settings", "github_token.json")
+    
+    if os.path.exists(token_path):
+        try:
+            with open(token_path, 'r') as file:
+                token_data = json.load(file)
+                token = token_data.get('token')
+                
+                if token:
+                    headers = {
+                        "Authorization": f"token {token}",
+                        "Accept": "application/vnd.github.v3+json"
+                    }
+                    
+                    response = requests.get(
+                        "https://api.github.com/user/repos",
+                        headers=headers,
+                        params={"sort": "updated", "per_page": 10}
+                    )
+                    
+                    if response.status_code == 200:
+                        return {"repositories": response.json()}
+        except Exception as e:
+            print(f"Error fetching GitHub repositories: {str(e)}")
+    
+    # Return demo flag if not authenticated or error occurred
+    return {"demo": True}
+
+@app.get("/github/popular-repos")
+async def get_popular_repositories():
+    """Get popular GitHub repositories."""
+    try:
+        # Query GitHub API for popular repositories
+        response = requests.get(
+            "https://api.github.com/search/repositories",
+            params={
+                "q": "stars:>10000",
+                "sort": "stars",
+                "order": "desc",
+                "per_page": 10
+            },
+            headers={"Accept": "application/vnd.github.v3+json"}
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            return {"repositories": data["items"]}
+    except Exception as e:
+        print(f"Error fetching popular repositories: {str(e)}")
+    
+    # Return demo flag if API error
+    return {"demo": True}
 
 # Include the git router
 app.include_router(git_router)
@@ -85,6 +144,9 @@ class SettingsRequest(BaseModel):
 class SaveSettingsRequest(BaseModel):
     settingsDir: str  # Directory to save settings files
     settings: dict  # Settings data to save
+
+class GitHubTokenRequest(BaseModel):
+    token: str
 
 # Add a user workspace directory variable
 base_directory: str | None = None  # Initialize as None instead of os.getcwd()
@@ -1258,6 +1320,45 @@ async def get_system_information():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/github/save-token")
+async def save_github_token(request: GitHubTokenRequest):
+    """Save GitHub token to settings."""
+    settings_dir = "C:/ProgramData/Pointer/data/settings"
+    
+    # Create directory if it doesn't exist
+    os.makedirs(settings_dir, exist_ok=True)
+    
+    token_path = os.path.join(settings_dir, "github_token.json")
+    
+    try:
+        with open(token_path, 'w') as file:
+            json.dump({"token": request.token}, file)
+        
+        # Validate token with GitHub API
+        headers = {
+            "Authorization": f"token {request.token}",
+            "Accept": "application/vnd.github.v3+json"
+        }
+        
+        response = requests.get(
+            "https://api.github.com/user",
+            headers=headers
+        )
+        
+        if response.status_code == 200:
+            user_data = response.json()
+            return {
+                "success": True, 
+                "message": f"Successfully authenticated as {user_data.get('login')}"
+            }
+        else:
+            return {
+                "success": False,
+                "message": f"GitHub API returned error: {response.status_code}"
+            }
+    except Exception as e:
+        return {"success": False, "message": f"Error saving token: {str(e)}"}
 
 # Remove the uvicorn.run() call since we're using run.py now
 if __name__ == "__main__":

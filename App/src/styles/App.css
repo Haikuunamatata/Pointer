@@ -150,6 +150,56 @@ body {
   background-color: #e81123;
 }
 
+/* File Menu Dropdown */
+.file-menu-container {
+  position: relative;
+}
+
+.titlebar-action-button.file-menu-button {
+  width: auto;
+  padding: 0 8px;
+  gap: 4px;
+}
+
+.file-menu-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 1000;
+  min-width: 200px;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.32);
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+.file-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.file-menu-item:hover {
+  background-color: var(--bg-hover);
+}
+
+.file-menu-divider {
+  height: 1px;
+  background-color: var(--border-color);
+  margin: 4px 0;
+}
+
 /* Scrollbar styles */
 ::-webkit-scrollbar {
   width: 10px;
@@ -234,6 +284,116 @@ input:focus {
   max-width: 90vw;
   max-height: 90vh;
   overflow: auto;
+}
+
+/* Repository List Item Styling */
+.repo-list-item {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.repo-list-item:hover {
+  background-color: var(--bg-hover);
+}
+
+.repo-list-item:last-child {
+  border-bottom: none;
+}
+
+.repo-title {
+  font-size: 14px;
+  font-weight: bold;
+  color: var(--text-primary);
+}
+
+.repo-description {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.repo-meta {
+  font-size: 12px;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+/* Modal Form Elements */
+.modal-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.modal-input {
+  width: 100%;
+  padding: 8px 12px;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.modal-button {
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background-color 0.2s, opacity 0.2s;
+}
+
+.modal-button-primary {
+  background-color: var(--accent-color);
+  color: white;
+  border: none;
+}
+
+.modal-button-primary:hover {
+  opacity: 0.9;
+}
+
+.modal-button-secondary {
+  background-color: transparent;
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+}
+
+.modal-button-secondary:hover {
+  background-color: var(--bg-hover);
+}
+
+/* Modal Tabs */
+.modal-tab {
+  padding: 8px 16px;
+  background-color: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+  margin-right: 8px;
+}
+
+.modal-tab:hover {
+  color: var(--text-primary);
+  background-color: transparent;
+}
+
+.modal-tab-active {
+  color: var(--accent-color);
+  border-bottom: 2px solid var(--accent-color);
+}
+
+.modal-tab-active:hover {
+  background-color: transparent;
 }
 
 /* Focus styles */

@@ -122,6 +122,35 @@ export class GitService {
   }
 
   /**
+   * Clones a Git repository
+   */
+  static async cloneRepository(url: string, directory: string): Promise<GitCommandResult> {
+    try {
+      const response = await fetch(`${this.API_URL}/git/clone`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ url, directory })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to clone git repository: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('Error cloning git repository:', error);
+      return {
+        success: false,
+        data: '',
+        error: String(error)
+      };
+    }
+  }
+
+  /**
    * Checks if Git user identity is configured
    */
   static async checkIdentityConfig(directory: string): Promise<{ configured: boolean; userName?: string; userEmail?: string }> {

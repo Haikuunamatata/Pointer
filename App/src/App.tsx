@@ -19,6 +19,8 @@ import { Settings } from './components/Settings';
 import ToastContainer from './components/ToastContainer';
 import Titlebar from './components/Titlebar';
 import GitView from './components/Git/GitView';
+import { GitService } from './services/gitService';
+import CloneRepositoryModal from './components/CloneRepositoryModal';
 
 // Initialize language support
 initializeLanguageSupport();
@@ -724,7 +726,7 @@ const App: React.FC = () => {
     });
   };
 
-  const handleOpenFolder = useCallback(async () => {
+  const handleOpenFolder = async () => {
     try {
       setIsLoading(true);
       setLoadingError(null);
@@ -768,7 +770,12 @@ const App: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  };
+
+  const handleCloneRepository = async () => {
+    // Open the clone repository modal
+    setIsCloneModalOpen(true);
+  };
 
   const handleOpenFile = async () => {
     // Apply custom theme at the beginning to ensure it's set
@@ -1379,6 +1386,8 @@ const App: React.FC = () => {
     // Implementation of saveAllSettings function
   };
 
+  const [isCloneModalOpen, setIsCloneModalOpen] = useState(false);
+
   return (
     <div className="app-container">
       {isConnecting && (
@@ -1395,6 +1404,7 @@ const App: React.FC = () => {
         <Titlebar
           onOpenFolder={handleOpenFolder} 
           onOpenFile={handleOpenFile} 
+          onCloneRepository={handleCloneRepository}
           onToggleGitView={handleToggleGitView}
           onToggleExplorerView={handleToggleExplorerView}
           onToggleLLMChat={() => setIsLLMChatVisible(!isLLMChatVisible)}
@@ -1691,6 +1701,33 @@ const App: React.FC = () => {
             discordRpc: discordRpcSettings,
             onDiscordSettingsChange: (settings) => {
               setDiscordRpcSettings(prev => ({...prev, ...settings}));
+            }
+          }}
+        />
+
+        {/* Clone Repository Modal */}
+        <CloneRepositoryModal
+          isOpen={isCloneModalOpen}
+          onClose={() => setIsCloneModalOpen(false)}
+          onClone={async (url, directory) => {
+            setIsLoading(true);
+            setLoadingError(null);
+            
+            try {
+              const cloneResult = await GitService.cloneRepository(url, directory);
+              
+              if (!cloneResult.success) {
+                throw new Error(cloneResult.error || 'Failed to clone repository');
+              }
+              
+              // If successful, open the folder
+              await handleOpenFolder();
+            } catch (error: any) {
+              console.error('Error cloning repository:', error);
+              setLoadingError(`Error cloning repository: ${error.message}`);
+              throw error; // Rethrow to be caught by the modal
+            } finally {
+              setIsLoading(false);
             }
           }}
         />

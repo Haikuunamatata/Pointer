@@ -5,6 +5,7 @@ import logo from '../assets/logo.png';
 interface TitlebarProps {
   onOpenFolder?: () => void;
   onOpenFile?: () => void;
+  onCloneRepository?: () => void;
   onToggleGitView?: () => void;
   onToggleExplorerView?: () => void;
   onToggleLLMChat?: () => void;
@@ -54,6 +55,7 @@ interface SystemInfo {
 const Titlebar: React.FC<TitlebarProps> = ({ 
   onOpenFolder, 
   onOpenFile,
+  onCloneRepository,
   onToggleGitView,
   onToggleExplorerView,
   onToggleLLMChat,
@@ -69,6 +71,7 @@ const Titlebar: React.FC<TitlebarProps> = ({
 }) => {
   const [isMaximized, setIsMaximized] = useState(false);
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
+  const [isFileMenuOpen, setIsFileMenuOpen] = useState(false);
 
   useEffect(() => {
     const checkMaximized = async () => {
@@ -82,6 +85,23 @@ const Titlebar: React.FC<TitlebarProps> = ({
     window.addEventListener('resize', checkMaximized);
     return () => window.removeEventListener('resize', checkMaximized);
   }, []);
+
+  // Add click outside listener to close dropdown
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (isFileMenuOpen) {
+        const target = e.target as HTMLElement;
+        if (!target.closest('.file-menu-dropdown') && !target.closest('.file-menu-button')) {
+          setIsFileMenuOpen(false);
+        }
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isFileMenuOpen]);
 
   useEffect(() => {
     const fetchSystemInfo = async () => {
@@ -115,6 +135,24 @@ const Titlebar: React.FC<TitlebarProps> = ({
     window.open('https://pointer.f1shy312.com', '_blank');
   };
 
+  const handleCloneRepository = () => {
+    onCloneRepository?.();
+    // Close the dropdown after selection
+    setIsFileMenuOpen(false);
+  };
+
+  const handleOpenFile = () => {
+    onOpenFile?.();
+    // Close the dropdown after selection
+    setIsFileMenuOpen(false);
+  };
+
+  const handleOpenFolder = () => {
+    onOpenFolder?.();
+    // Close the dropdown after selection
+    setIsFileMenuOpen(false);
+  };
+
   const isWindows = systemInfo?.os.system === 'Windows';
 
   // Format the title based on the template
@@ -131,16 +169,68 @@ const Titlebar: React.FC<TitlebarProps> = ({
       <div className="titlebar-left">
         <img src={logo} alt="Pointer Logo" className="titlebar-logo" />
         <div className="titlebar-divider" />
-        <button className="titlebar-action-button" onClick={onOpenFolder}>
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M1.5 2.5A1.5 1.5 0 0 1 3 1h2.879a1.5 1.5 0 0 1 1.06.44l1.122 1.12A1.5 1.5 0 0 0 9.12 3H13a1.5 1.5 0 0 1 1.5 1.5v8a1.5 1.5 0 0 1-1.5 1.5H3A1.5 1.5 0 0 1 1.5 12.5v-10z" stroke="currentColor" strokeWidth="1.2"/>
-          </svg>
-        </button>
-        <button className="titlebar-action-button" onClick={onOpenFile}>
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M3 1.5A1.5 1.5 0 0 1 4.5 0h4.379a1.5 1.5 0 0 1 1.06.44l2.122 2.12A1.5 1.5 0 0 1 12.5 3.62V14.5a1.5 1.5 0 0 1-1.5 1.5h-7A1.5 1.5 0 0 1 2.5 14.5v-13A1.5 1.5 0 0 1 4 0z" stroke="currentColor" strokeWidth="1.2"/>
-          </svg>
-        </button>
+        
+        {/* New file menu dropdown */}
+        <div className="file-menu-container">
+          <button 
+            className="titlebar-action-button file-menu-button" 
+            onClick={() => setIsFileMenuOpen(!isFileMenuOpen)}
+            title="File Menu"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M1.5 2.5A1.5 1.5 0 0 1 3 1h2.879a1.5 1.5 0 0 1 1.06.44l1.122 1.12A1.5 1.5 0 0 0 9.12 3H13a1.5 1.5 0 0 1 1.5 1.5v8a1.5 1.5 0 0 1-1.5 1.5H3A1.5 1.5 0 0 1 1.5 12.5v-10z" stroke="currentColor" strokeWidth="1.2"/>
+              <path d="M5 8h6M8 5v6" stroke="currentColor" strokeWidth="1.2"/>
+            </svg>
+            <span style={{ marginLeft: '4px' }}>File</span>
+            <svg 
+              width="10" 
+              height="6" 
+              viewBox="0 0 10 6" 
+              fill="none" 
+              xmlns="http://www.w3.org/2000/svg"
+              style={{ marginLeft: '4px' }}
+            >
+              <path d="M1 1L5 5L9 1" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+          
+          {isFileMenuOpen && (
+            <div className="file-menu-dropdown">
+              <button 
+                className="file-menu-item" 
+                onClick={handleOpenFile}
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M3 1.5A1.5 1.5 0 0 1 4.5 0h4.379a1.5 1.5 0 0 1 1.06.44l2.122 2.12A1.5 1.5 0 0 1 12.5 3.62V14.5a1.5 1.5 0 0 1-1.5 1.5h-7A1.5 1.5 0 0 1 2.5 14.5v-13A1.5 1.5 0 0 1 4 0z" stroke="currentColor" strokeWidth="1.2"/>
+                </svg>
+                <span>Open File</span>
+              </button>
+              
+              <button 
+                className="file-menu-item" 
+                onClick={handleOpenFolder}
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M1.5 2.5A1.5 1.5 0 0 1 3 1h2.879a1.5 1.5 0 0 1 1.06.44l1.122 1.12A1.5 1.5 0 0 0 9.12 3H13a1.5 1.5 0 0 1 1.5 1.5v8a1.5 1.5 0 0 1-1.5 1.5H3A1.5 1.5 0 0 1 1.5 12.5v-10z" stroke="currentColor" strokeWidth="1.2"/>
+                </svg>
+                <span>Open Folder</span>
+              </button>
+              
+              <div className="file-menu-divider"></div>
+              
+              <button 
+                className="file-menu-item" 
+                onClick={handleCloneRepository}
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M15.698 7.287L8.712 0.302C8.51 0.1 8.255 0 7.986 0C7.717 0 7.463 0.099 7.26 0.302L5.809 1.753L7.644 3.588C7.954 3.491 8.308 3.552 8.552 3.795C8.798 4.041 8.858 4.398 8.757 4.709L10.524 6.476C10.835 6.375 11.193 6.434 11.438 6.681C11.775 7.018 11.775 7.564 11.438 7.901C11.101 8.238 10.555 8.238 10.218 7.901C9.958 7.641 9.904 7.253 10.033 6.929L8.382 5.278V10.795C8.465 10.837 8.546 10.891 8.614 10.959C8.951 11.296 8.951 11.842 8.614 12.179C8.277 12.516 7.73 12.516 7.394 12.179C7.057 11.842 7.057 11.296 7.394 10.959C7.478 10.875 7.576 10.814 7.678 10.776V5.215C7.576 5.177 7.478 5.118 7.394 5.032C7.131 4.769 7.08 4.376 7.213 4.05L5.406 2.244L0.302 7.347C0.099 7.551 0 7.805 0 8.074C0 8.343 0.099 8.597 0.302 8.801L7.288 15.786C7.491 15.988 7.745 16.088 8.014 16.088C8.283 16.088 8.537 15.989 8.74 15.786L15.698 8.827C15.9 8.624 16 8.37 16 8.101C16 7.832 15.901 7.578 15.698 7.374V7.287Z" fill="currentColor"/>
+                </svg>
+                <span>Clone Repository</span>
+              </button>
+            </div>
+          )}
+        </div>
+        
         <div className="titlebar-divider" />
         <button 
           className="titlebar-action-button" 
