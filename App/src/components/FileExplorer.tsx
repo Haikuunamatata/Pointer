@@ -850,33 +850,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
         alignItems: 'center',
         justifyContent: 'space-between',
       }}>
-        <span>{items[rootId]?.name || 'Explorer'}</span>
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            const resizableElement = e.currentTarget.closest('.resizable');
-            if (resizableElement) {
-              const collapseButton = resizableElement.querySelector('.collapse-button') as HTMLElement;
-              if (collapseButton) {
-                collapseButton.click();
-              }
-            }
-          }}
-          style={{
-            background: 'transparent',
-            border: 'none',
-            color: 'inherit',
-            padding: '4px 8px',
-            cursor: 'pointer',
-            opacity: 0.7,
-            ':hover': {
-              opacity: 1,
-            },
-          }}
-          title="Collapse Sidebar"
-        >
-          <span style={{ fontSize: '14px' }}>⟨</span>
-        </button>
+        <span style={{ marginBottom: '4px' }}>{items[rootId]?.name || 'Explorer'}</span>
       </div>
       <div style={{ padding: '4px 0 0 12px' }}>
         {renderItem(rootId)}

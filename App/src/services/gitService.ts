@@ -15,6 +15,7 @@ export interface GitStatus {
     staged: string[];
     unstaged: string[];
     untracked: string[];
+    hasCommitsToPush: boolean;
   };
 }
 
@@ -84,7 +85,8 @@ export class GitService {
         changes: {
           staged: [],
           unstaged: [],
-          untracked: []
+          untracked: [],
+          hasCommitsToPush: false
         }
       };
     }
@@ -510,7 +512,7 @@ export class GitService {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ directory, index })
+        body: JSON.stringify({ directory, stash_index: index })
       });
 
       if (!response.ok) {

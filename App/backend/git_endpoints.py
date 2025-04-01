@@ -65,6 +65,14 @@ class GitPushRequest(BaseModel):
     remote: str = "origin"
     branch: str = ""
 
+class GitStashRequest(BaseModel):
+    directory: str
+    message: Optional[str] = None
+
+class GitStashApplyRequest(BaseModel):
+    directory: str
+    stash_index: int
+
 def run_git_command(cmd: List[str], cwd: str, operation: str) -> subprocess.CompletedProcess:
     """Run a git command and log its execution."""
     cmd_str = ' '.join(cmd)
@@ -182,13 +190,24 @@ async def git_status(request: GitStatusRequest):
         )
         untracked = untracked_result.stdout.strip().split("\n") if untracked_result.stdout.strip() else []
         
+        # Check if there are commits to push
+        push_result = subprocess.run(
+            ["git", "log", "--branches", "--not", "--remotes", "--oneline"],
+            cwd=directory,
+            capture_output=True,
+            text=True,
+            check=False
+        )
+        has_commits_to_push = bool(push_result.stdout.strip())
+        
         return {
             "isGitRepo": True,
             "branch": branch,
             "changes": {
                 "staged": staged,
                 "unstaged": unstaged,
-                "untracked": untracked
+                "untracked": untracked,
+                "hasCommitsToPush": has_commits_to_push
             }
         }
     except Exception as e:
@@ -625,4 +644,142 @@ async def git_push(request: GitPushRequest):
             "success": False,
             "data": "",
             "error": error_msg
+        }
+
+@router.post("/stash-list")
+async def git_stash_list(request: GitRepoRequest):
+    """Get list of stashes."""
+    try:
+        directory = request.directory
+        
+        # Use git stash list to get list of stashes
+        result = subprocess.run(
+            ["git", "stash", "list", "--pretty=format:%gd|%gs"],
+            cwd=directory,
+            capture_output=True,
+            text=True,
+            check=False
+        )
+        
+        if result.returncode != 0:
+            return {"stashes": []}
+        
+        stashes = []
+        for line in result.stdout.strip().split('\n'):
+            if line:
+                parts = line.split('|', 1)
+                if len(parts) >= 2:
+                    stashes.append({
+                        "index": parts[0].replace('stash@{', '').replace('}', ''),
+                        "message": parts[1]
+                    })
+        
+        return {"stashes": stashes}
+    except Exception as e:
+        print(f"Error getting git stashes: {str(e)}")
+        return {"stashes": []}
+
+@router.post("/stash")
+async def git_stash(request: GitStashRequest):
+    """Create a new stash."""
+    try:
+        directory = request.directory
+        message = request.message
+        
+        # Build the git stash command
+        cmd = ["git", "stash", "push"]
+        if message:
+            cmd.extend(["-m", message])
+        
+        result = subprocess.run(
+            cmd,
+            cwd=directory,
+            capture_output=True,
+            text=True,
+            check=False
+        )
+        
+        if result.returncode != 0:
+            return {
+                "success": False,
+                "data": "",
+                "error": result.stderr.strip()
+            }
+        
+        return {
+            "success": True,
+            "data": result.stdout.strip() or "Changes stashed successfully"
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "data": "",
+            "error": str(e)
+        }
+
+@router.post("/stash-apply")
+async def git_stash_apply(request: GitStashApplyRequest):
+    """Apply a stash."""
+    try:
+        directory = request.directory
+        stash_index = request.stash_index
+        
+        result = subprocess.run(
+            ["git", "stash", "apply", f"stash@{{{stash_index}}}"],
+            cwd=directory,
+            capture_output=True,
+            text=True,
+            check=False
+        )
+        
+        if result.returncode != 0:
+            return {
+                "success": False,
+                "data": "",
+                "error": result.stderr.strip()
+            }
+        
+        return {
+            "success": True,
+            "data": result.stdout.strip() or "Stash applied successfully"
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "data": "",
+            "error": str(e)
+        }
+
+@router.post("/stash-pop")
+async def git_stash_pop(request: GitStashApplyRequest):
+    """Apply and remove a stash."""
+    try:
+        directory = request.directory
+        stash_index = request.stash_index
+        
+        # Use git stash pop to apply and remove the stash
+        result = subprocess.run(
+            ["git", "stash", "pop", f"stash@{{{stash_index}}}"],
+            cwd=directory,
+            capture_output=True,
+            text=True,
+            check=False
+        )
+        
+        if result.returncode != 0:
+            return {
+                "success": False,
+                "data": "",
+                "error": result.stderr.strip()
+            }
+        
+        return {
+            "success": True,
+            "data": result.stdout.strip() or "Stash applied and removed successfully"
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "data": "",
+            "error": str(e)
         } 

@@ -6,6 +6,11 @@ interface GitStashViewProps {
   refreshStatus: () => Promise<void>;
 }
 
+interface GitStash {
+  index: string;
+  message: string;
+}
+
 const styles = {
   container: {
     padding: '0 8px',
@@ -85,7 +90,7 @@ const styles = {
 };
 
 const GitStashView: React.FC<GitStashViewProps> = ({ refreshStatus }) => {
-  const [stashes, setStashes] = useState<string[]>([]);
+  const [stashes, setStashes] = useState<GitStash[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [stashMessage, setStashMessage] = useState('');
@@ -167,15 +172,13 @@ const GitStashView: React.FC<GitStashViewProps> = ({ refreshStatus }) => {
   };
 
   // Parse stash index from the stash string (e.g., "stash@{0}: ..." => 0)
-  const getStashIndex = (stash: string): number => {
-    const match = stash.match(/stash@\{(\d+)\}/);
-    return match ? parseInt(match[1], 10) : 0;
+  const getStashIndex = (stash: GitStash): number => {
+    return parseInt(stash.index, 10);
   };
 
   // Extract message from stash string
-  const getStashMessage = (stash: string): string => {
-    const colonIndex = stash.indexOf(':');
-    return colonIndex !== -1 ? stash.substring(colonIndex + 1).trim() : stash;
+  const getStashMessage = (stash: GitStash): string => {
+    return stash.message;
   };
 
   return (
@@ -248,7 +251,7 @@ const GitStashView: React.FC<GitStashViewProps> = ({ refreshStatus }) => {
                   </div>
                 </div>
                 <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                  {stash}
+                  stash@{stashIdx}: {stashMsg}
                 </div>
               </div>
             );

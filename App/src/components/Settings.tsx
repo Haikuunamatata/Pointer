@@ -460,6 +460,9 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
     ]
   });
   const [discordRpcSettings, setDiscordRpcSettings] = useState<DiscordRpcSettings>({...defaultDiscordRpcSettings});
+  const [advanced, setAdvanced] = useState<Record<string, any>>({
+    titleFormat: '{filename} - {workspace} - Pointer'
+  });
   const [isLoading, setIsLoading] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
@@ -588,6 +591,12 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
             ...initialSettings.discordRpc
           }));
         }
+        if (result.settings.advanced) {
+          setAdvanced(prev => ({
+            ...prev,
+            ...result.settings.advanced
+          }));
+        }
       }
     } catch (error) {
       console.error('Error loading settings:', error);
@@ -616,6 +625,7 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
         editor: editorSettings,
         theme: themeSettings,
         discordRpc: discordRpcSettings,
+        advanced: advanced
       };
       const result = await FileSystemService.saveSettingsFiles(settingsPath, settings);
       if (result.success) {
@@ -712,28 +722,30 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
   };
 
   const handleDiscordRpcSettingChange = (field: keyof DiscordRpcSettings, value: any) => {
-    const updatedSettings = {
-      ...discordRpcSettings,
-      [field]: value
-    };
-    setDiscordRpcSettings(updatedSettings);
+    setDiscordRpcSettings((prev) => {
+      const updated = {
+        ...prev,
+        [field]: value
+      };
+      if (initialSettings?.onDiscordSettingsChange) {
+        initialSettings.onDiscordSettingsChange(updated);
+      }
+      return updated;
+    });
     setHasUnsavedChanges(true);
-    if (ipcRenderer) {
-      ipcRenderer.send('discord-settings-update', { [field]: value });
-      ipcRenderer.invoke('update-discord-rpc-settings', { [field]: value })
-        .then((result: { success: boolean, error?: string }) => {
-          if (!result.success) {
-            console.error('Failed to save Discord RPC settings:', result.error);
-          }
-        })
-        .catch((error: Error) => {
-          console.error('Error saving Discord RPC settings:', error);
-        });
-    } else {
-      console.log('IPC Renderer not available, skipping Discord RPC settings save');
-    }
-    if (initialSettings?.onDiscordSettingsChange) {
-      initialSettings.onDiscordSettingsChange({ [field]: value });
+  };
+
+  const handleAdvancedSettingChange = (field: string, value: any) => {
+    setAdvanced((prev) => ({
+      ...prev,
+      [field]: value
+    }));
+    setHasUnsavedChanges(true);
+    
+    // Dispatch custom event for live title format updates
+    if (field === 'titleFormat') {
+      const event = new CustomEvent('title-format-changed', { detail: { titleFormat: value } });
+      window.dispatchEvent(event);
     }
   };
 
@@ -2284,93 +2296,111 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
 
                 {/* Advanced Settings */}
                 {activeCategory === 'advanced' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                    <h3 style={{ margin: '0 0 16px 0', fontSize: '16px' }}>Advanced Settings</h3>
-                    
-                    <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-                      Advanced settings will be available in a future update.
-                    </p>
-
-                    <div style={{ marginTop: '16px' }}>
-                      <button
-                        onClick={() => {
-                          if (confirm('Are you sure you want to reset all settings to default values?')) {
-                            setModelConfigs({ 'default': { ...defaultConfig } });
-                            setModelAssignments({...defaultModelAssignments});
-                            setEditorSettings({
-                              fontFamily: 'monospace',
-                              fontSize: 13,
-                              lineHeight: 1.5,
-                              tabSize: 2,
-                              insertSpaces: true,
-                              wordWrap: true,
-                              rulers: [],
-                              formatOnSave: true,
-                              formatOnPaste: false,
-                              autoSave: true,
-                              autoAcceptGhostText: false,
-                            });
-                            setThemeSettings({
-                              name: 'vs-dark',
-                              customColors: {
-                                bgPrimary: '',
-                                bgSecondary: '',
-                                bgTertiary: '',
-                                bgSelected: '',
-                                bgHover: '',
-                                bgAccent: '',
-                                textPrimary: '',
-                                textSecondary: '',
-                                borderColor: '',
-                                borderPrimary: '',
-                                accentColor: '',
-                                accentHover: '',
-                                errorColor: '',
-                                titlebarBg: '',
-                                statusbarBg: '',
-                                statusbarFg: '',
-                                activityBarBg: '',
-                                activityBarFg: '',
-                                inlineCodeColor: '#cc0000',
-                              },
-                              editorColors: {
-                                "editor.background": "#1e1e1e",
-                                "editor.foreground": "#d4d4d4",
-                                "editorLineNumber.foreground": "#858585",
-                                "editorLineNumber.activeForeground": "#c6c6c6",
-                                "editorCursor.foreground": "#d4d4d4",
-                                "editor.selectionBackground": "#264f78",
-                                "editor.lineHighlightBackground": "#2d2d2d50",
-                              },
-                              tokenColors: [
-                                { token: 'keyword', foreground: '#569CD6', fontStyle: 'bold' },
-                                { token: 'comment', foreground: '#6A9955', fontStyle: 'italic' },
-                                { token: 'string', foreground: '#CE9178' },
-                                { token: 'number', foreground: '#B5CEA8' },
-                                { token: 'operator', foreground: '#D4D4D4' },
-                                { token: 'type', foreground: '#4EC9B0' },
-                                { token: 'function', foreground: '#DCDCAA' },
-                                { token: 'variable', foreground: '#9CDCFE' }
-                              ]
-                            });
-                            setDiscordRpcSettings({...defaultDiscordRpcSettings});
-                            
-                            setHasUnsavedChanges(true);
-                          }
-                        }}
-                        style={{
-                          padding: '8px 16px',
-                          background: 'var(--error-color)',
-                          border: 'none',
-                          borderRadius: '4px',
-                          color: 'white',
-                          cursor: 'pointer',
-                          fontSize: '13px',
-                          width: 'fit-content',
-                        }}
-                      >
-                        Reset All Settings
-                      </button>
+                  <div className="settings-container">
+                    <h3>Advanced Settings</h3>
+                    <div className="settings-section">
+                      <div className="setting-item">
+                        <div className="setting-label">Title Bar Format</div>
+                        <div className="setting-description">
+                          Customize how the title bar displays information. Available placeholders:
+                          <ul>
+                            <li><code>{'{filename}'}</code> - Current file name</li>
+                            <li><code>{'{workspace}'}</code> - Workspace folder name</li>
+                          </ul>
+                        </div>
+                        <input
+                          type="text"
+                          value={advanced.titleFormat || '{filename} - {workspace} - Pointer'}
+                          onChange={(e) => {
+                            handleAdvancedSettingChange('titleFormat', e.target.value);
+                          }}
+                          className="text-input"
+                          placeholder="{filename} - {workspace} - Pointer"
+                        />
+                      </div>
+                      
+                      <div style={{ marginTop: '16px' }}>
+                        <button
+                          onClick={() => {
+                            if (confirm('Are you sure you want to reset all settings to default values?')) {
+                              setModelConfigs({ 'default': { ...defaultConfig } });
+                              setModelAssignments({...defaultModelAssignments});
+                              setEditorSettings({
+                                fontFamily: 'monospace',
+                                fontSize: 13,
+                                lineHeight: 1.5,
+                                tabSize: 2,
+                                insertSpaces: true,
+                                wordWrap: true,
+                                rulers: [],
+                                formatOnSave: true,
+                                formatOnPaste: false,
+                                autoSave: true,
+                                autoAcceptGhostText: false,
+                              });
+                              setThemeSettings({
+                                name: 'vs-dark',
+                                customColors: {
+                                  bgPrimary: '',
+                                  bgSecondary: '',
+                                  bgTertiary: '',
+                                  bgSelected: '',
+                                  bgHover: '',
+                                  bgAccent: '',
+                                  textPrimary: '',
+                                  textSecondary: '',
+                                  borderColor: '',
+                                  borderPrimary: '',
+                                  accentColor: '',
+                                  accentHover: '',
+                                  errorColor: '',
+                                  titlebarBg: '',
+                                  statusbarBg: '',
+                                  statusbarFg: '',
+                                  activityBarBg: '',
+                                  activityBarFg: '',
+                                  inlineCodeColor: '#cc0000',
+                                },
+                                editorColors: {
+                                  "editor.background": "#1e1e1e",
+                                  "editor.foreground": "#d4d4d4",
+                                  "editorLineNumber.foreground": "#858585",
+                                  "editorLineNumber.activeForeground": "#c6c6c6",
+                                  "editorCursor.foreground": "#d4d4d4",
+                                  "editor.selectionBackground": "#264f78",
+                                  "editor.lineHighlightBackground": "#2d2d2d50",
+                                },
+                                tokenColors: [
+                                  { token: 'keyword', foreground: '#569CD6', fontStyle: 'bold' },
+                                  { token: 'comment', foreground: '#6A9955', fontStyle: 'italic' },
+                                  { token: 'string', foreground: '#CE9178' },
+                                  { token: 'number', foreground: '#B5CEA8' },
+                                  { token: 'operator', foreground: '#D4D4D4' },
+                                  { token: 'type', foreground: '#4EC9B0' },
+                                  { token: 'function', foreground: '#DCDCAA' },
+                                  { token: 'variable', foreground: '#9CDCFE' }
+                                ]
+                              });
+                              setDiscordRpcSettings({...defaultDiscordRpcSettings});
+                              setAdvanced({}); // Reset advanced settings too
+                              
+                              setHasUnsavedChanges(true);
+                            }
+                          }}
+                          style={{
+                            padding: '8px 16px',
+                            background: 'var(--error-color)',
+                            border: 'none',
+                            borderRadius: '4px',
+                            color: 'white',
+                            cursor: 'pointer',
+                            fontSize: '13px',
+                            width: 'fit-content',
+                          }}
+                        >
+                          Reset All Settings
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -2546,7 +2576,7 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                     <div style={{ padding: '16px', background: 'var(--bg-primary)', borderRadius: '8px', border: '1px solid var(--border-primary)' }}>
                       <h4 style={{ margin: '0 0 12px 0', fontSize: '14px' }}>Button Customization</h4>
                       <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
-                        Add up to two buttons that will appear on your Discord status. URLs must be complete and point to public websites. (ts is broken rn)
+                        Add up to two buttons that will appear on your Discord status. URLs must be complete and point to public websites.
                       </p>
                       
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>

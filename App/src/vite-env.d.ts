@@ -66,6 +66,12 @@ interface ElectronAPI {
       showElapsedTime?: boolean;
     }) => void;
   };
+  window?: {
+    minimize: () => void;
+    maximize: () => void;
+    close: () => void;
+    isMaximized: () => Promise<boolean>;
+  };
 }
 
 interface Window {

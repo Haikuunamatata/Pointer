@@ -241,6 +241,36 @@ const GitView: React.FC<GitViewProps> = ({ onBack }) => {
   } | null>(null);
   const [debugInfo, setDebugInfo] = useState<string[]>([]);
 
+  // Add auto-refresh effect
+  useEffect(() => {
+    let refreshInterval: ReturnType<typeof setInterval>;
+
+    if (isGitRepo && !isLoading) {
+      // Check for changes every 2 seconds
+      refreshInterval = setInterval(async () => {
+        try {
+          const status = await GitService.getStatus(currentDirectory);
+          // Only refresh if there are changes
+          if (status.changes.staged.length > 0 || 
+              status.changes.unstaged.length > 0 || 
+              status.changes.untracked.length > 0 ||
+              status.changes.hasCommitsToPush) {
+            setGitStatus(status);
+          }
+        } catch (err) {
+          console.error('Error checking for changes:', err);
+        }
+      }, 2000);
+    }
+
+    // Cleanup interval on unmount or when dependencies change
+    return () => {
+      if (refreshInterval) {
+        clearInterval(refreshInterval);
+      }
+    };
+  }, [isGitRepo, isLoading, currentDirectory]);
+
   useEffect(() => {
     const initGitView = async () => {
       setIsLoading(true);
@@ -309,8 +339,13 @@ const GitView: React.FC<GitViewProps> = ({ onBack }) => {
     }
   };
 
-  const refreshStatus = async () => {
+  const refreshStatus = async (newGitStatus?: GitStatus) => {
     if (!currentDirectory || !isGitRepo) return;
+    
+    if (newGitStatus) {
+      setGitStatus(newGitStatus);
+      return;
+    }
     
     setIsLoading(true);
     showStatus('Refreshing Git status...', 'info');
@@ -318,7 +353,10 @@ const GitView: React.FC<GitViewProps> = ({ onBack }) => {
     try {
       const status = await GitService.getStatus(currentDirectory);
       setGitStatus(status);
-      showStatus('Git status refreshed', 'success');
+      // Only show success message if we're not in a loading state
+      if (!isLoading) {
+        showStatus('Git status refreshed', 'success');
+      }
     } catch (err) {
       const errorMsg = `Error refreshing Git status: ${err}`;
       console.error(errorMsg);
@@ -437,7 +475,7 @@ const GitView: React.FC<GitViewProps> = ({ onBack }) => {
         <h3 style={styles.title}>GIT</h3>
         <div style={styles.headerActions}>
           <button 
-            onClick={refreshStatus} 
+            onClick={() => refreshStatus()} 
             style={styles.iconButton}
             title="Refresh"
             disabled={isLoading || !isGitRepo}
@@ -449,8 +487,11 @@ const GitView: React.FC<GitViewProps> = ({ onBack }) => {
             </svg>
           </button>
           {onBack && (
-            <button onClick={onBack} style={styles.iconButton}>
-              Back to Files
+            <button onClick={onBack} style={styles.iconButton} title="Close Git">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M18 6L6 18"/>
+                <path d="M6 6l12 12"/>
+              </svg>
             </button>
           )}
         </div>

@@ -223,5 +223,8 @@ export interface AppSettings {
   keybindings?: Record<string, string>;
   terminal?: Record<string, any>;
   discordRpc?: DiscordRpcSettings;
-  advanced?: Record<string, any>;
+  advanced?: {
+    titleFormat?: string;
+    [key: string]: any;
+  };
 } 

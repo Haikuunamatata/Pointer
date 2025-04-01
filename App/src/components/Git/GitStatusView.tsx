@@ -4,7 +4,7 @@ import { FileSystemService } from '../../services/FileSystemService';
 
 interface GitStatusViewProps {
   gitStatus: GitStatus | null;
-  refreshStatus: () => Promise<void>;
+  refreshStatus: (newGitStatus?: GitStatus) => Promise<void>;
   onPush?: () => Promise<void>;
 }
 
@@ -115,7 +115,8 @@ const GitStatusView: React.FC<GitStatusViewProps> = ({ gitStatus, refreshStatus,
 
   const hasChanges = gitStatus.changes.staged.length > 0 || 
                     gitStatus.changes.unstaged.length > 0 || 
-                    gitStatus.changes.untracked.length > 0;
+                    gitStatus.changes.untracked.length > 0 ||
+                    gitStatus.changes.hasCommitsToPush;
 
   const currentDirectory = FileSystemService.getCurrentDirectory();
 
@@ -131,7 +132,18 @@ const GitStatusView: React.FC<GitStatusViewProps> = ({ gitStatus, refreshStatus,
       if (!result.success) {
         setError(`Failed to stage file: ${result.error}`);
       } else {
-        await refreshStatus();
+        if (gitStatus) {
+          const newGitStatus = {
+            ...gitStatus,
+            changes: {
+              ...gitStatus.changes,
+              staged: [...gitStatus.changes.staged, file],
+              unstaged: gitStatus.changes.unstaged.filter(f => f !== file),
+              untracked: gitStatus.changes.untracked.filter(f => f !== file)
+            }
+          };
+          refreshStatus(newGitStatus);
+        }
       }
     } catch (err) {
       console.error('Error staging file:', err);
@@ -153,7 +165,17 @@ const GitStatusView: React.FC<GitStatusViewProps> = ({ gitStatus, refreshStatus,
       if (!result.success) {
         setError(`Failed to unstage file: ${result.error}`);
       } else {
-        await refreshStatus();
+        if (gitStatus) {
+          const newGitStatus = {
+            ...gitStatus,
+            changes: {
+              ...gitStatus.changes,
+              staged: gitStatus.changes.staged.filter(f => f !== file),
+              unstaged: [...gitStatus.changes.unstaged, file]
+            }
+          };
+          refreshStatus(newGitStatus);
+        }
       }
     } catch (err) {
       console.error('Error unstaging file:', err);
@@ -377,7 +399,7 @@ const GitStatusView: React.FC<GitStatusViewProps> = ({ gitStatus, refreshStatus,
               >
                 {isCommitting ? 'Committing...' : 'Commit Changes'}
               </button>
-              {onPush && (
+              {onPush && gitStatus.changes.hasCommitsToPush && (
                 <button
                   style={{
                     ...styles.button,

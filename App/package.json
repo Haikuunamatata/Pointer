@@ -48,15 +48,15 @@
     "appId": "com.pointer",
     "mac": {
       "category": "public.app-category.developer-tools",
-      "icon": "electron/logo.png"
+      "icon": "electron/logo3.png"
     },
     "win": {
       "target": "nsis",
-      "icon": "electron/logo.png"
+      "icon": "electron/logo3.png"
     },
     "linux": {
       "target": "AppImage",
-      "icon": "electron/logo.png"
+      "icon": "electron/logo3.png"
     },
     "files": [
       "dist/**/*",

@@ -224,7 +224,7 @@ function replaceVariables(message) {
 // Define icon path based on platform
 const getIconPath = () => {
   const platform = os.platform();
-  const logoPath = path.join(__dirname, 'logo.png');
+  const logoPath = path.join(__dirname, 'logo3.png');
   
   // On macOS, return the PNG file
   // On Windows and Linux, still use the PNG - electron-builder will use the correct icon from package.json
