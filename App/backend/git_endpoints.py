@@ -782,4 +782,106 @@ async def git_stash_pop(request: GitStashApplyRequest):
             "success": False,
             "data": "",
             "error": str(e)
+        }
+
+@router.post("/reset-hard")
+async def git_reset_hard(request: GitResetCommitRequest):
+    """Perform a hard reset to a specific commit."""
+    try:
+        directory = request.directory
+        commit = request.commit or "HEAD"
+        
+        # Use git reset --hard to reset to the specified commit
+        result = subprocess.run(
+            ["git", "reset", "--hard", commit],
+            cwd=directory,
+            capture_output=True,
+            text=True,
+            check=False
+        )
+        
+        if result.returncode != 0:
+            return {
+                "success": False,
+                "data": "",
+                "error": result.stderr.strip()
+            }
+        
+        return {
+            "success": True,
+            "data": result.stdout.strip() or f"Successfully reset to {commit}"
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "data": "",
+            "error": str(e)
+        }
+
+@router.post("/reset-soft")
+async def git_reset_soft(request: GitResetCommitRequest):
+    """Perform a soft reset to a specific commit."""
+    try:
+        directory = request.directory
+        commit = request.commit or "HEAD~1"
+        
+        # Use git reset --soft to reset to the specified commit
+        result = subprocess.run(
+            ["git", "reset", "--soft", commit],
+            cwd=directory,
+            capture_output=True,
+            text=True,
+            check=False
+        )
+        
+        if result.returncode != 0:
+            return {
+                "success": False,
+                "data": "",
+                "error": result.stderr.strip()
+            }
+        
+        return {
+            "success": True,
+            "data": result.stdout.strip() or f"Successfully soft reset to {commit}"
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "data": "",
+            "error": str(e)
+        }
+
+@router.post("/reset-mixed")
+async def git_reset_mixed(request: GitResetCommitRequest):
+    """Perform a mixed reset to a specific commit."""
+    try:
+        directory = request.directory
+        commit = request.commit or "HEAD~1"
+        
+        # Use git reset --mixed to reset to the specified commit
+        result = subprocess.run(
+            ["git", "reset", "--mixed", commit],
+            cwd=directory,
+            capture_output=True,
+            text=True,
+            check=False
+        )
+        
+        if result.returncode != 0:
+            return {
+                "success": False,
+                "data": "",
+                "error": result.stderr.strip()
+            }
+        
+        return {
+            "success": True,
+            "data": result.stdout.strip() or f"Successfully mixed reset to {commit}"
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "data": "",
+            "error": str(e)
         } 

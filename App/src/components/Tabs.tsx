@@ -3,7 +3,7 @@ import { FileSystemItem } from '../types';
 import { getIconForFile } from './FileIcons';
 import ContextMenu from './ContextMenu';
 import { AIFileService } from '../services/AIFileService';
-import { ToastManager } from './Toast';
+import { showToast } from '../services/ToastService';
 import { FileSystemService } from '../services/FileSystemService';
 import Modal from './Modal';
 
@@ -97,12 +97,12 @@ const Tabs: React.FC<TabsProps> = ({
     const file = items[fileId];
     if (!file || !file.path) {
       console.error('Cannot summarize: File data incomplete');
-      ToastManager.show('Cannot summarize file: File data incomplete', 'error');
+      showToast('Cannot summarize file: File data incomplete', 'error');
       return;
     }
 
     try {
-      ToastManager.show(`Summarizing ${file.name}...`, 'info');
+      showToast(`Summarizing ${file.name}...`, 'info');
       
       let fileContent = file.content;
       if (!fileContent) {
@@ -111,12 +111,12 @@ const Tabs: React.FC<TabsProps> = ({
           if (loadedContent) {
             fileContent = loadedContent;
           } else {
-            ToastManager.show(`Could not read content of ${file.name}`, 'error');
+            showToast(`Could not read content of ${file.name}`, 'error');
             return;
           }
         } catch (error) {
           console.error('Error loading file content for summarization:', error);
-          ToastManager.show(`Error reading file: ${file.name}`, 'error');
+          showToast(`Error reading file: ${file.name}`, 'error');
           return;
         }
       }
@@ -150,11 +150,11 @@ const Tabs: React.FC<TabsProps> = ({
         isStreaming: false
       }));
       
-      ToastManager.show(`Summary ready for ${file.name}`, 'success');
+      showToast(`Summary ready for ${file.name}`, 'success');
       
     } catch (error) {
       console.error('Error summarizing file:', error);
-      ToastManager.show('Error generating file summary', 'error');
+      showToast('Error generating file summary', 'error');
       
       setSummaryDialog(prev => ({
         ...prev,

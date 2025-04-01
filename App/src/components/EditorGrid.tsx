@@ -5,7 +5,7 @@ import { getLanguageFromFileName } from '../utils/languageUtils';
 import { AIFileService } from '../services/AIFileService';
 import { lmStudio } from '../services/LMStudioService';
 import { FileSystemService } from '../services/FileSystemService';
-import { ToastManager } from './Toast';
+import { showToast } from '../services/ToastService';
 import Modal from './Modal';
 
 // Get access to the App's applyCustomTheme function through the window object
@@ -1574,8 +1574,7 @@ DO NOT include the [CURSOR] marker in your response. Provide ONLY the completion
   // Function to generate and show explanation for a function
   const explainFunction = async (functionName: string, functionCode: string) => {
     if (!file || !file.path) {
-      console.error('Cannot explain function: File data incomplete');
-      ToastManager.show('Cannot explain function: File data incomplete', 'error');
+      showToast('Cannot explain function: File data incomplete', 'error');
       return;
     }
 
@@ -1590,7 +1589,7 @@ DO NOT include the [CURSOR] marker in your response. Provide ONLY the completion
       });
 
       // Show feedback that we're starting the explanation
-      ToastManager.show(`Explaining function: ${functionName}...`, 'info');
+      showToast(`Explaining function: ${functionName}...`, 'info');
       
       // Find any functions that are called within this function
       const calledFunctions = findCalledFunctions(functionCode);
@@ -1640,11 +1639,11 @@ DO NOT include the [CURSOR] marker in your response. Provide ONLY the completion
         isStreaming: false
       }));
       
-      ToastManager.show(`Explanation ready for ${functionName}`, 'success');
+      showToast(`Explanation ready for ${functionName}`, 'success');
       
     } catch (error) {
       console.error('Error explaining function:', error);
-      ToastManager.show('Error generating function explanation', 'error');
+      showToast('Error generating function explanation', 'error');
       
       // Update state to show error in dialog
       setFunctionExplanationDialog(prev => ({

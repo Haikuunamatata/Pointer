@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { GitService, GitStatus, GitLogEntry } from '../../services/gitService';
 import { FileSystemService } from '../../services/FileSystemService';
+import { showToast } from '../../services/ToastService';
 import GitStatusView from './GitStatusView';
 import GitLogView from './GitLogView';
 import GitBranchView from './GitBranchView';
@@ -234,11 +235,6 @@ const GitView: React.FC<GitViewProps> = ({ onBack }) => {
   const [identityEmail, setIdentityEmail] = useState('');
   const [isSettingIdentity, setIsSettingIdentity] = useState(false);
   const [commitMessage, setCommitMessage] = useState('');
-  const [statusMessage, setStatusMessage] = useState<{
-    text: string;
-    type: 'info' | 'success' | 'error';
-    id: number;
-  } | null>(null);
   const [debugInfo, setDebugInfo] = useState<string[]>([]);
 
   // Add auto-refresh effect
@@ -327,18 +323,6 @@ const GitView: React.FC<GitViewProps> = ({ onBack }) => {
     }
   };
 
-  const showStatus = (text: string, type: 'info' | 'success' | 'error' = 'info') => {
-    const id = Date.now();
-    setStatusMessage({ text, type, id });
-    setDebugInfo(prev => [`${new Date().toISOString()} - ${type}: ${text}`, ...prev.slice(0, 49)]);
-    
-    if (type !== 'error') {  // Don't auto-hide errors
-      setTimeout(() => {
-        setStatusMessage(current => current?.id === id ? null : current);
-      }, 3000);
-    }
-  };
-
   const refreshStatus = async (newGitStatus?: GitStatus) => {
     if (!currentDirectory || !isGitRepo) return;
     
@@ -348,20 +332,20 @@ const GitView: React.FC<GitViewProps> = ({ onBack }) => {
     }
     
     setIsLoading(true);
-    showStatus('Refreshing Git status...', 'info');
+    showToast('Refreshing Git status...', 'info');
     
     try {
       const status = await GitService.getStatus(currentDirectory);
       setGitStatus(status);
       // Only show success message if we're not in a loading state
       if (!isLoading) {
-        showStatus('Git status refreshed', 'success');
+        showToast('Git status refreshed', 'success');
       }
     } catch (err) {
       const errorMsg = `Error refreshing Git status: ${err}`;
       console.error(errorMsg);
       setError(errorMsg);
-      showStatus(errorMsg, 'error');
+      showToast(errorMsg, 'error');
     } finally {
       setIsLoading(false);
     }
@@ -371,11 +355,11 @@ const GitView: React.FC<GitViewProps> = ({ onBack }) => {
     setCommitMessage(message);
     if (!message.trim()) return;
     
-    showStatus('Committing changes...', 'info');
+    showToast('Committing changes...', 'info');
     const result = await GitService.commit(currentDirectory, message);
     
     if (!result.success && result.error === 'IDENTITY_NOT_CONFIGURED') {
-      showStatus('Git identity not configured, opening setup...', 'info');
+      showToast('Git identity not configured, opening setup...', 'info');
       setIdentityName(result.userName || '');
       setIdentityEmail(result.userEmail || '');
       setIsIdentityDialogOpen(true);
@@ -383,12 +367,12 @@ const GitView: React.FC<GitViewProps> = ({ onBack }) => {
     }
     
     if (result.success) {
-      showStatus('Changes committed successfully', 'success');
+      showToast('Changes committed successfully', 'success');
       refreshStatus();
     } else {
       const errorMsg = `Commit failed: ${result.error}`;
       console.error(errorMsg);
-      showStatus(errorMsg, 'error');
+      showToast(errorMsg, 'error');
     }
   };
 
@@ -413,16 +397,16 @@ const GitView: React.FC<GitViewProps> = ({ onBack }) => {
   const handlePush = async () => {
     if (!currentDirectory || !isGitRepo) return;
     
-    showStatus('Pushing changes...', 'info');
+    showToast('Pushing changes...', 'info');
     const result = await GitService.push(currentDirectory);
     
     if (result.success) {
-      showStatus(result.data, 'success');
+      showToast(result.data, 'success');
       refreshStatus();
     } else {
       const errorMsg = `Push failed: ${result.error}`;
       console.error(errorMsg);
-      showStatus(errorMsg, 'error');
+      showToast(errorMsg, 'error');
     }
   };
 
@@ -610,39 +594,6 @@ const GitView: React.FC<GitViewProps> = ({ onBack }) => {
       <div style={styles.content}>
         {renderContent()}
       </div>
-      
-      {statusMessage && (
-        <div style={styles.statusMessage}>
-          {statusMessage.type === 'info' && (
-            <svg style={styles.statusIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="12" r="10"/>
-              <line x1="12" y1="16" x2="12" y2="12"/>
-              <line x1="12" y1="8" x2="12" y2="8"/>
-            </svg>
-          )}
-          {statusMessage.type === 'success' && (
-            <svg style={styles.statusIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
-              <polyline points="22 4 12 14.01 9 11.01"/>
-            </svg>
-          )}
-          {statusMessage.type === 'error' && (
-            <svg style={styles.statusIcon} viewBox="0 0 24 24" fill="none" stroke="var(--error-color)" strokeWidth="2">
-              <circle cx="12" cy="12" r="10"/>
-              <line x1="15" y1="9" x2="9" y2="15"/>
-              <line x1="9" y1="9" x2="15" y2="15"/>
-            </svg>
-          )}
-          <span>{statusMessage.text}</span>
-          <button 
-            style={styles.statusClose}
-            onClick={() => setStatusMessage(null)}
-            title="Dismiss"
-          >
-            ×
-          </button>
-        </div>
-      )}
     </div>
   );
 };
