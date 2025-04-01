@@ -1392,16 +1392,18 @@ const App: React.FC = () => {
         overflow: 'hidden',
         background: 'var(--bg-primary)',
       }}>
-        <Titlebar 
+        <Titlebar
           onOpenFolder={handleOpenFolder} 
           onOpenFile={handleOpenFile} 
           onToggleGitView={handleToggleGitView}
           onToggleExplorerView={handleToggleExplorerView}
           onToggleLLMChat={() => setIsLLMChatVisible(!isLLMChatVisible)}
           onOpenSettings={() => setIsSettingsModalOpen(true)}
+          onToggleTerminal={toggleTerminal}
           isGitViewActive={isGitViewActive}
           isExplorerViewActive={isExplorerViewActive}
           isLLMChatVisible={isLLMChatVisible}
+          terminalOpen={fileSystem.terminalOpen}
           currentFileName={getCurrentFileName()}
           workspaceName={fileSystem.items[fileSystem.rootId]?.name || ''}
           titleFormat={dynamicTitleFormat || settingsData.advanced?.titleFormat || '{filename} - {workspace} - Pointer'}
@@ -1476,8 +1478,6 @@ const App: React.FC = () => {
               onTabClose={handleTabClose}
               onToggleGrid={() => setIsGridLayout(!isGridLayout)}
               isGridLayout={isGridLayout}
-              onToggleTerminal={toggleTerminal}
-              terminalOpen={fileSystem.terminalOpen}
             />
             <EditorGrid
               openFiles={openFiles}

@@ -1,4 +1,5 @@
 import { cleanAIResponse } from '../utils/textUtils';
+import { Message } from '../types';
 
 interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
@@ -20,11 +21,6 @@ interface ChatCompletionResponse {
       content: string;
     };
   }[];
-}
-
-interface Message {
-  role: 'system' | 'user' | 'assistant';
-  content: string;
 }
 
 interface StreamingChatCompletionOptions {

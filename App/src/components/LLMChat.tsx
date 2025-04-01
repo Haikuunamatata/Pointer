@@ -8,11 +8,7 @@ import '../styles/LLMChat.css';
 import { DiffViewer } from './DiffViewer';
 import { FileChangeEventService } from '../services/FileChangeEventService';
 import { AIFileService } from '../services/AIFileService';
-
-interface Message {
-  role: 'system' | 'user' | 'assistant';
-  content: string;
-}
+import { Message } from '../types';
 
 interface ChatSession {
   id: string;
@@ -1966,111 +1962,142 @@ Return ONLY the final merged code without any explanations. The code should be r
             gap: '16px',
           }}
         >
-          {messages.slice(1).map((message, index) => {
-            // Check if message has think blocks
-            const hasThinkBlocks = message.content.includes('<think>');
-            
-            // Calculate if this message should be faded
-            const shouldBeFaded = editingMessageIndex !== null && index + 1 > editingMessageIndex;
-            
-            // If it's a thinking message, render it differently
-            if (hasThinkBlocks) {
-              return (
-                <div 
-                  key={index} 
-                  style={{ 
-                    width: '100%',
-                    opacity: shouldBeFaded ? 0.33 : 1,
-                    transition: 'opacity 0.2s ease',
-                  }}
-                >
-                  <MessageRenderer message={message} />
-                </div>
-              );
-            }
-
-            // Regular message
-            return (
-              <div
-                key={index}
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: message.role === 'assistant' ? 'flex-start' : 'flex-end',
-                  position: 'relative',
-                  width: '100%',
-                  opacity: shouldBeFaded ? 0.5 : 1,
-                  transition: 'opacity 0.2s ease',
-                }}
+          {messages.length <= 1 ? (
+            <div className="empty-chat-message" style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              height: '100%',
+              color: 'var(--text-secondary)',
+              textAlign: 'center',
+              padding: '0 20px'
+            }}>
+              <svg 
+                width="48" 
+                height="48" 
+                viewBox="0 0 24 24" 
+                fill="none" 
+                stroke="currentColor" 
+                strokeWidth="1.5" 
+                style={{ marginBottom: '16px', opacity: 0.7 }}
               >
-                <div
-                  className={`message ${message.role === 'assistant' ? 'assistant' : 'user'}`}
-                  style={{
-                    background: message.role === 'assistant' ? 'var(--bg-secondary)' : 'var(--bg-primary)',
-                    padding: '12px',
-                    borderRadius: '8px',
-                    maxWidth: '85%',
-                    border: message.role === 'assistant' ? 'none' : '1px solid var(--border-primary)',
-                  }}
-                >
-                  <MessageRenderer message={message} />
-                </div>
-                {message.role === 'user' && (
-                  <div
-                    style={{
-                      marginTop: '4px',
-                      display: 'flex',
-                      justifyContent: 'flex-end',
-                      paddingRight: '4px',
-                    }}
-                    className="edit-button-container"
-                  >
-                    <button
-                      className="edit-button"
-                      onClick={() => handleEditMessage(index + 1)}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '3px',
-                        background: 'none',
-                        border: 'none',
-                        color: 'var(--text-tertiary)',
-                        cursor: shouldBeFaded ? 'not-allowed' : 'pointer',
-                        padding: '2px 4px',
-                        borderRadius: '3px',
-                        fontSize: '11px',
-                        transition: 'all 0.2s ease',
-                        opacity: shouldBeFaded ? 0.3 : 0.7,
-                        pointerEvents: shouldBeFaded ? 'none' : 'auto',
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+              </svg>
+              <h3 style={{ fontSize: '18px', marginBottom: '8px' }}>Start a new conversation</h3>
+              <p style={{ fontSize: '14px', opacity: 0.8, maxWidth: '400px' }}>
+                Ask a question, get coding help, or have a chat with your AI assistant.
+              </p>
+            </div>
+          ) : (
+            <>
+              {messages.slice(1).map((message, index) => {
+                // Check if message has think blocks
+                const hasThinkBlocks = message.content.includes('<think>');
+                
+                // Calculate if this message should be faded
+                const shouldBeFaded = editingMessageIndex !== null && index + 1 > editingMessageIndex;
+                
+                // If it's a thinking message, render it differently
+                if (hasThinkBlocks) {
+                  return (
+                    <div 
+                      key={index} 
+                      style={{ 
+                        width: '100%',
+                        opacity: shouldBeFaded ? 0.33 : 1,
+                        transition: 'opacity 0.2s ease',
                       }}
-                      onMouseEnter={(e: React.MouseEvent<HTMLButtonElement>) => {
-                        if (!shouldBeFaded) {
-                          e.currentTarget.style.background = 'var(--bg-hover)';
-                          e.currentTarget.style.opacity = '1';
-                          e.currentTarget.style.color = 'var(--text-secondary)';
-                        }
-                      }}
-                      onMouseLeave={(e: React.MouseEvent<HTMLButtonElement>) => {
-                        if (!shouldBeFaded) {
-                          e.currentTarget.style.background = 'none';
-                          e.currentTarget.style.opacity = '0.7';
-                          e.currentTarget.style.color = 'var(--text-tertiary)';
-                        }
-                      }}
-                      title={shouldBeFaded ? "Can't edit while another message is being edited" : "Edit message"}
-                      disabled={shouldBeFaded}
                     >
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                      </svg>
-                      <span>Edit</span>
-                    </button>
+                      <MessageRenderer message={message} />
+                    </div>
+                  );
+                }
+
+                // Regular message
+                return (
+                  <div
+                    key={index}
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: message.role === 'assistant' ? 'flex-start' : 'flex-end',
+                      position: 'relative',
+                      width: '100%',
+                      opacity: shouldBeFaded ? 0.5 : 1,
+                      transition: 'opacity 0.2s ease',
+                    }}
+                  >
+                    <div
+                      className={`message ${message.role === 'assistant' ? 'assistant' : 'user'}`}
+                      style={{
+                        background: message.role === 'assistant' ? 'var(--bg-secondary)' : 'var(--bg-primary)',
+                        padding: '12px',
+                        borderRadius: '8px',
+                        maxWidth: '85%',
+                        border: message.role === 'assistant' ? 'none' : '1px solid var(--border-primary)',
+                      }}
+                    >
+                      <MessageRenderer message={message} />
+                    </div>
+                    {message.role === 'user' && (
+                      <div
+                        style={{
+                          marginTop: '4px',
+                          display: 'flex',
+                          justifyContent: 'flex-end',
+                          paddingRight: '4px',
+                        }}
+                        className="edit-button-container"
+                      >
+                        <button
+                          className="edit-button"
+                          onClick={() => handleEditMessage(index + 1)}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '3px',
+                            background: 'none',
+                            border: 'none',
+                            color: 'var(--text-tertiary)',
+                            cursor: shouldBeFaded ? 'not-allowed' : 'pointer',
+                            padding: '2px 4px',
+                            borderRadius: '3px',
+                            fontSize: '11px',
+                            transition: 'all 0.2s ease',
+                            opacity: shouldBeFaded ? 0.3 : 0.7,
+                            pointerEvents: shouldBeFaded ? 'none' : 'auto',
+                          }}
+                          onMouseEnter={(e: React.MouseEvent<HTMLButtonElement>) => {
+                            if (!shouldBeFaded) {
+                              e.currentTarget.style.background = 'var(--bg-hover)';
+                              e.currentTarget.style.opacity = '1';
+                              e.currentTarget.style.color = 'var(--text-secondary)';
+                            }
+                          }}
+                          onMouseLeave={(e: React.MouseEvent<HTMLButtonElement>) => {
+                            if (!shouldBeFaded) {
+                              e.currentTarget.style.background = 'none';
+                              e.currentTarget.style.opacity = '0.7';
+                              e.currentTarget.style.color = 'var(--text-tertiary)';
+                            }
+                          }}
+                          title={shouldBeFaded ? "Can't edit while another message is being edited" : "Edit message"}
+                          disabled={shouldBeFaded}
+                        >
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                          </svg>
+                          <span>Edit</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            );
-          })}
+                );
+              })}
+            </>
+          )}
           <div ref={messagesEndRef} />
         </div>
 

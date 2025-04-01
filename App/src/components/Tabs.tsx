@@ -16,8 +16,6 @@ interface TabsProps {
   onTabClose?: (fileId: string) => void;
   onToggleGrid?: () => void;
   isGridLayout?: boolean;
-  onToggleTerminal?: () => void;
-  terminalOpen?: boolean;
 }
 
 const tabsContainerStyle = {
@@ -44,8 +42,6 @@ const Tabs: React.FC<TabsProps> = ({
   onTabClose,
   onToggleGrid,
   isGridLayout,
-  onToggleTerminal,
-  terminalOpen,
 }) => {
   const [contextMenu, setContextMenu] = useState<{
     x: number;
@@ -261,24 +257,6 @@ const Tabs: React.FC<TabsProps> = ({
             </div>
           );
         })}
-        <div
-          onClick={onToggleTerminal}
-          style={{
-            padding: '8px 12px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-            cursor: 'pointer',
-            background: terminalOpen ? 'var(--bg-selected)' : 'transparent',
-            borderRight: '1px solid var(--border-color)',
-          }}
-        >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor">
-            <path d="M1 1h14v14H1z" strokeWidth="1.5" fill="none"/>
-            <path d="M3 3l4 4-4 4M8 11h5" strokeWidth="1.5"/>
-          </svg>
-          <span>Terminal</span>
-        </div>
         {onToggleGrid && (
           <button
             onClick={onToggleGrid}
@@ -286,7 +264,6 @@ const Tabs: React.FC<TabsProps> = ({
               padding: '4px 8px',
               background: 'transparent',
               border: 'none',
-              color: isGridLayout ? 'var(--text-primary)' : 'var(--text-secondary)',
               cursor: 'pointer',
               fontSize: '16px',
               display: 'flex',

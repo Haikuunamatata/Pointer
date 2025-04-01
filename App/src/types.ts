@@ -8,6 +8,11 @@ export interface FileSystemItem {
   path: string;
 }
 
+export interface Message {
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+}
+
 export interface FileSystemState {
   items: Record<string, FileSystemItem>;
   currentFileId: string | null;
