@@ -1,7 +1,8 @@
 from typing import Dict, Optional
 import weakref
-from fastapi import FastAPI, HTTPException, WebSocket
+from fastapi import FastAPI, HTTPException, WebSocket, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse, HTMLResponse
 from pydantic import BaseModel
 from typing import List
 import os
@@ -21,11 +22,23 @@ import psutil
 import platform
 import GPUtil
 import requests
-# Import the git router
+from dotenv import load_dotenv
+# Import the git router and GitHub OAuth
 from git_endpoints import router as git_router
+from github_oauth import GitHubOAuth
+
+# Load environment variables
+load_dotenv()
 
 app = FastAPI()
 qt_app = QApplication(sys.argv)
+
+# Initialize GitHub OAuth
+try:
+    github_oauth = GitHubOAuth()
+except ValueError as e:
+    print(f"Warning: GitHub OAuth not configured: {str(e)}")
+    github_oauth = None
 
 # GitHub API endpoints
 @app.get("/github/user-repos")
@@ -1359,6 +1372,225 @@ async def save_github_token(request: GitHubTokenRequest):
             }
     except Exception as e:
         return {"success": False, "message": f"Error saving token: {str(e)}"}
+
+# GitHub OAuth endpoints
+@app.get("/github/auth")
+async def github_auth():
+    """Redirect to GitHub OAuth authorization page."""
+    auth_url = github_oauth.get_authorization_url()
+    return RedirectResponse(auth_url)
+
+@app.get("/github/callback")
+async def github_callback(code: str, state: str):
+    """Handle the GitHub OAuth callback."""
+    try:
+        # Validate state parameter
+        if state != "pointer_oauth":
+            return HTMLResponse("""
+                <html>
+                    <head>
+                        <title>GitHub Authentication Failed</title>
+                        <style>
+                            body {
+                                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+                                display: flex;
+                                flex-direction: column;
+                                align-items: center;
+                                justify-content: center;
+                                height: 100vh;
+                                margin: 0;
+                                background-color: #f6f8fa;
+                            }
+                            .container {
+                                text-align: center;
+                                padding: 2rem;
+                                background: white;
+                                border-radius: 8px;
+                                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                            }
+                            h1 { color: #24292e; }
+                            p { color: #586069; }
+                            .button {
+                                display: inline-block;
+                                padding: 8px 16px;
+                                background-color: #2ea44f;
+                                color: white;
+                                text-decoration: none;
+                                border-radius: 4px;
+                                margin-top: 1rem;
+                            }
+                        </style>
+                    </head>
+                    <body>
+                        <div class="container">
+                            <h1>Authentication Failed</h1>
+                            <p>Invalid state parameter. Please try again.</p>
+                            <a href="http://localhost:23816/github/auth" class="button">Try Again</a>
+                        </div>
+                    </body>
+                </html>
+            """)
+        
+        # Exchange the code for an access token
+        token_response = await github_oauth.get_access_token(code)
+        if 'access_token' not in token_response:
+            return HTMLResponse("""
+                <html>
+                    <head>
+                        <title>GitHub Authentication Failed</title>
+                        <style>
+                            body {
+                                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+                                display: flex;
+                                flex-direction: column;
+                                align-items: center;
+                                justify-content: center;
+                                height: 100vh;
+                                margin: 0;
+                                background-color: #f6f8fa;
+                            }
+                            .container {
+                                text-align: center;
+                                padding: 2rem;
+                                background: white;
+                                border-radius: 8px;
+                                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                            }
+                            h1 { color: #24292e; }
+                            p { color: #586069; }
+                            .button {
+                                display: inline-block;
+                                padding: 8px 16px;
+                                background-color: #2ea44f;
+                                color: white;
+                                text-decoration: none;
+                                border-radius: 4px;
+                                margin-top: 1rem;
+                            }
+                        </style>
+                    </head>
+                    <body>
+                        <div class="container">
+                            <h1>Authentication Failed</h1>
+                            <p>There was an error connecting to GitHub. Please try again.</p>
+                            <a href="http://localhost:23816/github/auth" class="button">Try Again</a>
+                        </div>
+                    </body>
+                </html>
+            """)
+        
+        # Save the token
+        github_oauth.save_token(token_response['access_token'])
+        
+        # Return success page
+        return HTMLResponse("""
+            <html>
+                <head>
+                    <title>GitHub Authentication Success</title>
+                    <style>
+                        body {
+                            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+                            display: flex;
+                            flex-direction: column;
+                            align-items: center;
+                            justify-content: center;
+                            height: 100vh;
+                            margin: 0;
+                            background-color: #f6f8fa;
+                        }
+                        .container {
+                            text-align: center;
+                            padding: 2rem;
+                            background: white;
+                            border-radius: 8px;
+                            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                        }
+                        h1 { color: #24292e; }
+                        p { color: #586069; }
+                        .button {
+                            display: inline-block;
+                            padding: 8px 16px;
+                            background-color: #2ea44f;
+                            color: white;
+                            text-decoration: none;
+                            border-radius: 4px;
+                            margin-top: 1rem;
+                        }
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <h1>Successfully Connected!</h1>
+                        <p>Your GitHub account has been connected successfully. You can close this window and return to Pointer.</p>
+                    </div>
+                </body>
+            </html>
+        """)
+    except Exception as e:
+        print(f"Error in GitHub callback: {e}")
+        return HTMLResponse("""
+            <html>
+                <head>
+                    <title>GitHub Authentication Error</title>
+                    <style>
+                        body {
+                            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+                            display: flex;
+                            flex-direction: column;
+                            align-items: center;
+                            justify-content: center;
+                            height: 100vh;
+                            margin: 0;
+                            background-color: #f6f8fa;
+                        }
+                        .container {
+                            text-align: center;
+                            padding: 2rem;
+                            background: white;
+                            border-radius: 8px;
+                            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                        }
+                        h1 { color: #24292e; }
+                        p { color: #586069; }
+                        .button {
+                            display: inline-block;
+                            padding: 8px 16px;
+                            background-color: #2ea44f;
+                            color: white;
+                            text-decoration: none;
+                            border-radius: 4px;
+                            margin-top: 1rem;
+                        }
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <h1>Authentication Error</h1>
+                        <p>There was an error connecting to GitHub. Please try again.</p>
+                        <a href="http://localhost:23816/github/auth" class="button">Try Again</a>
+                    </div>
+                </body>
+            </html>
+        """)
+
+@app.get("/github/auth-status")
+async def github_auth_status():
+    """Check GitHub authentication status."""
+    token = github_oauth.get_token()
+    if token and github_oauth.validate_token(token):
+        return {"authenticated": True}
+    return {"authenticated": False}
+
+@app.post("/github/logout")
+async def github_logout():
+    """Log out from GitHub."""
+    try:
+        token_path = os.path.join("C:/ProgramData/Pointer/data/settings", "github_token.json")
+        if os.path.exists(token_path):
+            os.remove(token_path)
+        return {"success": True, "message": "Successfully logged out"}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
 
 # Remove the uvicorn.run() call since we're using run.py now
 if __name__ == "__main__":

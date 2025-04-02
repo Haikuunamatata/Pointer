@@ -62,6 +62,7 @@ const settingsCategories = [
   { id: 'models', name: 'LLM Models' },
   { id: 'theme', name: 'Theme & Editor' },
   { id: 'discord', name: 'Discord Rich Presence' },
+  { id: 'github', name: 'GitHub' },
   { id: 'keybindings', name: 'Keybindings' },
   { id: 'terminal', name: 'Terminal' },
   { id: 'advanced', name: 'Advanced' },
@@ -399,6 +400,7 @@ const ThemeLibraryModal: React.FC<{
 export function Settings({ isVisible, onClose, initialSettings }: SettingsProps) {
   const [activeCategory, setActiveCategory] = useState('models');
   const [activeTab, setActiveTab] = useState('default');
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [modelConfigs, setModelConfigs] = useState<Record<string, ModelConfig>>({
     'default': { ...defaultConfig },
   });
@@ -484,6 +486,7 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
             }
           }
           await loadAllSettings();
+          await checkAuthStatus();
         } catch (error) {
           console.error('Error during settings sync:', error);
         } finally {
@@ -493,6 +496,47 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
       loadSettingsAsync();
     }
   }, [isVisible]);
+
+  const checkAuthStatus = async () => {
+    try {
+      const response = await fetch('http://localhost:23816/github/auth-status');
+      const data = await response.json();
+      setIsAuthenticated(data.authenticated);
+    } catch (error) {
+      console.error('Error checking GitHub auth status:', error);
+      setIsAuthenticated(false);
+    }
+  };
+
+  const handleLogin = () => {
+    // Open GitHub OAuth URL in default browser
+    if (electron && electron.shell) {
+      electron.shell.openExternal('http://localhost:23816/github/auth');
+    } else {
+      // Fallback to window.open if electron is not available
+      window.open('http://localhost:23816/github/auth', '_blank');
+    }
+    
+    // Start polling for auth status
+    const pollInterval = setInterval(async () => {
+      const response = await fetch('http://localhost:23816/github/auth-status');
+      const data = await response.json();
+      
+      if (data.authenticated) {
+        setIsAuthenticated(true);
+        clearInterval(pollInterval);
+      }
+    }, 2000);
+  };
+
+  const handleLogout = async () => {
+    try {
+      await fetch('http://localhost:23816/github/logout', { method: 'POST' });
+      setIsAuthenticated(false);
+    } catch (error) {
+      console.error('Error logging out from GitHub:', error);
+    }
+  };
 
   async function loadDiscordRpcSettings(): Promise<void> {
     try {
@@ -2739,6 +2783,76 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                       <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '8px' }}>
                         Note: Elapsed time is now automatically included by Discord and cannot be disabled.
                       </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* GitHub Settings */}
+                {activeCategory === 'github' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '16px', background: 'var(--bg-secondary)', borderRadius: '8px' }}>
+                    <h3 style={{ margin: '0 0 8px 0', fontSize: '16px' }}>GitHub Integration</h3>
+                    <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                      Connect your GitHub account to enable repository cloning and other GitHub features.
+                    </p>
+                    
+                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '16px' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', fontSize: '14px', fontWeight: 'bold' }}>
+                        <input
+                          type="checkbox"
+                          checked={isAuthenticated}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              handleLogin();
+                            } else {
+                              handleLogout();
+                            }
+                          }}
+                          style={{ marginRight: '8px' }}
+                        />
+                        Connect GitHub Account
+                      </label>
+                    </div>
+                    
+                    <div style={{ padding: '16px', background: 'var(--bg-primary)', borderRadius: '8px', border: '1px solid var(--border-primary)' }}>
+                      <h4 style={{ margin: '0 0 12px 0', fontSize: '14px' }}>Connection Status</h4>
+                      
+                      {isAuthenticated ? (
+                        <div style={{ 
+                          padding: '12px', 
+                          background: 'var(--bg-hover)', 
+                          borderRadius: '4px',
+                          border: '1px solid var(--border-primary)',
+                          color: 'var(--text-primary)'
+                        }}>
+                          ✓ Successfully connected to GitHub
+                        </div>
+                      ) : (
+                        <div style={{ 
+                          padding: '12px', 
+                          background: 'var(--bg-hover)', 
+                          borderRadius: '4px',
+                          border: '1px solid var(--border-primary)',
+                          color: 'var(--text-secondary)'
+                        }}>
+                          Not connected to GitHub
+                        </div>
+                      )}
+                    </div>
+                    
+                    <div style={{ 
+                      background: 'var(--bg-primary)', 
+                      padding: '12px', 
+                      borderRadius: '6px',
+                      border: '1px solid var(--border-primary)',
+                      marginTop: '8px'
+                    }}>
+                      <h4 style={{ margin: '0 0 8px 0', fontSize: '14px' }}>Available Features</h4>
+                      <ul style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0, paddingLeft: '16px' }}>
+                        <li>Clone repositories</li>
+                        <li>List your repositories</li>
+                        <li>Push and pull changes</li>
+                        <li>Manage repository settings</li>
+                      </ul>
                     </div>
                   </div>
                 )}
