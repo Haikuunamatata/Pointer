@@ -9,6 +9,10 @@ interface DiffChange {
   oldContent: string;
   newContent: string;
   timestamp: number;
+  stats?: {
+    added: number;
+    removed: number;
+  };
 }
 
 const styles = {
@@ -181,6 +185,34 @@ const styles = {
       backgroundColor: 'var(--accent-color)',
     }
   },
+  fileItemStats: {
+    marginLeft: 'auto',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+    fontSize: '10px',
+  },
+  statAdded: {
+    color: '#28a745',
+    backgroundColor: 'rgba(40, 167, 69, 0.1)',
+    padding: '2px 4px',
+    borderRadius: '3px',
+    whiteSpace: 'nowrap' as const,
+  },
+  statRemoved: {
+    color: '#dc2626',
+    backgroundColor: 'rgba(220, 38, 38, 0.1)',
+    padding: '2px 4px',
+    borderRadius: '3px',
+    whiteSpace: 'nowrap' as const,
+  },
+  diffStats: {
+    marginLeft: '8px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    fontSize: '12px',
+  },
 };
 
 const ANIMATION_STYLES = `
@@ -238,6 +270,36 @@ export const DiffViewer: React.FC = () => {
   const fileListRef = useRef<HTMLDivElement>(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
+  // Calculate diff statistics for a pair of strings
+  const calculateDiffStats = (oldContent: string, newContent: string) => {
+    const oldLines = oldContent.split('\n');
+    const newLines = newContent.split('\n');
+    
+    let added = 0;
+    let removed = 0;
+    
+    // Simple approach: count lines that differ
+    for (let i = 0; i < Math.max(oldLines.length, newLines.length); i++) {
+      if (i >= oldLines.length) {
+        added++;
+      } else if (i >= newLines.length) {
+        removed++;
+      } else if (oldLines[i] !== newLines[i]) {
+        if (newLines[i].trim() === '') {
+          removed++;
+        } else if (oldLines[i].trim() === '') {
+          added++;
+        } else {
+          // Line was changed - count as both add and remove
+          added++;
+          removed++;
+        }
+      }
+    }
+    
+    return { added, removed };
+  };
+
   useEffect(() => {
     const unsubscribe = FileChangeEventService.subscribe(async (filePath, oldContent, newContent) => {
       // Check if there's already a diff for this file path
@@ -253,6 +315,9 @@ export const DiffViewer: React.FC = () => {
         console.error('Error reading current file content:', error);
       }
 
+      // Calculate diff statistics
+      const stats = calculateDiffStats(oldContent, newContent);
+      
       // If there's an existing diff, update it instead of adding a new one
       if (existingDiffIndex !== -1) {
         const updatedDiffs = [...diffs];
@@ -260,7 +325,8 @@ export const DiffViewer: React.FC = () => {
           filePath,
           oldContent,
           newContent,
-          timestamp: Date.now()
+          timestamp: Date.now(),
+          stats
         };
         setDiffs(updatedDiffs);
         setCurrentDiffIndex(existingDiffIndex);
@@ -270,7 +336,8 @@ export const DiffViewer: React.FC = () => {
           filePath,
           oldContent,
           newContent,
-          timestamp: Date.now()
+          timestamp: Date.now(),
+          stats
         }]);
         setCurrentDiffIndex(diffs.length);
       }
@@ -748,6 +815,27 @@ export const DiffViewer: React.FC = () => {
     };
   }, [isModalOpen, isFullscreen]);
 
+  // Update calculateDiffStats for all diffs if they don't have stats
+  useEffect(() => {
+    const updateDiffsWithStats = () => {
+      const needsUpdate = diffs.some(diff => !diff.stats);
+      if (needsUpdate) {
+        const updatedDiffs = diffs.map(diff => {
+          if (!diff.stats) {
+            return {
+              ...diff,
+              stats: calculateDiffStats(diff.oldContent, diff.newContent)
+            };
+          }
+          return diff;
+        });
+        setDiffs(updatedDiffs);
+      }
+    };
+    
+    updateDiffsWithStats();
+  }, [diffs]);
+
   if (diffs.length === 0) {
     return null;
   }
@@ -799,6 +887,16 @@ export const DiffViewer: React.FC = () => {
                 <div style={styles.modalTitle}>Review Changes</div>
                 <div style={styles.modalSubtitle}>
                   {fileName} {diffs.length > 1 && `(${currentDiffIndex + 1}/${diffs.length} files)`}
+                  {currentDiff.stats && (
+                    <span style={styles.diffStats}>
+                      {currentDiff.stats.added > 0 && (
+                        <span style={styles.statAdded}>+{currentDiff.stats.added}</span>
+                      )}
+                      {currentDiff.stats.removed > 0 && (
+                        <span style={styles.statRemoved}>-{currentDiff.stats.removed}</span>
+                      )}
+                    </span>
+                  )}
                 </div>
               </div>
               <div style={styles.buttonGroup}>
@@ -929,6 +1027,16 @@ export const DiffViewer: React.FC = () => {
                       }}>
                         {fileName}
                       </span>
+                      {diff.stats && (
+                        <div style={styles.fileItemStats}>
+                          {diff.stats.added > 0 && (
+                            <span style={styles.statAdded}>+{diff.stats.added}</span>
+                          )}
+                          {diff.stats.removed > 0 && (
+                            <span style={styles.statRemoved}>-{diff.stats.removed}</span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })}

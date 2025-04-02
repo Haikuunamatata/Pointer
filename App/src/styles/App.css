@@ -102,10 +102,22 @@ body {
   cursor: pointer;
   transition: background-color 0.2s;
   border-radius: 4px;
+  position: relative;
 }
 
 .titlebar-action-button:hover {
   background-color: var(--bg-hover);
+}
+
+.active-indicator {
+  position: absolute;
+  bottom: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 4px;
+  height: 4px;
+  background-color: var(--accent-color);
+  border-radius: 50%;
 }
 
 .titlebar-title {

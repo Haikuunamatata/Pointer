@@ -235,7 +235,6 @@ const Titlebar: React.FC<TitlebarProps> = ({
         <button 
           className="titlebar-action-button" 
           onClick={onToggleExplorerView}
-          style={isExplorerViewActive ? { backgroundColor: 'var(--accent-color)', color: 'white' } : {}}
           title="Explorer"
         >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -246,40 +245,41 @@ const Titlebar: React.FC<TitlebarProps> = ({
             <path d="M3 10h10v1H3v-1z" fill="currentColor"/>
             <path d="M3 12h6v1H3v-1z" fill="currentColor"/>
           </svg>
+          {isExplorerViewActive && <div className="active-indicator" />}
         </button>
           
         <button 
           className="titlebar-action-button" 
           onClick={onToggleGitView}
-          style={isGitViewActive ? { backgroundColor: 'var(--accent-color)', color: 'white' } : {}}
           title="Git"
         >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M15.698 7.287L8.712 0.302C8.51 0.1 8.255 0 7.986 0C7.717 0 7.463 0.099 7.26 0.302L5.809 1.753L7.644 3.588C7.954 3.491 8.308 3.552 8.552 3.795C8.798 4.041 8.858 4.398 8.757 4.709L10.524 6.476C10.835 6.375 11.193 6.434 11.438 6.681C11.775 7.018 11.775 7.564 11.438 7.901C11.101 8.238 10.555 8.238 10.218 7.901C9.958 7.641 9.904 7.253 10.033 6.929L8.382 5.278V10.795C8.465 10.837 8.546 10.891 8.614 10.959C8.951 11.296 8.951 11.842 8.614 12.179C8.277 12.516 7.73 12.516 7.394 12.179C7.057 11.842 7.057 11.296 7.394 10.959C7.478 10.875 7.576 10.814 7.678 10.776V5.215C7.576 5.177 7.478 5.118 7.394 5.032C7.131 4.769 7.08 4.376 7.213 4.05L5.406 2.244L0.302 7.347C0.099 7.551 0 7.805 0 8.074C0 8.343 0.099 8.597 0.302 8.801L7.288 15.786C7.491 15.988 7.745 16.088 8.014 16.088C8.283 16.088 8.537 15.989 8.74 15.786L15.698 8.827C15.9 8.624 16 8.37 16 8.101C16 7.832 15.901 7.578 15.698 7.374V7.287Z" fill="currentColor"/>
           </svg>
+          {isGitViewActive && <div className="active-indicator" />}
         </button>
         <div className="titlebar-divider" />
 
         <button 
           className="titlebar-action-button" 
           onClick={onToggleLLMChat}
-          style={isLLMChatVisible ? { backgroundColor: 'var(--accent-color)', color: 'white' } : {}}
           title="Assistant"
         >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M8 1.33337C4.32 1.33337 1.33333 4.32004 1.33333 8.00004C1.33333 11.68 4.32 14.6667 8 14.6667C11.68 14.6667 14.6667 11.68 14.6667 8.00004C14.6667 4.32004 11.68 1.33337 8 1.33337ZM7.33333 12.0001V10.6667H8.66667V12.0001H7.33333ZM9.89333 7.49337C9.70667 7.79337 9.45333 8.04004 9.14667 8.34004C8.87333 8.60004 8.66667 8.86671 8.53333 9.13337C8.44 9.33337 8.4 9.54671 8.4 9.77337V10.0001H7.06667V9.73337C7.06667 9.37337 7.13333 9.04004 7.26667 8.74671C7.43333 8.39337 7.67333 8.08004 7.98 7.80004C8.27333 7.52671 8.49333 7.28004 8.63333 7.05337C8.76667 6.82671 8.83333 6.59337 8.83333 6.36004C8.83333 6.06671 8.73333 5.83337 8.53333 5.66671C8.33333 5.50004 8.06667 5.41337 7.73333 5.41337C7.4 5.41337 7.13333 5.50671 6.93333 5.70004C6.73333 5.89337 6.62 6.14671 6.6 6.46004H5.26667C5.28 5.77337 5.5 5.21337 5.93333 4.78004C6.36667 4.34671 6.97333 4.13337 7.76 4.13337C8.54667 4.13337 9.14667 4.34004 9.56 4.75337C9.97333 5.16671 10.1733 5.68671 10.1733 6.32004C10.1733 6.70671 10.08 7.05337 9.89333 7.49337Z" fill="currentColor"/>
           </svg>
+          {isLLMChatVisible && <div className="active-indicator" />}
         </button>
         <div className="titlebar-divider" />
         <button 
           className="titlebar-action-button" 
           onClick={onToggleTerminal}
-          style={terminalOpen ? { backgroundColor: 'var(--accent-color)', color: 'white' } : {}}
           title="Terminal"
         >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M2 2h12v12H2V2zm1 1v10h10V3H3zm2 2h6v1H5V5zm0 2h6v1H5V7zm0 2h6v1H5V9zm0 2h6v1H5v-1z" fill="currentColor"/>
           </svg>
+          {terminalOpen && <div className="active-indicator" />}
         </button>
       </div>
       <div className="titlebar-title" onClick={handleTitleClick}>

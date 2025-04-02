@@ -9,12 +9,25 @@ import { DiffViewer } from './DiffViewer';
 import { FileChangeEventService } from '../services/FileChangeEventService';
 import { AIFileService } from '../services/AIFileService';
 import { Message } from '../types';
+import { FileSystemService } from '../services/FileSystemService';
+
+// Extend the Message interface to include attachments
+interface ExtendedMessage extends Message {
+  attachments?: AttachedFile[];
+}
 
 interface ChatSession {
   id: string;
   name: string;
   createdAt: string;
-  messages: Message[];
+  messages: ExtendedMessage[];
+}
+
+// Add interface for attached files
+interface AttachedFile {
+  name: string;
+  path: string;
+  content: string;
 }
 
 interface LLMChatProps {
@@ -26,7 +39,7 @@ interface LLMChatProps {
 }
 
 // Simplified system message
-const INITIAL_SYSTEM_MESSAGE: Message = {
+const INITIAL_SYSTEM_MESSAGE: ExtendedMessage = {
   role: 'system',
   content: `You are a helpful AI assistant that can assist with coding tasks.
 
@@ -41,7 +54,8 @@ const hello = "world";
 console.log(hello);
 \`\`\`
 
-This will display the filename above the code block to provide better context.`
+This will display the filename above the code block to provide better context.`,
+  attachments: undefined
 };
 
 // Combined actions button component for code blocks
@@ -541,7 +555,7 @@ interface CodeProps extends React.HTMLAttributes<HTMLElement> {
 }
 
 // Component to render messages with markdown and code syntax highlighting
-const MessageRenderer: React.FC<{ message: Message }> = ({ message }) => {
+const MessageRenderer: React.FC<{ message: ExtendedMessage }> = ({ message }) => {
   const [thinkTimes] = useState<ThinkTimes>({});
   
   // Check if we have an incomplete think block
@@ -555,7 +569,7 @@ const MessageRenderer: React.FC<{ message: Message }> = ({ message }) => {
       const thinkKey = message.content; // Use the full message content as the key
       thinkTimes[thinkKey] = thinkStart;
     }
-  }, [hasIncompleteThink, message.content]);
+  }, [hasIncompleteThink, message.content, thinkTimes]);
 
   // If we have an incomplete think, extract the content after <think>
   if (hasIncompleteThink) {
@@ -565,6 +579,38 @@ const MessageRenderer: React.FC<{ message: Message }> = ({ message }) => {
         {/* Render content before <think> tag */}
         {parts[0] && (
           <div className="message-content">
+            {message.attachments && message.attachments.length > 0 && (
+              <div className="message-attachments">
+                <div className="attachments-header">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+                  </svg>
+                  <span>{message.attachments.length} attached {message.attachments.length === 1 ? 'file' : 'files'}</span>
+                </div>
+                <div className="attachments-list">
+                  {message.attachments.map((file, index) => (
+                    <div key={index} className="attachment-item">
+                      <div className="attachment-name">
+                        <span className="attachment-icon">📄</span>
+                        {file.name}
+                      </div>
+                      <button
+                        className="attachment-expand-button"
+                        onClick={() => window.open(`data:text/plain;charset=utf-8,${encodeURIComponent(file.content)}`, '_blank')}
+                        title="View file content"
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <polyline points="15 3 21 3 21 9"></polyline>
+                          <polyline points="9 21 3 21 3 15"></polyline>
+                          <line x1="21" y1="3" x2="14" y2="10"></line>
+                          <line x1="3" y1="21" x2="10" y2="14"></line>
+                        </svg>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <ReactMarkdown
               components={{
                 p: ({ children, ...props }) => {
@@ -688,6 +734,161 @@ const MessageRenderer: React.FC<{ message: Message }> = ({ message }) => {
   // Split content into think blocks and other content
   const parts = message.content.split(/(<think>.*?<\/think>)/s);
   
+  // If no think blocks and no special parts, render as a regular message
+  if (parts.length === 1) {
+    return (
+      <div className="message-content">
+        {message.attachments && message.attachments.length > 0 && (
+          <div className="message-attachments">
+            <div className="attachments-header">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+              </svg>
+              <span>{message.attachments.length} attached {message.attachments.length === 1 ? 'file' : 'files'}</span>
+            </div>
+            <div className="attachments-list">
+              {message.attachments.map((file, index) => (
+                <div key={index} className="attachment-item">
+                  <div className="attachment-name">
+                    <span className="attachment-icon">📄</span>
+                    {file.name}
+                  </div>
+                  <button
+                    className="attachment-expand-button"
+                    onClick={() => window.open(`data:text/plain;charset=utf-8,${encodeURIComponent(file.content)}`, '_blank')}
+                    title="View file content"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <polyline points="15 3 21 3 21 9"></polyline>
+                      <polyline points="9 21 3 21 3 15"></polyline>
+                      <line x1="21" y1="3" x2="14" y2="10"></line>
+                      <line x1="3" y1="21" x2="10" y2="14"></line>
+                    </svg>
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        
+        <ReactMarkdown
+          components={{
+            p: ({ children, ...props }) => {
+              const hasCodeBlock = React.Children.toArray(children).some(
+                child => React.isValidElement(child) && child.type === 'code'
+              );
+              return hasCodeBlock ? <div {...props}>{children}</div> : <p {...props}>{children}</p>;
+            },
+            ul: ({ children, ...props }) => (
+              <ul style={{ 
+                margin: '8px 0',
+                paddingLeft: '24px',
+                listStyleType: 'disc'
+              }} {...props}>
+                {children}
+              </ul>
+            ),
+            ol: ({ children, ...props }) => (
+              <ol style={{ 
+                margin: '8px 0',
+                paddingLeft: '24px',
+                listStyleType: 'decimal'
+              }} {...props}>
+                {children}
+              </ol>
+            ),
+            li: ({ children, ...props }) => (
+              <li style={{ 
+                margin: '4px 0',
+                lineHeight: '1.5'
+              }} {...props}>
+                {children}
+              </li>
+            ),
+            code({ className, children, ...props }: CodeProps) {
+              let content = String(children).replace(/\n$/, '');
+              
+              // Check if this is a code block (triple backticks) or inline code (single backtick)
+              const isCodeBlock = content.includes('\n') || content.length > 50;
+              
+              if (!isCodeBlock) {
+                return (
+                  <code
+                    style={{
+                      background: 'var(--bg-code)',
+                      padding: '2px 4px',
+                      borderRadius: '3px',
+                      fontSize: '0.9em',
+                      fontFamily: 'var(--font-mono)',
+                      color: 'var(--inline-code-color, #cc0000)',
+                    }}
+                    {...props}
+                  >
+                    {content}
+                  </code>
+                );
+              }
+
+              let language = '';
+              let filename = '';
+              
+              if (className) {
+                const match = /language-(\w+)(?::(.+))?/.exec(className);
+                if (match) {
+                  language = match[1] || '';
+                  filename = match[2] || '';
+                }
+              }
+
+              // If no filename was provided in the className, try to extract it from the first line
+              if (!filename) {
+                const lines = content.split('\n');
+                const firstLine = lines[0].trim();
+                
+                // Extract potential filename from any comment style
+                // Match HTML comments, regular comments, and other common comment styles
+                const commentPatterns = [
+                  /^<!--\s*(.*?\.[\w]+)\s*-->/, // HTML comments
+                  /^\/\/\s*(.*?\.[\w]+)\s*$/, // Single line comments
+                  /^#\s*(.*?\.[\w]+)\s*$/, // Hash comments
+                  /^\/\*\s*(.*?\.[\w]+)\s*\*\/$/, // Multi-line comments
+                  /^--\s*(.*?\.[\w]+)\s*$/, // SQL comments
+                  /^%\s*(.*?\.[\w]+)\s*$/, // Matlab/LaTeX comments
+                  /^;\s*(.*?\.[\w]+)\s*$/, // Assembly/Lisp comments
+                ];
+
+                for (const pattern of commentPatterns) {
+                  const match = firstLine.match(pattern);
+                  if (match && match[1]) {
+                    const potentialPath = match[1].trim();
+                    // Basic check if it looks like a file path (no spaces)
+                    if (!potentialPath.includes(' ')) {
+                      filename = potentialPath;
+                      // Remove the first line from the content since we're using it as the filename
+                      content = lines.slice(1).join('\n').trim();
+                      break;
+                    }
+                  }
+                }
+              }
+              
+              return (
+                <CollapsibleCodeBlock
+                  language={language || 'text'}
+                  filename={filename}
+                  content={content}
+                />
+              );
+            }
+          }}
+        >
+          {message.content}
+        </ReactMarkdown>
+      </div>
+    );
+  }
+
+  // Handle messages with think blocks
   return (
     <>
       {parts.map((part, index) => {
@@ -703,6 +904,40 @@ const MessageRenderer: React.FC<{ message: Message }> = ({ message }) => {
         // Regular content
         return part ? (
           <div key={index} className="message-content">
+            {/* Display file attachments if they exist and it's the first part */}
+            {index === 0 && message.attachments && message.attachments.length > 0 && (
+              <div className="message-attachments">
+                <div className="attachments-header">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+                  </svg>
+                  <span>{message.attachments.length} attached {message.attachments.length === 1 ? 'file' : 'files'}</span>
+                </div>
+                <div className="attachments-list">
+                  {message.attachments.map((file, index) => (
+                    <div key={index} className="attachment-item">
+                      <div className="attachment-name">
+                        <span className="attachment-icon">📄</span>
+                        {file.name}
+                      </div>
+                      <button
+                        className="attachment-expand-button"
+                        onClick={() => window.open(`data:text/plain;charset=utf-8,${encodeURIComponent(file.content)}`, '_blank')}
+                        title="View file content"
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <polyline points="15 3 21 3 21 9"></polyline>
+                          <polyline points="9 21 3 21 3 15"></polyline>
+                          <line x1="21" y1="3" x2="14" y2="10"></line>
+                          <line x1="3" y1="21" x2="10" y2="14"></line>
+                        </svg>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            
             <ReactMarkdown
               components={{
                 p: ({ children, ...props }) => {
@@ -1036,7 +1271,8 @@ const AUTO_INSERT_STYLES = `
 `;
 
 export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectChat }: LLMChatProps) {
-  const [messages, setMessages] = useState<Message[]>([INITIAL_SYSTEM_MESSAGE]);
+  // Update the initial state and types to use ExtendedMessage
+  const [messages, setMessages] = useState<ExtendedMessage[]>([INITIAL_SYSTEM_MESSAGE]);
   const [input, setInput] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [width, setWidth] = useState(400);
@@ -1048,6 +1284,14 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   // Add state for tracking pending code inserts
   const [pendingInserts, setPendingInserts] = useState<{filename: string; content: string}[]>([]);
   const [autoInsertInProgress, setAutoInsertInProgress] = useState(false);
+
+  // Add state for attached files
+  const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
+  const [showFileSuggestions, setShowFileSuggestions] = useState(false);
+  const [fileSuggestions, setFileSuggestions] = useState<{ name: string; path: string }[]>([]);
+  const [mentionPosition, setMentionPosition] = useState<{ start: number; end: number } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const suggestionBoxRef = useRef<HTMLDivElement>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
@@ -1123,7 +1367,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   }, [onResize]);
 
   // Generate a title based on the first user message
-  const generateChatTitle = (messages: Message[]): string => {
+  const generateChatTitle = (messages: ExtendedMessage[]): string => {
     // Find the first user message
     const firstUserMessage = messages.find(m => m.role === 'user');
     
@@ -1155,7 +1399,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   };
 
   // Generate AI summary for chat title
-  const generateAISummary = async (messages: Message[]): Promise<string> => {
+  const generateAISummary = async (messages: ExtendedMessage[]): Promise<string> => {
     try {
       if (messages.length <= 1) return "New Chat";
       
@@ -1175,12 +1419,13 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       // Create a summary prompt with the conversation
       const userMessages = messages.filter(m => m.role === 'user').map(m => m.content).join("\n");
       
-      const summaryPrompt: Message[] = [
+      const summaryPrompt: ExtendedMessage[] = [
         { 
           role: 'system', 
-          content: 'You are a helpful assistant that generates extremely concise chat titles. Respond with ONLY 3-4 words that summarize the following user messages. No punctuation at the end.'
+          content: 'You are a helpful assistant that generates extremely concise chat titles. Respond with ONLY 3-4 words that summarize the following user messages. No punctuation at the end.',
+          attachments: undefined
         },
-        { role: 'user', content: userMessages.slice(0, 500) } // Limit input size
+        { role: 'user', content: userMessages.slice(0, 500), attachments: undefined } // Limit input size
       ];
       
       // Make the API call to get a summary
@@ -1219,7 +1464,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   };
 
   // Function to save chat
-  const saveChat = async (chatId: string, messages: Message[]) => {
+  const saveChat = async (chatId: string, messages: ExtendedMessage[]) => {
     try {
       if (messages.length <= 1) return; // Don't save if only system message exists
       
@@ -1258,30 +1503,31 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   const loadChat = async (chatId: string) => {
     try {
       const response = await fetch(`http://localhost:23816/chats/${chatId}`);
-      if (!response.ok) {
-        throw new Error('Failed to load chat');
-      }
-      
-      const chat = await response.json();
-      if (chat && Array.isArray(chat.messages)) {
-        // Ensure system message exists
-        const systemMessage = chat.messages.find((m: Message) => m.role === 'system');
-        const updatedMessages = systemMessage 
-          ? chat.messages 
-          : [INITIAL_SYSTEM_MESSAGE, ...chat.messages];
+      if (response.ok) {
+        const chat = await response.json();
         
-        setMessages(updatedMessages);
-        // Set chat title from loaded chat
+        // Ensure the system message exists
+        let chatMessages = Array.isArray(chat.messages) ? chat.messages : [];
+        
+        // Make sure all messages have the correct format
+        chatMessages = chatMessages.map((msg: any) => ({
+          role: msg.role || 'user',
+          content: msg.content || '',
+          attachments: msg.attachments || undefined
+        }));
+        
+        // Add system message if not present
+        if (!chatMessages.some((m: ExtendedMessage) => m.role === 'system')) {
+          chatMessages = [INITIAL_SYSTEM_MESSAGE, ...chatMessages];
+        }
+        
+        // Set messages and chat title
+        setMessages(chatMessages);
         setChatTitle(chat.name || '');
-        console.log('Chat loaded successfully');
-      } else {
-        // If invalid data, start a new chat with system message
-        setMessages([INITIAL_SYSTEM_MESSAGE]);
-        setChatTitle('');
       }
     } catch (error) {
       console.error('Error loading chat:', error);
-      // On error, start a new chat with system message
+      // Start with a new chat if there's an error
       setMessages([INITIAL_SYSTEM_MESSAGE]);
       setChatTitle('');
     }
@@ -1524,11 +1770,144 @@ Return ONLY the final merged code without any explanations. The code should be r
     processAutoInsert();
   }, [pendingInserts, autoInsertInProgress]);
 
-  // Handle submission of messages with auto-insert
+  // Function to handle file attachment via dialog
+  const handleFileAttachment = async () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  };
+
+  // Function to handle file input change
+  const handleFileInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      try {
+        const file = e.target.files[0];
+        const content = await readFileContent(file);
+        
+        // Add file to attached files
+        setAttachedFiles(prev => [...prev, {
+          name: file.name,
+          path: file.name, // Just using filename as path for uploaded files
+          content
+        }]);
+        
+        // Reset file input
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
+      } catch (error) {
+        console.error('Error reading file:', error);
+      }
+    }
+  };
+
+  // Function to read file content
+  const readFileContent = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        if (e.target?.result) {
+          resolve(e.target.result.toString());
+        } else {
+          reject(new Error('Failed to read file'));
+        }
+      };
+      reader.onerror = (e) => {
+        reject(e);
+      };
+      reader.readAsText(file);
+    });
+  };
+
+  // Function to remove an attached file
+  const removeAttachedFile = (index: number) => {
+    setAttachedFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
+  // Function to handle input change and check for @ mentions
+  const handleInputChange = async (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const inputValue = e.target.value;
+    setInput(inputValue);
+    
+    // Check for @ mentions
+    const match = /@([^@\s]*)$/.exec(inputValue);
+    
+    if (match) {
+      // If there's a match, show file suggestions
+      const currentDir = FileSystemService.getCurrentDirectory();
+      if (currentDir) {
+        try {
+          // Fetch current directory contents
+          const result = await FileSystemService.fetchFolderContents(currentDir);
+          if (result && result.items) {
+            // Filter files based on match
+            const files = Object.values(result.items)
+              .filter(item => item.type === 'file')
+              .filter(item => match[1] === '' || item.name.toLowerCase().includes(match[1].toLowerCase()))
+              .map(item => ({ name: item.name, path: item.path }));
+            
+            setFileSuggestions(files);
+            setShowFileSuggestions(files.length > 0);
+            setMentionPosition({ start: match.index, end: match.index + match[0].length });
+          }
+        } catch (error) {
+          console.error('Error fetching directory contents:', error);
+        }
+      }
+    } else {
+      // Hide suggestions if there's no match
+      setShowFileSuggestions(false);
+    }
+  };
+
+  // Function to select a file suggestion
+  const selectFileSuggestion = async (file: { name: string; path: string }) => {
+    if (mentionPosition) {
+      // Replace the @mention with the file name
+      const newInput = input.substring(0, mentionPosition.start) + file.name + input.substring(mentionPosition.end);
+      setInput(newInput);
+      
+      // Hide suggestions
+      setShowFileSuggestions(false);
+      
+      // Read file content
+      try {
+        // Try to read the file directly using the path
+        const content = await FileSystemService.readText(file.path);
+        
+        if (content) {
+          // Add file to attached files
+          setAttachedFiles(prev => [...prev, {
+            name: file.name,
+            path: file.path,
+            content
+          }]);
+        }
+      } catch (error) {
+        console.error('Error reading file:', error);
+      }
+    }
+  };
+
+  // Handle click outside of suggestion box
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (suggestionBoxRef.current && !suggestionBoxRef.current.contains(event.target as Node)) {
+        setShowFileSuggestions(false);
+      }
+    };
+    
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
+  // Modify handleSubmit to send attachments separately
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!input.trim() || isProcessing) return;
+    if ((!input.trim() && attachedFiles.length === 0) || isProcessing) return;
     
     try {
       setIsProcessing(true);
@@ -1536,10 +1915,17 @@ Return ONLY the final merged code without any explanations. The code should be r
       // Auto-accept any pending changes before sending new message
       await autoAcceptChanges();
       
-      // Add user message
-      const userMessage: Message = { role: 'user', content: input };
+      // Add user message with attachments as a separate field
+      const userMessage: ExtendedMessage = { 
+        role: 'user', 
+        content: input,
+        attachments: attachedFiles.length > 0 ? [...attachedFiles] : undefined
+      };
+      
       setMessages(prev => [...prev, userMessage]);
       setInput('');
+      // Clear attached files after sending
+      setAttachedFiles([]);
 
       // Create a new AbortController for this request
       abortControllerRef.current = new AbortController();
@@ -1560,10 +1946,41 @@ Return ONLY the final merged code without any explanations. The code should be r
         presencePenalty: 0,
       };
 
-      // Prepare messages for API
-      const messagesForAPI = messages
-        .concat(userMessage)
-        .map(msg => ({ role: msg.role, content: msg.content }));
+      // Prepare messages for API - convert attachments to content for LLM
+      const messagesForAPI = messages.map(msg => {
+        if (msg.attachments && msg.attachments.length > 0) {
+          // Create a copy of the message with attachments included in content
+          let contentWithAttachments = msg.content;
+          
+          if (contentWithAttachments && contentWithAttachments.trim() !== '') {
+            contentWithAttachments += '\n\n';
+          }
+          
+          msg.attachments.forEach((file, index) => {
+            contentWithAttachments += `File: ${file.name}\n\`\`\`\n${file.content}\n\`\`\`\n\n`;
+          });
+          
+          return { role: msg.role, content: contentWithAttachments };
+        }
+        return { role: msg.role, content: msg.content };
+      });
+      
+      // Add the current message with attachments
+      if (userMessage.attachments && userMessage.attachments.length > 0) {
+        let contentWithAttachments = userMessage.content;
+        
+        if (contentWithAttachments && contentWithAttachments.trim() !== '') {
+          contentWithAttachments += '\n\n';
+        }
+        
+        userMessage.attachments.forEach((file, index) => {
+          contentWithAttachments += `File: ${file.name}\n\`\`\`\n${file.content}\n\`\`\`\n\n`;
+        });
+        
+        messagesForAPI.push({ role: userMessage.role, content: contentWithAttachments });
+      } else {
+        messagesForAPI.push({ role: userMessage.role, content: userMessage.content });
+      }
       
       // Call the LMStudio API
       let finalContent = '';
@@ -1683,10 +2100,11 @@ Return ONLY the final merged code without any explanations. The code should be r
     setInput('');
   };
 
+  // Update handleSubmitEdit to follow the same pattern
   const handleSubmitEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!input.trim() || isProcessing || editingMessageIndex === null) return;
+    if ((!input.trim() && attachedFiles.length === 0) || isProcessing || editingMessageIndex === null) return;
     
     try {
       setIsProcessing(true);
@@ -1694,9 +2112,15 @@ Return ONLY the final merged code without any explanations. The code should be r
       // Auto-accept any pending changes before sending new message
       await autoAcceptChanges();
       
-      // Update the edited message
+      // Update the edited message with attachments as a separate field
+      const updatedMessage: ExtendedMessage = { 
+        role: 'user', 
+        content: input,
+        attachments: attachedFiles.length > 0 ? [...attachedFiles] : undefined
+      };
+      
       const updatedMessages = [...messages];
-      updatedMessages[editingMessageIndex] = { role: 'user', content: input };
+      updatedMessages[editingMessageIndex] = updatedMessage;
       
       // Remove all messages after the edited message
       updatedMessages.splice(editingMessageIndex + 1);
@@ -1704,6 +2128,8 @@ Return ONLY the final merged code without any explanations. The code should be r
       setMessages(updatedMessages);
       setInput('');
       setEditingMessageIndex(null);
+      // Clear attached files after submitting edit
+      setAttachedFiles([]);
 
       // Add a temporary message for streaming
       setMessages(prev => [...prev, { role: 'assistant', content: '' }]);
@@ -1721,9 +2147,24 @@ Return ONLY the final merged code without any explanations. The code should be r
         presencePenalty: 0,
       };
 
-      // Prepare messages for API
-      const messagesForAPI = updatedMessages
-        .map(msg => ({ role: msg.role, content: msg.content }));
+      // Prepare messages for API - convert attachments to content for LLM
+      const messagesForAPI = updatedMessages.map(msg => {
+        if (msg.attachments && msg.attachments.length > 0) {
+          // Create a copy of the message with attachments included in content
+          let contentWithAttachments = msg.content;
+          
+          if (contentWithAttachments && contentWithAttachments.trim() !== '') {
+            contentWithAttachments += '\n\n';
+          }
+          
+          msg.attachments.forEach((file, index) => {
+            contentWithAttachments += `File: ${file.name}\n\`\`\`\n${file.content}\n\`\`\`\n\n`;
+          });
+          
+          return { role: msg.role, content: contentWithAttachments };
+        }
+        return { role: msg.role, content: msg.content };
+      });
       
       // Call the LMStudio API
       let finalContent = '';
@@ -1757,7 +2198,7 @@ Return ONLY the final merged code without any explanations. The code should be r
           ...codeBlocks.map(block => ({ filename: block.filename, content: block.content }))
         ]);
       }
-
+      
     } catch (error) {
       console.error('Error in handleSubmitEdit:', error);
     } finally {
@@ -2101,10 +2542,52 @@ Return ONLY the final merged code without any explanations. The code should be r
           <div ref={messagesEndRef} />
         </div>
 
+        {/* Attached Files Section */}
+        {attachedFiles.length > 0 && (
+          <div className="attached-files-container">
+            <div
+              style={{
+                fontSize: '12px',
+                fontWeight: 'bold',
+                marginBottom: '6px',
+                color: 'var(--text-secondary)',
+              }}
+            >
+              Attached Files ({attachedFiles.length})
+            </div>
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '4px',
+              }}
+            >
+              {attachedFiles.map((file, index) => (
+                <div key={index} className="attached-file-item">
+                  <div className="attached-file-name">
+                    <span className="attached-file-icon">📎</span>
+                    {file.name}
+                  </div>
+                  <button
+                    onClick={() => removeAttachedFile(index)}
+                    className="remove-file-button"
+                    title="Remove file"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <line x1="18" y1="6" x2="6" y2="18" />
+                      <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <form
           onSubmit={editingMessageIndex !== null ? handleSubmitEdit : handleSubmit}
           style={{
-            borderTop: '1px solid var(--border-primary)',
+            borderTop: attachedFiles.length > 0 ? 'none' : '1px solid var(--border-primary)',
             padding: '12px',
             display: 'flex',
             flexDirection: 'column',
@@ -2121,8 +2604,8 @@ Return ONLY the final merged code without any explanations. The code should be r
           >
             <textarea
               value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder={editingMessageIndex !== null ? "Edit your message..." : "Type your message..."}
+              onChange={handleInputChange}
+              placeholder={editingMessageIndex !== null ? "Edit your message..." : "Type your message... (Use @ to attach files)"}
               style={{
                 width: '100%',
                 padding: '12px',
@@ -2147,10 +2630,33 @@ Return ONLY the final merged code without any explanations. The code should be r
                   }
                 } else if (e.key === 'Escape' && editingMessageIndex !== null) {
                   handleCancelEdit();
+                } else if (e.key === 'Escape' && showFileSuggestions) {
+                  setShowFileSuggestions(false);
+                  e.preventDefault();
                 }
               }}
               disabled={isProcessing}
             />
+
+            {/* File suggestions dropdown */}
+            {showFileSuggestions && (
+              <div
+                ref={suggestionBoxRef}
+                className="file-suggestions-dropdown"
+              >
+                {fileSuggestions.map((file, index) => (
+                  <div
+                    key={index}
+                    onClick={() => selectFileSuggestion(file)}
+                    className="file-suggestion-item"
+                  >
+                    <span className="file-suggestion-icon">📄</span>
+                    {file.name}
+                  </div>
+                ))}
+              </div>
+            )}
+
             <div
               style={{
                 display: 'flex',
@@ -2177,6 +2683,29 @@ Return ONLY the final merged code without any explanations. The code should be r
                   Cancel
                 </button>
               )}
+              
+              {/* Add hidden file input */}
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileInputChange}
+                style={{ display: 'none' }}
+              />
+              
+              {/* File attachment button */}
+              {!editingMessageIndex && !isProcessing && (
+                <button
+                  onClick={handleFileAttachment}
+                  type="button"
+                  className="add-file-button"
+                  title="Attach file"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M12 5v14M5 12h14" />
+                  </svg>
+                </button>
+              )}
+              
               {isProcessing ? (
                 <button
                   onClick={handleCancel}
@@ -2197,14 +2726,14 @@ Return ONLY the final merged code without any explanations. The code should be r
               ) : (
                 <button
                   type="submit"
-                  disabled={!input.trim()}
+                  disabled={!input.trim() && attachedFiles.length === 0}
                   style={{
                     padding: '8px 16px',
                     borderRadius: '4px',
                     border: '1px solid var(--border-primary)',
-                    background: input.trim() ? 'var(--accent-color)' : 'var(--bg-secondary)',
-                    color: input.trim() ? 'white' : 'var(--text-secondary)',
-                    cursor: input.trim() ? 'pointer' : 'not-allowed',
+                    background: (input.trim() || attachedFiles.length > 0) ? 'var(--accent-color)' : 'var(--bg-secondary)',
+                    color: (input.trim() || attachedFiles.length > 0) ? 'white' : 'var(--text-secondary)',
+                    cursor: (input.trim() || attachedFiles.length > 0) ? 'pointer' : 'not-allowed',
                     fontSize: '13px',
                     fontWeight: 500,
                   }}
