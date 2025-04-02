@@ -62,7 +62,7 @@ async def get_user_repositories():
                     response = requests.get(
                         "https://api.github.com/user/repos",
                         headers=headers,
-                        params={"sort": "updated", "per_page": 10}
+                        params={"sort": "updated", "per_page": 25}
                     )
                     
                     if response.status_code == 200:
@@ -84,7 +84,7 @@ async def get_popular_repositories():
                 "q": "stars:>10000",
                 "sort": "stars",
                 "order": "desc",
-                "per_page": 10
+                "per_page": 25
             },
             headers={"Accept": "application/vnd.github.v3+json"}
         )

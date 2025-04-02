@@ -27,6 +27,10 @@ REDIRECT_URI = 'http://localhost:23816/github/callback'
 class TokenRequest(BaseModel):
     code: str
 
+@app.get("/github/client_id")
+async def get_github_client_id():
+    return {"client_id": GITHUB_CLIENT_ID}
+
 @app.post("/exchange-token")
 async def exchange_token(request: TokenRequest):
     """Exchange GitHub authorization code for access token."""

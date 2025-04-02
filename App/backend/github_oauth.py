@@ -7,7 +7,7 @@ from fastapi import HTTPException
 class GitHubOAuth:
     def __init__(self):
         # Get client ID from environment or use a default public one
-        self.client_id = os.getenv('GITHUB_CLIENT_ID', 'Iv23liF2g157WI95Famx')
+        self.client_id = requests.get('https://pointerapi.f1shy312.com/github/client_id')
         self.redirect_uri = 'http://localhost:23816/github/callback'
         # Server URL for token exchange
         self.server_url = os.getenv('OAUTH_SERVER_URL', 'https://pointerapi.f1shy312.com')

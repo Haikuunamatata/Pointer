@@ -1,12 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import { GitService } from '../services/gitService';
 import { GitHubService, UserRepository, PopularRepository } from '../services/GitHubService';
-import GitHubSettings from './GitHubSettings';
 
 interface CloneRepositoryModalProps {
   isOpen: boolean;
   onClose: () => void;
   onClone: (url: string, directory: string) => Promise<void>;
+}
+
+interface SearchResult {
+  name: string;
+  full_name: string;
+  description: string;
+  html_url: string;
+  owner: {
+    login: string;
+    avatar_url: string;
+  };
 }
 
 const CloneRepositoryModal: React.FC<CloneRepositoryModalProps> = ({ isOpen, onClose, onClone }) => {
@@ -19,6 +29,9 @@ const CloneRepositoryModal: React.FC<CloneRepositoryModalProps> = ({ isOpen, onC
   const [activeTab, setActiveTab] = useState<'url' | 'popular' | 'user'>('url');
   const [isLoadingRepos, setIsLoadingRepos] = useState(false);
   const [isGitHubSettingsOpen, setIsGitHubSettingsOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -29,6 +42,29 @@ const CloneRepositoryModal: React.FC<CloneRepositoryModalProps> = ({ isOpen, onC
       }
     }
   }, [isOpen, activeTab]);
+
+  useEffect(() => {
+    const searchTimeout = setTimeout(async () => {
+      if (activeTab === 'url' && searchQuery.trim()) {
+        setIsSearching(true);
+        try {
+          const response = await fetch(`https://api.github.com/search/repositories?q=${encodeURIComponent(searchQuery)}&per_page=10`);
+          if (!response.ok) throw new Error('Failed to fetch search results');
+          const data = await response.json();
+          setSearchResults(data.items);
+        } catch (err) {
+          console.error('Error searching repositories:', err);
+          setError('Failed to search repositories. Please try again.');
+        } finally {
+          setIsSearching(false);
+        }
+      } else {
+        setSearchResults([]);
+      }
+    }, 500); // Debounce search for 500ms
+
+    return () => clearTimeout(searchTimeout);
+  }, [searchQuery, activeTab]);
 
   const fetchPopularRepos = async () => {
     try {
@@ -85,12 +121,13 @@ const CloneRepositoryModal: React.FC<CloneRepositoryModalProps> = ({ isOpen, onC
     setCloneLocation('');
     setError('');
     setActiveTab('url');
+    setSearchQuery('');
+    setSearchResults([]);
     onClose();
   };
 
   const handleBrowse = async () => {
     try {
-      // Use the backend.py /open-directory endpoint instead of Electron dialog
       const response = await fetch('http://localhost:23816/open-directory', {
         method: 'POST',
         headers: {
@@ -113,9 +150,35 @@ const CloneRepositoryModal: React.FC<CloneRepositoryModalProps> = ({ isOpen, onC
     }
   };
 
-  const selectRepository = (repo: UserRepository | PopularRepository) => {
-    setRepoUrl(repo.url);
+  const selectRepository = (repo: UserRepository | PopularRepository | SearchResult) => {
+    if ('html_url' in repo) {
+      setRepoUrl(repo.html_url);
+    } else {
+      setRepoUrl(repo.url);
+    }
     setActiveTab('url');
+  };
+
+  const filterRepositories = (repos: (UserRepository | PopularRepository)[], query: string) => {
+    if (!query.trim()) return repos;
+    
+    const searchLower = query.toLowerCase();
+    return repos.filter(repo => 
+      repo.name.toLowerCase().includes(searchLower) ||
+      (repo.description && repo.description.toLowerCase().includes(searchLower)) ||
+      (repo.owner && repo.owner.toLowerCase().includes(searchLower))
+    );
+  };
+
+  const filteredPopularRepos = filterRepositories(popularRepos, searchQuery);
+  const filteredUserRepos = filterRepositories(userRepos, searchQuery);
+
+  const isPopularRepository = (repo: UserRepository | PopularRepository): repo is PopularRepository => {
+    return 'stars' in repo;
+  };
+
+  const isUserRepository = (repo: UserRepository | PopularRepository): repo is UserRepository => {
+    return 'isPrivate' in repo && 'lastUpdated' in repo;
   };
 
   if (!isOpen) return null;
@@ -165,24 +228,6 @@ const CloneRepositoryModal: React.FC<CloneRepositoryModalProps> = ({ isOpen, onC
                 My Repositories
               </button>
               <div style={{ flex: 1 }}></div>
-              <button
-                type="button"
-                onClick={() => setIsGitHubSettingsOpen(true)}
-                className="modal-button modal-button-secondary"
-                style={{ 
-                  fontSize: '12px', 
-                  padding: '2px 8px', 
-                  height: '24px',
-                  marginBottom: '1px',
-                  display: 'flex',
-                  alignItems: 'center'
-                }}
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ marginRight: '4px' }}>
-                  <path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.438 9.8 8.207 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.608-4.042-1.608-.546-1.386-1.332-1.754-1.332-1.754-1.09-.744.083-.73.083-.73 1.205.085 1.838 1.236 1.838 1.236 1.07 1.835 2.807 1.305 3.492.998.108-.775.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.468-2.38 1.235-3.22-.124-.303-.535-1.524.118-3.176 0 0 1.006-.322 3.3 1.23.956-.266 1.983-.4 3.003-.404 1.02.005 2.046.138 3.005.404 2.29-1.552 3.295-1.23 3.295-1.23.655 1.652.243 2.873.12 3.176.77.84 1.233 1.91 1.233 3.22 0 4.61-2.806 5.625-5.478 5.92.43.37.814 1.103.814 2.223 0 1.604-.015 2.898-.015 3.292 0 .32.217.695.825.577C20.565 21.795 24 17.298 24 12c0-6.63-5.37-12-12-12z" fill="currentColor" />
-                </svg>
-                GitHub Settings
-              </button>
             </div>
           </div>
           
@@ -200,6 +245,71 @@ const CloneRepositoryModal: React.FC<CloneRepositoryModalProps> = ({ isOpen, onC
                   placeholder="https://github.com/username/repository.git"
                   className="modal-input"
                 />
+                <div style={{ marginTop: '12px' }}>
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search public repositories..."
+                    className="modal-input"
+                  />
+                </div>
+                {searchQuery && (
+                  <div style={{ 
+                    maxHeight: '250px', 
+                    overflowY: 'auto', 
+                    backgroundColor: 'var(--bg-primary)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '4px',
+                    marginTop: '12px'
+                  }}>
+                    {isSearching ? (
+                      <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                        Searching repositories...
+                      </div>
+                    ) : searchResults.length === 0 ? (
+                      <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                        No repositories found matching your search
+                      </div>
+                    ) : (
+                      searchResults.map(repo => (
+                        <div 
+                          key={repo.full_name}
+                          onClick={() => selectRepository(repo)}
+                          className="repo-list-item"
+                        >
+                          <div className="repo-title">
+                            <img 
+                              src={repo.owner.avatar_url}
+                              alt={repo.owner.login}
+                              style={{
+                                width: '16px',
+                                height: '16px',
+                                borderRadius: '50%',
+                                marginRight: '8px',
+                                verticalAlign: 'middle'
+                              }}
+                            />
+                            {repo.full_name}
+                          </div>
+                          <div className="repo-description">{repo.description}</div>
+                          <div style={{ 
+                            display: 'flex', 
+                            justifyContent: 'space-between', 
+                            alignItems: 'center',
+                            fontSize: '12px',
+                            color: 'var(--text-secondary)',
+                            marginTop: '4px'
+                          }}>
+                            <span style={{ color: 'var(--accent-color)', fontSize: '11px' }}>
+                              {repo.html_url}
+                            </span>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
               </div>
             )}
             
@@ -208,6 +318,14 @@ const CloneRepositoryModal: React.FC<CloneRepositoryModalProps> = ({ isOpen, onC
                 <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
                   Popular Repositories
                 </div>
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search popular repositories..."
+                  className="modal-input"
+                  style={{ marginBottom: '12px' }}
+                />
                 <div style={{ 
                   maxHeight: '250px', 
                   overflowY: 'auto', 
@@ -219,12 +337,12 @@ const CloneRepositoryModal: React.FC<CloneRepositoryModalProps> = ({ isOpen, onC
                     <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-secondary)' }}>
                       Loading repositories...
                     </div>
-                  ) : popularRepos.length === 0 ? (
+                  ) : filteredPopularRepos.length === 0 ? (
                     <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-secondary)' }}>
-                      No repositories found
+                      {searchQuery ? 'No repositories found matching your search' : 'No repositories found'}
                     </div>
                   ) : (
-                    popularRepos.map(repo => (
+                    filteredPopularRepos.map(repo => (
                       <div 
                         key={repo.name}
                         onClick={() => selectRepository(repo)}
@@ -245,8 +363,15 @@ const CloneRepositoryModal: React.FC<CloneRepositoryModalProps> = ({ isOpen, onC
                           {repo.owner}/{repo.name}
                         </div>
                         <div className="repo-description">{repo.description}</div>
-                        <div className="repo-meta">
-                          <span>⭐ {repo.stars.toLocaleString()}</span>
+                        <div style={{ 
+                          display: 'flex', 
+                          justifyContent: 'space-between', 
+                          alignItems: 'center',
+                          fontSize: '12px',
+                          color: 'var(--text-secondary)',
+                          marginTop: '4px'
+                        }}>
+                          {isPopularRepository(repo) && <span>⭐ {repo.stars.toLocaleString()}</span>}
                           <span style={{ color: 'var(--accent-color)', fontSize: '11px' }}>
                             {repo.url}
                           </span>
@@ -263,6 +388,14 @@ const CloneRepositoryModal: React.FC<CloneRepositoryModalProps> = ({ isOpen, onC
                 <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
                   My Repositories
                 </div>
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search your repositories..."
+                  className="modal-input"
+                  style={{ marginBottom: '12px' }}
+                />
                 <div style={{ 
                   maxHeight: '250px', 
                   overflowY: 'auto', 
@@ -274,12 +407,12 @@ const CloneRepositoryModal: React.FC<CloneRepositoryModalProps> = ({ isOpen, onC
                     <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-secondary)' }}>
                       Loading repositories...
                     </div>
-                  ) : userRepos.length === 0 ? (
+                  ) : filteredUserRepos.length === 0 ? (
                     <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-secondary)' }}>
-                      No repositories found
+                      {searchQuery ? 'No repositories found matching your search' : 'No repositories found'}
                     </div>
                   ) : (
-                    userRepos.map(repo => (
+                    filteredUserRepos.map(repo => (
                       <div 
                         key={repo.name}
                         onClick={() => selectRepository(repo)}
@@ -298,7 +431,7 @@ const CloneRepositoryModal: React.FC<CloneRepositoryModalProps> = ({ isOpen, onC
                             }}
                           />
                           {repo.name}
-                          {repo.isPrivate && (
+                          {isUserRepository(repo) && repo.isPrivate && (
                             <span style={{ 
                               marginLeft: '8px', 
                               fontSize: '10px', 
@@ -312,8 +445,15 @@ const CloneRepositoryModal: React.FC<CloneRepositoryModalProps> = ({ isOpen, onC
                           )}
                         </div>
                         <div className="repo-description">{repo.description}</div>
-                        <div className="repo-meta">
-                          <span>Last updated: {repo.lastUpdated}</span>
+                        <div style={{ 
+                          display: 'flex', 
+                          justifyContent: 'space-between', 
+                          alignItems: 'center',
+                          fontSize: '12px',
+                          color: 'var(--text-secondary)',
+                          marginTop: '4px'
+                        }}>
+                          {isUserRepository(repo) && <span>Last updated: {repo.lastUpdated}</span>}
                           <span style={{ color: 'var(--accent-color)', fontSize: '11px' }}>
                             {repo.url}
                           </span>
