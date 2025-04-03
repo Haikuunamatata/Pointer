@@ -52,7 +52,7 @@ body {
   height: 32px;
   background-color: var(--titlebar-bg);
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: 1fr auto;
   align-items: center;
   padding: 0;
   -webkit-app-region: drag;
@@ -60,27 +60,45 @@ body {
   border-bottom: 1px solid var(--border-color);
 }
 
-/* Windows-specific styles */
-.titlebar.windows .titlebar-left {
-  padding-left: 8px;
+.titlebar-title {
+  font-size: 12px;
+  color: var(--text-primary);
+  cursor: default;
+  transition: color 0.2s;
+  -webkit-app-region: drag;
+  text-align: center;
+  width: 100%;
+  padding: 0 8px;
+  position: absolute;
+  left: 0;
+  right: 0;
+  pointer-events: none;
 }
 
-/* macOS-specific styles */
-.titlebar.macos .titlebar-left {
-  padding-left: 76px; /* Space for traffic lights */
+.titlebar-title:hover {
+  color: var(--accent-color);
 }
 
-.titlebar-left {
+.titlebar-right {
   display: flex;
   align-items: center;
   gap: 4px;
+  padding-right: 8px;
   -webkit-app-region: no-drag;
+  margin-left: auto;
+  z-index: 1;
+}
+
+.titlebar-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .titlebar-logo {
   width: 16px;
   height: 16px;
-  margin-right: 8px;
+  margin-left: 8px;
 }
 
 .titlebar-divider {
@@ -118,21 +136,6 @@ body {
   height: 4px;
   background-color: var(--accent-color);
   border-radius: 50%;
-}
-
-.titlebar-title {
-  font-size: 12px;
-  color: var(--text-primary);
-  cursor: default;
-  transition: color 0.2s;
-  -webkit-app-region: drag;
-  text-align: center;
-  width: 100%;
-  padding: 0 8px;
-}
-
-.titlebar-title:hover {
-  color: var(--accent-color);
 }
 
 .titlebar-controls {
@@ -416,4 +419,129 @@ input:focus {
 :focus-visible {
   outline: 2px solid var(--accent-color);
   outline-offset: -2px;
+}
+
+/* Windows-specific styles */
+/* macOS-specific styles */
+.titlebar.macos .titlebar-controls {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  gap: 8px;
+  -webkit-app-region: no-drag;
+}
+
+.titlebar.macos .titlebar-button {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 8px;
+  color: transparent;
+  transition: background-color 0.2s;
+}
+
+.titlebar.macos .titlebar-button.close {
+  background-color: #ff5f57;
+}
+
+.titlebar.macos .titlebar-button.close:hover {
+  background-color: #ff5f57;
+}
+
+.titlebar.macos .titlebar-button:nth-child(2) {
+  background-color: #febc2e;
+}
+
+.titlebar.macos .titlebar-button:nth-child(2):hover {
+  background-color: #febc2e;
+}
+
+.titlebar.macos .titlebar-button:nth-child(3) {
+  background-color: #28c840;
+}
+
+.titlebar.macos .titlebar-button:nth-child(3):hover {
+  background-color: #28c840;
+}
+
+.titlebar.macos .titlebar-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-right: 16px;
+  -webkit-app-region: no-drag;
+  margin-left: auto;
+}
+
+.titlebar.macos .titlebar-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.titlebar.macos .titlebar-logo {
+  width: 16px;
+  height: 16px;
+  margin-left: 8px;
+}
+
+.titlebar.macos .titlebar-title {
+  text-align: center;
+  padding-left: 0;
+}
+
+/* Windows-specific styles */
+.titlebar.windows .titlebar-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-right: 8px;
+  -webkit-app-region: no-drag;
+  margin-left: auto;
+}
+
+.titlebar.windows .titlebar-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.titlebar.windows .titlebar-logo {
+  width: 16px;
+  height: 16px;
+  margin-left: 8px;
+}
+
+.titlebar.windows .titlebar-controls {
+  display: flex;
+  align-items: center;
+  padding-left: 8px;
+}
+
+.titlebar.windows .titlebar-button {
+  width: 46px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.titlebar.windows .titlebar-button:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.titlebar.windows .titlebar-button.close:hover {
+  background-color: #e81123;
 } 
