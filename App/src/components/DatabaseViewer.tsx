@@ -1,341 +1,353 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { FileSystemItem } from '../types';
-import '../styles/App.css';
+import { showToast } from '../services/ToastService';
 
-interface TableInfo {
+interface TableSchema {
   name: string;
-  columns: string[];
+  type: string;
+  pk: number; // 1 if primary key, 0 otherwise
+}
+
+interface DatabaseSchema {
+  tables: Record<string, TableSchema[]>;
 }
 
 interface QueryResult {
-  columns: string[];
-  rows: any[];
+  success: boolean;
+  columns?: string[];
+  data?: Record<string, any>[];
+  rowCount?: number;
+  executionTime?: number;
+  message?: string;
   error?: string;
 }
 
+const API_URL = 'http://localhost:23816';
+
 const DatabaseViewer: React.FC<{ file: FileSystemItem }> = ({ file }) => {
-  const [tables, setTables] = useState<TableInfo[]>([]);
+  const [schema, setSchema] = useState<DatabaseSchema | null>(null);
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
   const [tableData, setTableData] = useState<QueryResult | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [sqlQuery, setSqlQuery] = useState('');
-  const [queryResult, setQueryResult] = useState<QueryResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [isRepairing, setIsRepairing] = useState(false);
+  const [customQuery, setCustomQuery] = useState<string>('');
+  const [customQueryResult, setCustomQueryResult] = useState<QueryResult | null>(null);
+  const [isLoadingSchema, setIsLoadingSchema] = useState(true);
+  const [isLoadingData, setIsLoadingData] = useState(false);
+  const [isLoadingQuery, setIsLoadingQuery] = useState(false);
 
-  // Fetch database schema (list of tables)
-  useEffect(() => {
-    const fetchSchema = async () => {
-      try {
-        setIsLoading(true);
-        setError(null);
-        
-        const response = await fetch('http://localhost:23816/database/schema', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ path: file.path }),
-        });
-        
-        if (!response.ok) {
-          throw new Error(`Failed to fetch database schema: ${response.statusText}`);
-        }
-        
-        const data = await response.json();
-        if (data.error) {
-          throw new Error(data.error);
-        }
-        
-        setTables(data.tables);
-        if (data.tables.length > 0) {
-          setSelectedTable(data.tables[0].name);
-        }
-      } catch (err) {
-        console.error('Error fetching database schema:', err);
-        setError(err instanceof Error ? err.message : String(err));
-      } finally {
-        setIsLoading(false);
+  const fetchSchema = useCallback(async () => {
+    setIsLoadingSchema(true);
+    try {
+      const response = await fetch(`${API_URL}/db/schema`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: file.path }),
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP error ${response.status}: ${await response.text()}`);
       }
-    };
-    
-    fetchSchema();
+      const data: DatabaseSchema = await response.json();
+      setSchema(data);
+    } catch (error: any) {
+      showToast(`Error fetching schema: ${error.message}`, 'error');
+      setSchema(null);
+    } finally {
+      setIsLoadingSchema(false);
+    }
   }, [file.path]);
 
-  // Fetch table data when a table is selected
+  const fetchTableData = useCallback(async (tableName: string, limit = 100) => {
+    setIsLoadingData(true);
+    setTableData(null);
+    try {
+      const response = await fetch(`${API_URL}/db/query`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: file.path, sql: `SELECT * FROM "${tableName}" LIMIT ${limit}` }),
+      });
+      const data: QueryResult = await response.json();
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to fetch table data');
+      }
+      setTableData(data);
+    } catch (error: any) {
+      showToast(`Error fetching data for table ${tableName}: ${error.message}`, 'error');
+      setTableData({ success: false, error: error.message });
+    } finally {
+      setIsLoadingData(false);
+    }
+  }, [file.path]);
+
+  const executeCustomQuery = async () => {
+    if (!customQuery.trim()) {
+      showToast('Please enter a SQL query.', 'warning');
+      return;
+    }
+    setIsLoadingQuery(true);
+    setCustomQueryResult(null);
+    try {
+      const response = await fetch(`${API_URL}/db/query`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: file.path, sql: customQuery }),
+      });
+      const data: QueryResult = await response.json();
+      setCustomQueryResult(data);
+      if (!data.success) {
+        showToast(data.error || 'Query execution failed', 'error');
+      }
+    } catch (error: any) {
+      showToast(`Error executing query: ${error.message}`, 'error');
+      setCustomQueryResult({ success: false, error: error.message });
+    } finally {
+      setIsLoadingQuery(false);
+    }
+  };
+
   useEffect(() => {
-    if (!selectedTable) return;
-    
-    const fetchTableData = async () => {
-      try {
-        setIsLoading(true);
-        setError(null);
-        
-        const response = await fetch('http://localhost:23816/database/query', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ 
-            path: file.path,
-            query: `SELECT * FROM "${selectedTable}" LIMIT 100`
-          }),
-        });
-        
-        if (!response.ok) {
-          throw new Error(`Failed to fetch table data: ${response.statusText}`);
-        }
-        
-        const data = await response.json();
-        if (data.error) {
-          throw new Error(data.error);
-        }
-        
-        setTableData(data);
-      } catch (err) {
-        console.error('Error fetching table data:', err);
-        setError(err instanceof Error ? err.message : String(err));
-        setTableData(null);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    
-    fetchTableData();
-  }, [selectedTable, file.path]);
+    fetchSchema();
+  }, [fetchSchema]);
 
-  // Execute custom SQL query
-  const executeQuery = async () => {
-    if (!sqlQuery.trim()) return;
-    
-    try {
-      setIsLoading(true);
-      setError(null);
-      
-      const response = await fetch('http://localhost:23816/database/query', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          path: file.path,
-          query: sqlQuery
-        }),
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Failed to execute query: ${response.statusText}`);
-      }
-      
-      const data = await response.json();
-      if (data.error) {
-        throw new Error(data.error);
-      }
-      
-      setQueryResult(data);
-    } catch (err) {
-      console.error('Error executing query:', err);
-      setError(err instanceof Error ? err.message : String(err));
-      setQueryResult(null);
-    } finally {
-      setIsLoading(false);
+  useEffect(() => {
+    if (selectedTable) {
+      fetchTableData(selectedTable);
     }
-  };
+  }, [selectedTable, fetchTableData]);
 
-  // Repair database or create new one
-  const repairDatabase = async () => {
-    try {
-      setIsRepairing(true);
-      setError(null);
-      
-      const response = await fetch('http://localhost:23816/database/repair', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ path: file.path }),
-      });
-      
-      const data = await response.json();
-      
-      if (data.error) {
-        throw new Error(data.error);
-      }
-      
-      // Reload the schema after repair
-      const schemaResponse = await fetch('http://localhost:23816/database/schema', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ path: file.path }),
-      });
-      
-      const schemaData = await schemaResponse.json();
-      
-      if (schemaData.error) {
-        throw new Error(schemaData.error);
-      }
-      
-      setTables(schemaData.tables);
-      if (schemaData.tables.length > 0) {
-        setSelectedTable(schemaData.tables[0].name);
-      }
-      
-      setQueryResult(null);
-      setSqlQuery('');
-      setError(null);
-    } catch (err) {
-      console.error('Error repairing database:', err);
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setIsRepairing(false);
+  const renderTable = (result: QueryResult) => {
+    if (!result || !result.success || !result.columns || !result.data) {
+      return <p style={{ color: 'var(--text-secondary)' }}>No data to display or error occurred.</p>;
     }
-  };
 
-  // Check if the error is related to a corrupt database
-  const isCorruptError = error && (
-    error.includes("file is not a database") || 
-    error.includes("corrupted") ||
-    error.includes("malformed") ||
-    error.includes("unable to open database") ||
-    error.includes("unsupported file format")
-  );
+    return (
+      <div style={{ overflowX: 'auto', maxHeight: '400px' }}>
+        <table style={styles.table}>
+          <thead>
+            <tr>
+              {result.columns.map(col => <th key={col} style={styles.th}>{col}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {result.data.map((row, rowIndex) => (
+              <tr key={rowIndex} style={styles.tr}>
+                {result.columns?.map(col => (
+                  <td key={`${rowIndex}-${col}`} style={styles.td}>
+                    {row[col] === null ? 'NULL' : String(row[col])}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  };
 
   return (
-    <div className="database-viewer">
-      <div className="database-header">
-        <h3>SQLite Database: {file.name}</h3>
-        <div className="database-path">{file.path}</div>
+    <div style={styles.container}>
+      <div style={styles.sidebar}>
+        <h3 style={styles.sidebarTitle}>Database: {file.name}</h3>
+        {isLoadingSchema ? (
+          <p style={styles.loadingText}>Loading schema...</p>
+        ) : schema && Object.keys(schema.tables).length > 0 ? (
+          <>
+            <h4 style={styles.tableListTitle}>Tables</h4>
+            <ul style={styles.tableList}>
+              {Object.entries(schema.tables).map(([tableName, columns]) => (
+                <li 
+                  key={tableName} 
+                  style={selectedTable === tableName ? styles.tableListItemActive : styles.tableListItem}
+                  onClick={() => setSelectedTable(tableName)}
+                >
+                  {tableName}
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : (
+          <p style={styles.noTablesText}>No tables found or error loading schema.</p>
+        )}
       </div>
-      
-      {error && (
-        <div className="database-error">
-          <div style={{ marginBottom: isCorruptError ? '10px' : '0' }}>{error}</div>
-          
-          {isCorruptError && (
-            <button
-              className="repair-button"
-              onClick={repairDatabase}
-              disabled={isRepairing}
-            >
-              {isRepairing ? 'Repairing...' : 'Repair/Create Database'}
-            </button>
+
+      <div style={styles.mainContent}>
+        {selectedTable && (
+          <div style={styles.section}>
+            <h4 style={styles.sectionTitle}>Table: {selectedTable} (showing first 100 rows)</h4>
+            {isLoadingData ? (
+              <p style={styles.loadingText}>Loading data...</p>
+            ) : tableData ? (
+              renderTable(tableData)
+            ) : null}
+          </div>
+        )}
+
+        <div style={styles.section}>
+          <h4 style={styles.sectionTitle}>Custom SQL Query</h4>
+          <textarea
+            value={customQuery}
+            onChange={(e) => setCustomQuery(e.target.value)}
+            placeholder="Enter your SQL query here (e.g., SELECT * FROM your_table WHERE id = 1)"
+            style={styles.textarea}
+            rows={4}
+            disabled={isLoadingQuery}
+          />
+          <button 
+            onClick={executeCustomQuery} 
+            disabled={isLoadingQuery} 
+            style={styles.button}
+          >
+            {isLoadingQuery ? 'Executing...' : 'Run Query'}
+          </button>
+
+          {customQueryResult && (
+            <div style={{ marginTop: '15px' }}>
+              <h5>Query Result:</h5>
+              {customQueryResult.success ? (
+                customQueryResult.columns ? (
+                  renderTable(customQueryResult)
+                ) : (
+                  <p style={{ color: 'var(--text-success)' }}>{customQueryResult.message}</p>
+                )
+              ) : (
+                <p style={{ color: 'var(--text-error)' }}>Error: {customQueryResult.error}</p>
+              )}
+            </div>
           )}
-        </div>
-      )}
-      
-      <div className="database-content">
-        {/* Table list sidebar */}
-        <div className="database-tables">
-          <div className="tables-header">
-            Tables
-          </div>
-          {tables.map(table => (
-            <div 
-              key={table.name}
-              onClick={() => setSelectedTable(table.name)}
-              className={`table-item ${selectedTable === table.name ? 'selected' : ''}`}
-            >
-              {table.name}
-            </div>
-          ))}
-        </div>
-        
-        {/* Main content area */}
-        <div className="database-main">
-          {/* SQL query editor */}
-          <div className="sql-editor">
-            <div className="sql-editor-label">SQL Query</div>
-            <div className="sql-editor-input-container">
-              <textarea
-                className="sql-textarea"
-                value={sqlQuery}
-                onChange={(e) => setSqlQuery(e.target.value)}
-                placeholder="Enter SQL query..."
-              />
-              <button
-                className="execute-button"
-                onClick={executeQuery}
-                disabled={isLoading}
-              >
-                Execute
-              </button>
-            </div>
-          </div>
-          
-          {/* Data table */}
-          <div className="data-table-container">
-            {isLoading ? (
-              <div className="loading-indicator">Loading...</div>
-            ) : queryResult ? (
-              <div>
-                <h4>Query Results</h4>
-                <div style={{ overflowX: 'auto' }}>
-                  <table className="database-table">
-                    <thead>
-                      <tr>
-                        {queryResult.columns.map((column, i) => (
-                          <th key={i}>{column}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {queryResult.rows.map((row, i) => (
-                        <tr key={i}>
-                          {queryResult.columns.map((column, j) => (
-                            <td key={j}>
-                              {row[column] === null ? 
-                                <span className="null-value">NULL</span> : 
-                                String(row[column])
-                              }
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ) : selectedTable && tableData ? (
-              <div>
-                <h4>{selectedTable}</h4>
-                <div style={{ overflowX: 'auto' }}>
-                  <table className="database-table">
-                    <thead>
-                      <tr>
-                        {tableData.columns.map((column, i) => (
-                          <th key={i}>{column}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {tableData.rows.map((row, i) => (
-                        <tr key={i}>
-                          {tableData.columns.map((column, j) => (
-                            <td key={j}>
-                              {row[column] === null ? 
-                                <span className="null-value">NULL</span> : 
-                                String(row[column])
-                              }
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ) : (
-              <div className="empty-state">
-                {tables.length === 0 ? 'No tables found in the database' : 'Select a table to view data'}
-              </div>
-            )}
-          </div>
         </div>
       </div>
     </div>
   );
+};
+
+const styles: { [key: string]: React.CSSProperties } = {
+  container: {
+    display: 'flex',
+    height: '100%',
+    backgroundColor: 'var(--bg-primary)',
+    color: 'var(--text-primary)',
+  },
+  sidebar: {
+    width: '250px',
+    borderRight: '1px solid var(--border-color)',
+    padding: '15px',
+    overflowY: 'auto',
+    backgroundColor: 'var(--bg-secondary)',
+  },
+  sidebarTitle: {
+    marginTop: 0,
+    marginBottom: '15px',
+    fontSize: '16px',
+    borderBottom: '1px solid var(--border-subtle)',
+    paddingBottom: '10px',
+  },
+  tableListTitle: {
+    fontSize: '14px',
+    color: 'var(--text-secondary)',
+    marginBottom: '10px',
+  },
+  tableList: {
+    listStyle: 'none',
+    padding: 0,
+    margin: 0,
+  },
+  tableListItem: {
+    padding: '6px 10px',
+    cursor: 'pointer',
+    borderRadius: '4px',
+    marginBottom: '4px',
+    transition: 'background-color 0.2s',
+    fontSize: '13px',
+  },
+  tableListItemActive: {
+    padding: '6px 10px',
+    cursor: 'pointer',
+    borderRadius: '4px',
+    marginBottom: '4px',
+    transition: 'background-color 0.2s',
+    fontSize: '13px',
+    backgroundColor: 'var(--bg-selected)',
+    color: 'var(--accent-color)',
+    fontWeight: 500,
+  },
+  loadingText: {
+    color: 'var(--text-secondary)',
+    fontStyle: 'italic',
+  },
+  noTablesText: {
+    color: 'var(--text-secondary)',
+  },
+  mainContent: {
+    flex: 1,
+    padding: '20px',
+    overflowY: 'auto',
+  },
+  section: {
+    marginBottom: '25px',
+  },
+  sectionTitle: {
+    marginTop: 0,
+    marginBottom: '15px',
+    fontSize: '15px',
+    borderBottom: '1px solid var(--border-subtle)',
+    paddingBottom: '8px',
+  },
+  table: {
+    width: '100%',
+    borderCollapse: 'collapse',
+    fontSize: '12px',
+    tableLayout: 'fixed',
+  },
+  th: {
+    border: '1px solid var(--border-color)',
+    padding: '6px 8px',
+    textAlign: 'left',
+    backgroundColor: 'var(--bg-hover)',
+    fontWeight: 600,
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  },
+  tr: {
+    'hover': {
+      backgroundColor: 'var(--bg-hover)',
+    },
+  },
+  td: {
+    border: '1px solid var(--border-color)',
+    padding: '6px 8px',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    maxWidth: '200px',
+  },
+  textarea: {
+    width: '100%',
+    padding: '8px',
+    backgroundColor: 'var(--input-bg)',
+    color: 'var(--text-primary)',
+    border: '1px solid var(--border-color)',
+    borderRadius: '4px',
+    fontFamily: 'var(--font-mono)',
+    fontSize: '13px',
+    resize: 'vertical',
+    marginBottom: '10px',
+  },
+  button: {
+    padding: '8px 15px',
+    backgroundColor: 'var(--accent-color)',
+    color: 'white',
+    border: 'none',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    transition: 'background-color 0.2s',
+    fontSize: '13px',
+    ':hover': {
+      backgroundColor: 'var(--accent-color-hover)',
+    },
+    ':disabled': {
+      opacity: 0.6,
+      cursor: 'not-allowed',
+    },
+  },
 };
 
 export default DatabaseViewer; 

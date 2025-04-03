@@ -78,16 +78,16 @@ const EditorPane: React.FC<EditorPaneProps> = ({ fileId, file, onEditorReady }) 
     isStreaming: false
   });
 
-  // Normalize content once when file changes
+  // Normalize content and determine file type
   useEffect(() => {
     if (file?.name) {
       // Determine file type based on extension
-      if (isImageFile(file.name)) {
+      if (isDatabaseFile(file.name)) {
+        setFileType('database');
+      } else if (isImageFile(file.name)) {
         setFileType('image');
       } else if (isPdfFile(file.name)) {
         setFileType('pdf');
-      } else if (isDatabaseFile(file.name)) {
-        setFileType('database');
       } else if (isBinaryFile(file.name)) {
         setFileType('binary');
       } else {
@@ -95,21 +95,34 @@ const EditorPane: React.FC<EditorPaneProps> = ({ fileId, file, onEditorReady }) 
       }
     }
 
-    if (file?.content) {
+    // Only store content for text files
+    if (fileType === 'text' && file?.content) {
       contentRef.current = file.content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
     } else if (fileId === 'welcome') {
-      // Default content for welcome file if it doesn't have content
       contentRef.current = "// Welcome to your new code editor!\n// Start typing here...\n\n// By the way you can't delete or save this file. (future updates (maybe (if i have motivation)))"
+      setFileType('text'); // Ensure welcome file is treated as text
     } else {
       contentRef.current = '';
     }
-  }, [file?.content, file?.name, fileId]);
+    
+  }, [file?.content, file?.name, fileId, fileType]); // Added fileType dependency
 
-  // Setup editor with ghost text completion - only for text files
+  // Setup Monaco editor - only for text files
   useEffect(() => {
-    // Only create editor for text files
-    if (fileType !== 'text' || !editorRef.current || editorInitializedRef.current) return;
-
+    // Don't initialize Monaco if it's not a text file or already initialized
+    if (fileType !== 'text' || !editorRef.current || editorInitializedRef.current) {
+      // If switching away from text editor, dispose of the old one
+      if (editor.current && editorInitializedRef.current) {
+        console.log('Disposing existing Monaco editor instance.');
+        editor.current.dispose();
+        editor.current = null;
+        editorInitializedRef.current = false;
+      }
+      return; 
+    }
+    
+    // --- Monaco Editor Initialization (only runs for text files) ---
+    console.log(`Initializing Monaco editor for: ${file?.name}`);
     const language = file ? getLanguageFromFileName(file.name) : 'javascript';
     const uri = monaco.Uri.parse(file?.path || `file:///${fileId}.js`);
 
@@ -1707,190 +1720,200 @@ DO NOT include the [CURSOR] marker in your response. Provide ONLY the completion
   };
 
   // Render based on file type
-  if (fileType === 'image' || fileType === 'binary' || fileType === 'pdf' || fileType === 'database') {
-    return <FileViewer file={file} fileId={fileId} />;
+  if (fileType === 'database' || fileType === 'image' || fileType === 'binary' || fileType === 'pdf') {
+    // Use FileViewer for non-text types
+    // Ensure file exists before passing it to FileViewer
+    return file ? <FileViewer file={file} fileId={fileId} /> : <div>Loading file...</div>;
   }
 
-  // Render the explanation content for the modal
-  const renderExplanationContent = () => {
-    if (functionExplanationDialog.isLoading) {
-      return (
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', marginBottom: '15px' }}>
-            <div className="enhanced-pulse" style={{ 
-              width: '10px', 
-              height: '10px', 
-              borderRadius: '50%', 
-              background: 'var(--accent-color)',
-              marginRight: '8px'
-            }}></div>
-            <span>Waiting for model...</span>
+  // Render Monaco editor container for text files
+  if (fileType === 'text') {
+    // ... (return the Monaco editor container and modals as before) ...
+    // Render the explanation content for the modal
+    const renderExplanationContent = () => {
+      if (functionExplanationDialog.isLoading) {
+        return (
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: '15px' }}>
+              <div className="enhanced-pulse" style={{ 
+                width: '10px', 
+                height: '10px', 
+                borderRadius: '50%', 
+                background: 'var(--accent-color)',
+                marginRight: '8px'
+              }}></div>
+              <span>Waiting for model...</span>
+            </div>
           </div>
+        );
+      }
+      
+      if (functionExplanationDialog.isStreaming && functionExplanationDialog.explanation === '') {
+        return <span className="blinking-cursor">|</span>;
+      }
+      
+      return (
+        <div style={{ 
+          fontFamily: 'var(--font-mono)', 
+          borderLeft: '3px solid var(--accent-color)',
+          paddingLeft: '15px',
+          backgroundColor: 'rgba(0, 122, 204, 0.05)'
+        }}>
+          {functionExplanationDialog.explanation}
+          {functionExplanationDialog.isStreaming && <span className="blinking-cursor">|</span>}
         </div>
       );
-    }
-    
-    if (functionExplanationDialog.isStreaming && functionExplanationDialog.explanation === '') {
-      return <span className="blinking-cursor">|</span>;
-    }
-    
-    return (
-      <div style={{ 
-        fontFamily: 'var(--font-mono)', 
-        borderLeft: '3px solid var(--accent-color)',
-        paddingLeft: '15px',
-        backgroundColor: 'rgba(0, 122, 204, 0.05)'
-      }}>
-        {functionExplanationDialog.explanation}
-        {functionExplanationDialog.isStreaming && <span className="blinking-cursor">|</span>}
-      </div>
-    );
-  };
+    };
 
-  return (
-    <div style={{ height: '100%', position: 'relative' }}>
-      <div
-        ref={editorRef}
-        style={{
-          width: '100%',
-          height: '100%',
-          backgroundColor: 'var(--editor-bg, var(--bg-primary))',
-        }}
-      />
-      {/* Prompt input and other UI components */}
-      {showPromptInput && (
-        <div className="prompt-overlay">
-          <div className="prompt-header">
-            <h3>AI Code Assistant</h3>
-            <button 
-              className="close-button"
-              onClick={() => {
-                setShowPromptInput(false);
-                setPrompt('');
-                setAiResponse('');
-                setShowResponsePreview(false);
-                setShowDiff(false);
-              }}
-            >
-              ×
-            </button>
-          </div>
-          
-          <form onSubmit={handlePromptSubmit}>
-            <div className="prompt-input-container">
-              <textarea
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                placeholder="Describe what you want to do with your code..."
-                autoFocus
-                disabled={isLoading}
-              />
-              {isLoading && (
-                <div className="loading-indicator">
-                  <div className="spinner"></div>
-                  <span>Generating response...</span>
-                </div>
-              )}
+    return (
+      <div style={{ height: '100%', position: 'relative' }}>
+        {/* The div where Monaco mounts */}
+        <div
+          ref={editorRef}
+          style={{ 
+            width: '100%', 
+            height: '100%',
+            backgroundColor: 'var(--editor-bg, var(--bg-primary))' 
+          }}
+        />
+        {/* Prompt input and other UI components */}
+        {showPromptInput && (
+          <div className="prompt-overlay">
+            <div className="prompt-header">
+              <h3>AI Code Assistant</h3>
+              <button 
+                className="close-button"
+                onClick={() => {
+                  setShowPromptInput(false);
+                  setPrompt('');
+                  setAiResponse('');
+                  setShowResponsePreview(false);
+                  setShowDiff(false);
+                }}
+              >
+                ×
+              </button>
             </div>
             
-            {showResponsePreview && (
-              <div className="response-preview">
-                <div className="preview-header">
-                  <h4>Preview Changes</h4>
-                  <div className="preview-actions">
+            <form onSubmit={handlePromptSubmit}>
+              <div className="prompt-input-container">
+                <textarea
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  placeholder="Describe what you want to do with your code..."
+                  autoFocus
+                  disabled={isLoading}
+                />
+                {isLoading && (
+                  <div className="loading-indicator">
+                    <div className="spinner"></div>
+                    <span>Generating response...</span>
+                  </div>
+                )}
+              </div>
+              
+              {showResponsePreview && (
+                <div className="response-preview">
+                  <div className="preview-header">
+                    <h4>Preview Changes</h4>
+                    <div className="preview-actions">
+                      <button
+                        type="button"
+                        className="toggle-diff-button"
+                        onClick={() => setShowDiff(!showDiff)}
+                      >
+                        {showDiff ? 'Hide Diff' : 'Show Diff'}
+                      </button>
+                    </div>
+                  </div>
+                  
+                  {showDiff ? (
+                    <div className="diff-viewer">
+                      <div className="diff-header">
+                        <span className="diff-label">Original</span>
+                        <span className="diff-label">Changes</span>
+                      </div>
+                      <div className="diff-content">
+                        <div className="diff-original">
+                          <pre><code>{originalContent}</code></pre>
+                        </div>
+                        <div className="diff-changes">
+                          <pre><code>{originalContent + aiResponse}</code></pre>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="response-content">
+                      <pre>
+                        <code>{aiResponse}</code>
+                      </pre>
+                    </div>
+                  )}
+                  
+                  <div className="response-actions">
                     <button
                       type="button"
-                      className="toggle-diff-button"
-                      onClick={() => setShowDiff(!showDiff)}
+                      className="insert-button"
+                      onClick={handleInsertResponse}
                     >
-                      {showDiff ? 'Hide Diff' : 'Show Diff'}
+                      Insert After Cursor
+                    </button>
+                    <button
+                      type="button"
+                      className="regenerate-button"
+                      onClick={handlePromptSubmit}
+                      disabled={isLoading}
+                    >
+                      Regenerate
                     </button>
                   </div>
                 </div>
-                
-                {showDiff ? (
-                  <div className="diff-viewer">
-                    <div className="diff-header">
-                      <span className="diff-label">Original</span>
-                      <span className="diff-label">Changes</span>
-                    </div>
-                    <div className="diff-content">
-                      <div className="diff-original">
-                        <pre><code>{originalContent}</code></pre>
-                      </div>
-                      <div className="diff-changes">
-                        <pre><code>{originalContent + aiResponse}</code></pre>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="response-content">
-                    <pre>
-                      <code>{aiResponse}</code>
-                    </pre>
-                  </div>
-                )}
-                
-                <div className="response-actions">
+              )}
+              
+              {!showResponsePreview && (
+                <div className="prompt-actions">
                   <button
                     type="button"
-                    className="insert-button"
-                    onClick={handleInsertResponse}
-                  >
-                    Insert After Cursor
-                  </button>
-                  <button
-                    type="button"
-                    className="regenerate-button"
-                    onClick={handlePromptSubmit}
+                    className="cancel-button"
+                    onClick={() => {
+                      setShowPromptInput(false);
+                      setPrompt('');
+                      setAiResponse('');
+                      setShowResponsePreview(false);
+                      setShowDiff(false);
+                    }}
                     disabled={isLoading}
                   >
-                    Regenerate
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="submit-button"
+                    disabled={isLoading || !prompt.trim()}
+                  >
+                    Generate
                   </button>
                 </div>
-              </div>
-            )}
-            
-            {!showResponsePreview && (
-              <div className="prompt-actions">
-                <button
-                  type="button"
-                  className="cancel-button"
-                  onClick={() => {
-                    setShowPromptInput(false);
-                    setPrompt('');
-                    setAiResponse('');
-                    setShowResponsePreview(false);
-                    setShowDiff(false);
-                  }}
-                  disabled={isLoading}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="submit-button"
-                  disabled={isLoading || !prompt.trim()}
-                >
-                  Generate
-                </button>
-              </div>
-            )}
-          </form>
-        </div>
-      )}
-      {/* Function explanation dialog */}
-      {functionExplanationDialog.isOpen && (
-        <Modal
-          isOpen={functionExplanationDialog.isOpen}
-          onClose={() => setFunctionExplanationDialog(prev => ({ ...prev, isOpen: false }))}
-          title={`Function: ${functionExplanationDialog.functionName}`}
-          content={renderExplanationContent()}
-          isStreaming={functionExplanationDialog.isStreaming}
-        />
-      )}
-    </div>
-  );
+              )}
+            </form>
+          </div>
+        )}
+        {/* Function explanation dialog */}
+        {functionExplanationDialog.isOpen && (
+          <Modal
+            isOpen={functionExplanationDialog.isOpen}
+            onClose={() => setFunctionExplanationDialog(prev => ({ ...prev, isOpen: false }))}
+            title={`Function: ${functionExplanationDialog.functionName}`}
+            content={renderExplanationContent()}
+            isStreaming={functionExplanationDialog.isStreaming}
+          />
+        )}
+      </div>
+    );
+  }
+  
+  // Fallback if file type is unknown or file is missing
+  return <div>Unsupported file type or file not found.</div>;
 };
 
 interface EditorGridProps {
