@@ -7,7 +7,7 @@ from fastapi import HTTPException
 class GitHubOAuth:
     def __init__(self):
         # Get client ID from environment or use a default public one
-        self.client_id = requests.get('https://pointerapi.f1shy312.com/github/client_id')
+        self.client_id = requests.get('https://pointerapi.f1shy312.com/github/client_id').json()['client_id']
         self.redirect_uri = 'http://localhost:23816/github/callback'
         # Server URL for token exchange
         self.server_url = os.getenv('OAUTH_SERVER_URL', 'https://pointerapi.f1shy312.com')
@@ -27,7 +27,6 @@ class GitHubOAuth:
         return f"https://github.com/login/oauth/authorize?client_id={self.client_id}&redirect_uri=http://localhost:23816/github/callback&scope=repo&state=pointer_oauth"
 
     async def get_access_token(self, code: str) -> Dict[str, str]:
-        """Exchange authorization code for access token using the OAuth server."""
         try:
             response = requests.post(
                 f"{self.server_url}/exchange-token",

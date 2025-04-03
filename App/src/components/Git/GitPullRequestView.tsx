@@ -107,7 +107,6 @@ const GitPullRequestView: React.FC<GitPullRequestViewProps> = () => {
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   
-  // Publish to GitHub states
   const [repoName, setRepoName] = useState('');
   const [repoDescription, setRepoDescription] = useState('');
   const [isPrivate, setIsPrivate] = useState(false);
@@ -208,36 +207,6 @@ const GitPullRequestView: React.FC<GitPullRequestViewProps> = () => {
       setError(`Error creating pull request: ${err}`);
     } finally {
       setIsCreatingPR(false);
-    }
-  };
-
-  const handlePublishToGitHub = async () => {
-    if (!currentDirectory || !repoName) {
-      setError('Repository name is required');
-      return;
-    }
-    
-    setIsPublishing(true);
-    setError(null);
-    setSuccessMessage(null);
-    
-    try {
-      const result = await GitService.publishToGitHub(currentDirectory, {
-        repoName,
-        description: repoDescription,
-        isPrivate
-      });
-      
-      if (!result.success) {
-        setError(`Failed to publish to GitHub: ${result.error}`);
-      } else {
-        setSuccessMessage('Successfully published to GitHub! ' + result.data);
-      }
-    } catch (err) {
-      console.error('Error publishing to GitHub:', err);
-      setError(`Error publishing to GitHub: ${err}`);
-    } finally {
-      setIsPublishing(false);
     }
   };
 
@@ -401,53 +370,7 @@ const GitPullRequestView: React.FC<GitPullRequestViewProps> = () => {
                 Source and target branches must be different.
               </div>
             )}
-          </div>
-          
-          <div style={{...styles.section, ...styles.publishSection}}>
-            <div style={styles.heading}>Publish to GitHub</div>
-            
-            <label style={styles.label}>Repository Name</label>
-            <input
-              type="text"
-              style={styles.input}
-              placeholder="Name for your GitHub repository"
-              value={repoName}
-              onChange={(e) => setRepoName(e.target.value)}
-              disabled={isPublishing}
-            />
-            
-            <label style={styles.label}>Repository Description (optional)</label>
-            <input
-              type="text"
-              style={styles.input}
-              placeholder="Description for your GitHub repository"
-              value={repoDescription}
-              onChange={(e) => setRepoDescription(e.target.value)}
-              disabled={isPublishing}
-            />
-            
-            <div style={styles.checkboxWrapper}>
-              <input
-                type="checkbox"
-                id="private-repo"
-                checked={isPrivate}
-                onChange={(e) => setIsPrivate(e.target.checked)}
-                disabled={isPublishing}
-                style={{ marginRight: '8px' }}
-              />
-              <label htmlFor="private-repo" style={{ fontSize: '13px' }}>
-                Make repository private
-              </label>
-            </div>
-            
-            <button 
-              style={styles.button}
-              onClick={handlePublishToGitHub}
-              disabled={isPublishing || !repoName}
-            >
-              {isPublishing ? 'Publishing...' : 'Publish to GitHub'}
-            </button>
-          </div>
+          </div>          
         </>
       )}
     </div>
