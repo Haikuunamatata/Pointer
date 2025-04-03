@@ -163,6 +163,64 @@ function initializeDatabase() {
     )
   `);
 
+  // Level Rewards Table
+  db.run(`
+    CREATE TABLE IF NOT EXISTS level_rewards (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      level INTEGER UNIQUE,
+      reward_type TEXT,
+      reward_id INTEGER,
+      reward_amount INTEGER,
+      description TEXT,
+      role_id TEXT,
+      FOREIGN KEY (reward_id) REFERENCES items(id)
+    )
+  `);
+
+  // Insert default level rewards
+  db.run(`
+    INSERT OR IGNORE INTO level_rewards (level, reward_type, reward_amount, description) VALUES
+    (5, 'coins', 1000, '1000 coins'),
+    (10, 'coins', 5000, '5000 coins'),
+    (15, 'coins', 10000, '10000 coins'),
+    (20, 'coins', 20000, '20000 coins'),
+    (25, 'coins', 50000, '50000 coins'),
+    (30, 'coins', 100000, '100000 coins'),
+    (35, 'coins', 200000, '200000 coins'),
+    (40, 'coins', 500000, '500000 coins'),
+    (45, 'coins', 1000000, '1000000 coins'),
+    (50, 'coins', 2000000, '2000000 coins')
+  `);
+
+  // Insert exclusive items
+  db.run(`
+    INSERT OR IGNORE INTO items (id, name, description, category, price, sellable, tradeable, image_url) VALUES
+    (1001, 'Level 10 Badge', 'A special badge showing you reached level 10!', 'badge', 0, 0, 0, 'https://i.imgur.com/example1.png'),
+    (1002, 'Level 25 Badge', 'A special badge showing you reached level 25!', 'badge', 0, 0, 0, 'https://i.imgur.com/example2.png'),
+    (1003, 'Level 50 Badge', 'A special badge showing you reached level 50!', 'badge', 0, 0, 0, 'https://i.imgur.com/example3.png'),
+    (1004, 'Golden Fishing Rod', 'A special fishing rod only available to level 30 players!', 'fishing_tool', 0, 0, 0, 'https://i.imgur.com/example4.png'),
+    (1005, 'Diamond Fishing Rod', 'A legendary fishing rod only available to level 50 players!', 'fishing_tool', 0, 0, 0, 'https://i.imgur.com/example5.png'),
+    (1006, 'Lucky Charm', 'Increases your chances of catching rare fish!', 'item', 0, 0, 0, 'https://i.imgur.com/example6.png'),
+    (1007, 'XP Boost', 'Temporarily increases XP gained from messages!', 'item', 0, 0, 0, 'https://i.imgur.com/example7.png')
+  `);
+
+  // Update level rewards to include exclusive items
+  db.run(`
+    INSERT OR IGNORE INTO level_rewards (level, reward_type, reward_id, reward_amount, description) VALUES
+    (10, 'item', 1001, 1, 'Level 10 Badge'),
+    (25, 'item', 1002, 1, 'Level 25 Badge'),
+    (30, 'item', 1004, 1, 'Golden Fishing Rod'),
+    (50, 'item', 1003, 1, 'Level 50 Badge'),
+    (50, 'item', 1005, 1, 'Diamond Fishing Rod')
+  `);
+
+  // Add special rewards for milestone levels
+  db.run(`
+    INSERT OR IGNORE INTO level_rewards (level, reward_type, reward_id, reward_amount, description) VALUES
+    (20, 'item', 1006, 1, 'Lucky Charm'),
+    (40, 'item', 1007, 5, '5x XP Boost')
+  `);
+
   db.run(`
     CREATE TABLE IF NOT EXISTS pets (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

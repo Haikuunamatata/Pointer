@@ -58,6 +58,16 @@ module.exports = {
       [targetUser.id]
     );
     
+    // Calculate XP needed for next level
+    const xpNeeded = userData.level * 1000; // Each level requires 1000 XP more than the previous
+    const xpProgress = userData.xp % xpNeeded;
+    const progressPercentage = (xpProgress / xpNeeded) * 100;
+    
+    // Create progress bar
+    const progressBarLength = 20;
+    const filledLength = Math.floor((progressPercentage / 100) * progressBarLength);
+    const progressBar = '█'.repeat(filledLength) + '░'.repeat(progressBarLength - filledLength);
+    
     // Create profile embed
     const profileEmbed = new EmbedBuilder()
       .setColor(0x0099FF)
@@ -71,7 +81,10 @@ module.exports = {
         { name: '📦 Items Owned', value: `${formatNumber(itemsOwned?.count || 0)}`, inline: true },
         { name: '🏪 Market Listings', value: `${formatNumber(marketListings?.count || 0)}`, inline: true }
       )
-      .setFooter({ text: `Member since: ${new Date(userData.created_at).toLocaleDateString()}` })
+      .setFooter({ 
+        text: `Member since: ${new Date(userData.created_at).toLocaleDateString()}\n` +
+              `Progress to Level ${userData.level + 1}: ${progressBar} ${progressPercentage.toFixed(1)}%`
+      })
       .setTimestamp();
     
     await interaction.editReply({ embeds: [profileEmbed] });

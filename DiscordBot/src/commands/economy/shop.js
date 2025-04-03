@@ -25,7 +25,12 @@ module.exports = {
   cooldown: 5, // 5 seconds cooldown
   
   async execute(interaction) {
-    await interaction.deferReply();
+    // If this is a button interaction, we'll edit the message
+    const isButtonInteraction = interaction.isButton();
+    
+    if (!isButtonInteraction) {
+      await interaction.deferReply();
+    }
     
     // Get user data
     let userData = await getSingleResult(
@@ -49,8 +54,8 @@ module.exports = {
     }
     
     // Determine category to display
-    const category = interaction.options.getString('category') || 'fishing_tools';
-    const page = interaction.options.getInteger('page') || 1;
+    const category = isButtonInteraction ? interaction.options.getString() : interaction.options.getString('category') || 'fishing_tools';
+    const page = isButtonInteraction ? interaction.options.getInteger() : interaction.options.getInteger('page') || 1;
     const itemsPerPage = 5;
     
     // Get items from selected category
@@ -139,25 +144,29 @@ module.exports = {
               label: 'Fishing Rods',
               description: 'View available fishing rods',
               value: 'fishing_tools',
-              emoji: '🎣'
+              emoji: '🎣',
+              default: category === 'fishing_tools'
             },
             {
               label: 'Bait',
               description: 'View available fishing bait',
               value: 'fishing_baits',
-              emoji: '🪱'
+              emoji: '🪱',
+              default: category === 'fishing_baits'
             },
             {
               label: 'Items',
               description: 'View general items',
               value: 'items',
-              emoji: '🏪'
+              emoji: '🏪',
+              default: category === 'items'
             },
             {
               label: 'Skins',
               description: 'View item skins',
               value: 'skins',
-              emoji: '✨'
+              emoji: '✨',
+              default: category === 'skins'
             }
           ])
       );
@@ -181,9 +190,17 @@ module.exports = {
           .setStyle(ButtonStyle.Primary)
       );
     
-    await interaction.editReply({
-      embeds: [shopEmbed],
-      components: [categoryRow, paginationRow]
-    });
+    // Send or edit the message
+    if (isButtonInteraction) {
+      await interaction.update({
+        embeds: [shopEmbed],
+        components: [categoryRow, paginationRow]
+      });
+    } else {
+      await interaction.editReply({
+        embeds: [shopEmbed],
+        components: [categoryRow, paginationRow]
+      });
+    }
   },
 }; 
