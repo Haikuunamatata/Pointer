@@ -2,7 +2,7 @@ from typing import Dict, Optional
 import weakref
 from fastapi import FastAPI, HTTPException, WebSocket, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse, HTMLResponse
+from fastapi.responses import RedirectResponse, HTMLResponse, FileResponse
 from pydantic import BaseModel
 from typing import List
 import os
@@ -26,6 +26,8 @@ from dotenv import load_dotenv
 # Import the git router and GitHub OAuth
 from git_endpoints import router as git_router
 from github_oauth import GitHubOAuth
+import mimetypes
+import sqlite3
 
 # Load environment variables
 load_dotenv()
@@ -191,9 +193,54 @@ def is_text_file(filename: str) -> bool:
         'txt', 'js', 'jsx', 'ts', 'tsx', 'md', 'json', 'html', 'css', 'scss',
         'less', 'xml', 'svg', 'yaml', 'yml', 'ini', 'conf', 'sh', 'bash', 'py',
         'java', 'cpp', 'c', 'h', 'hpp', 'rs', 'go', 'rb', 'php', 'sql', 'vue',
-        'gitignore', 'env', 'editorconfig'
+        'gitignore', 'env', 'editorconfig', 'cs', 'ts', 'dart', 'swift', 'kt',
+        'scala', 'lua', 'r', 'pl', 'pm', 'ex', 'exs', 'erl', 'hrl', 'clj', 'elm',
+        'hs', 'lhs', 'fs', 'fsx', 'f', 'f90', 'cabal', 'cmake', 'mk', 'mak', 'css',
+        'sass', 'less', 'styl', 'dockerfile', 'makefile', 'toml'
     }
-    return Path(filename).suffix.lstrip('.').lower() in text_extensions
+    
+    # Define binary file extensions
+    binary_extensions = {
+        'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'zip', 'rar', 'tar', 
+        'gz', '7z', 'bin', 'exe', 'dll', 'so', 'dylib', 'o', 'obj', 'class', 'jar', 
+        'war', 'jpg', 'jpeg', 'png', 'gif', 'bmp', 'tiff', 'webp', 'ico', 'mp3', 
+        'mp4', 'avi', 'mov', 'webm', 'wav', 'ogg', 'ttf', 'otf', 'eot', 'woff', 
+        'woff2', 'iso', 'db', 'sqlite'
+    }
+    
+    ext = Path(filename).suffix.lstrip('.').lower()
+    
+    # If it's a known text extension, return True
+    if ext in text_extensions:
+        return True
+    
+    # If it's a known binary extension, return False
+    if ext in binary_extensions:
+        return False
+    
+    # For unknown extensions, try to detect by checking first few bytes
+    # This is a fallback for files without extensions or with uncommon extensions
+    try:
+        file_path = os.path.join(base_directory, filename) if base_directory else filename
+        if os.path.exists(file_path) and os.path.isfile(file_path):
+            # Read first 1024 bytes to check for binary content
+            with open(file_path, 'rb') as f:
+                chunk = f.read(1024)
+                # Check for null bytes which typically indicate binary files
+                if b'\x00' in chunk:
+                    return False
+                
+                # Try to decode as UTF-8 to confirm it's text
+                try:
+                    chunk.decode('utf-8')
+                    return True
+                except UnicodeDecodeError:
+                    return False
+    except Exception as e:
+        print(f"Error checking if {filename} is text: {str(e)}")
+    
+    # Default to treating as text for unknown files
+    return True
 
 def generate_id(prefix: str, path: str) -> str:
     """Generate a unique ID for a file or directory."""
@@ -1591,6 +1638,369 @@ async def github_logout():
         return {"success": True, "message": "Successfully logged out"}
     except Exception as e:
         return {"success": False, "message": str(e)}
+
+@app.get("/serve-file")
+async def serve_file(path: str, currentDir: str = None):
+    """Serve any file (binary or text) for display in the editor."""
+    try:
+        # Handle relative paths and ensure they're safe
+        paths_to_try = []
+        
+        # If path is absolute, use it directly
+        if os.path.isabs(path):
+            paths_to_try.append(path)
+        else:
+            # Try relative to current directory first if provided
+            if currentDir:
+                paths_to_try.append(os.path.join(currentDir, path))
+            
+            # Then try relative to base directory
+            if base_directory:
+                paths_to_try.append(os.path.join(base_directory, path))
+        
+        # Security check - ensure normalized base is set
+        normalized_base = os.path.normpath(base_directory).replace('\\', '/') if base_directory else "/"
+        
+        for try_path in paths_to_try:
+            # Normalize the full path
+            full_path = os.path.normpath(try_path).replace('\\', '/')
+            
+            # Security check - make sure the path is within base directory or is absolute
+            if not full_path.startswith(normalized_base) and not os.path.isabs(path):
+                print(f"Security check failed for {full_path} (not within {normalized_base})")
+                continue
+                
+            if os.path.exists(full_path) and os.path.isfile(full_path):
+                # Determine the file's MIME type
+                mime_type, _ = mimetypes.guess_type(full_path)
+                if not mime_type:
+                    # Default to octet-stream for unknown types
+                    mime_type = "application/octet-stream"
+                
+                # Return the file as a response
+                return FileResponse(full_path, media_type=mime_type, filename=os.path.basename(full_path))
+        
+        # If we get here, no valid path was found
+        raise HTTPException(
+            status_code=404, 
+            detail=f"File not found: {path}\nTried paths: {paths_to_try}\nBase directory: {normalized_base}"
+        )
+    
+    except Exception as e:
+        print(f"Error serving file {path}: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+class DatabasePathRequest(BaseModel):
+    path: str
+
+class DatabaseQueryRequest(BaseModel):
+    path: str
+    query: str
+
+@app.post("/database/schema")
+async def get_database_schema(request: DatabasePathRequest):
+    """Get the schema (tables and columns) of a SQLite database."""
+    try:
+        # Resolve the full path
+        if os.path.isabs(request.path):
+            full_path = request.path
+        else:
+            # Try relative to base directory
+            if base_directory:
+                full_path = os.path.join(base_directory, request.path)
+                if not os.path.exists(full_path):
+                    return {"error": f"Database file not found: {request.path}"}
+            else:
+                return {"error": f"Database file not found: {request.path}"}
+        
+        # Check if file exists and is accessible
+        if not os.path.exists(full_path):
+            return {"error": f"Database file not found: {full_path}"}
+        
+        # Check file size - empty or very small files can't be valid databases
+        file_size = os.path.getsize(full_path)
+        if file_size < 100:  # SQLite header is at least 100 bytes
+            return {"error": f"File is too small to be a valid SQLite database: {file_size} bytes"}
+            
+        # Print diagnostics
+        print(f"Attempting to open database: {full_path}")
+        print(f"File size: {file_size} bytes")
+        print(f"SQLite version: {sqlite3.sqlite_version}")
+        
+        # Try to determine SQLite file version by reading the header
+        sqlite_version_info = detect_sqlite_version(full_path)
+        if sqlite_version_info:
+            print(f"Database file appears to be SQLite version: {sqlite_version_info}")
+        
+        # Connect with timeout and extended error codes
+        try:
+            conn = sqlite3.connect(full_path, timeout=3.0, detect_types=sqlite3.PARSE_DECLTYPES)
+            conn.execute("PRAGMA quick_check")  # Verify database integrity
+        except sqlite3.DatabaseError as e:
+            # Specific error for corrupt database
+            error_msg = f"The file appears to be corrupted or not a valid SQLite database: {str(e)}"
+            if sqlite_version_info:
+                error_msg += f"\nDatabase file format: {sqlite_version_info}"
+                error_msg += f"\nRunning with SQLite version: {sqlite3.sqlite_version}"
+                if "unsupported file format" in str(e).lower():
+                    error_msg += "\nThis might be a version incompatibility. The database may have been created with a newer version of SQLite."
+            return {"error": error_msg}
+        
+        cursor = conn.cursor()
+        
+        # Get list of tables
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name;")
+        table_names = [row[0] for row in cursor.fetchall()]
+        
+        if not table_names:
+            print("No tables found in the database")
+        else:
+            print(f"Found {len(table_names)} tables: {', '.join(table_names)}")
+        
+        tables = []
+        for table_name in table_names:
+            # Get columns for each table
+            cursor.execute(f"PRAGMA table_info({table_name});")
+            columns = [row[1] for row in cursor.fetchall()]
+            
+            tables.append({
+                "name": table_name,
+                "columns": columns
+            })
+        
+        # Close connection
+        conn.close()
+        
+        return {"tables": tables}
+    except sqlite3.Error as e:
+        error_msg = f"SQLite error: {str(e)}"
+        print(f"Database error with {request.path}: {error_msg}")
+        return {"error": error_msg}
+    except Exception as e:
+        error_msg = f"Error: {str(e)}"
+        print(f"General error with {request.path}: {error_msg}")
+        return {"error": error_msg}
+
+# Add function to detect SQLite version from file header
+def detect_sqlite_version(db_path):
+    """Try to determine the SQLite version by reading the file header."""
+    try:
+        with open(db_path, 'rb') as f:
+            header = f.read(100)  # Read first 100 bytes which should contain the header
+            
+            # Check SQLite format
+            if header[0:16] != b'SQLite format 3\x00':
+                return None  # Not a SQLite 3 database
+                
+            # Version information might be in the file, although this is a simplified check
+            # SQLite doesn't store the exact version in the header, but we can detect some format features
+            
+            # Get the page size (bytes 16-17, big-endian)
+            page_size = int.from_bytes(header[16:18], byteorder='big')
+            
+            # Get the file format write version (byte 18)
+            write_version = header[18]
+            
+            # Get the file format read version (byte 19)
+            read_version = header[19]
+            
+            format_info = f"Page size: {page_size}, Write format: {write_version}, Read format: {read_version}"
+            
+            # Rough version estimate based on file format versions
+            if write_version > 2 or read_version > 2:
+                return f"SQLite 3.7.0 or newer ({format_info})"
+            elif write_version == 2:
+                return f"SQLite 3.7.0 or equivalent ({format_info})"
+            elif write_version == 1:
+                return f"SQLite 3.0.0 or equivalent ({format_info})"
+            else:
+                return f"Unknown SQLite version ({format_info})"
+                
+    except Exception as e:
+        print(f"Error detecting SQLite version: {str(e)}")
+        return None
+
+@app.post("/database/query")
+async def execute_database_query(request: DatabaseQueryRequest):
+    """Execute a SQL query on a SQLite database."""
+    try:
+        # Resolve the full path
+        if os.path.isabs(request.path):
+            full_path = request.path
+        else:
+            # Try relative to base directory
+            if base_directory:
+                full_path = os.path.join(base_directory, request.path)
+                if not os.path.exists(full_path):
+                    return {"error": f"Database file not found: {request.path}"}
+            else:
+                return {"error": f"Database file not found: {request.path}"}
+        
+        # Check if file exists and is accessible
+        if not os.path.exists(full_path):
+            return {"error": f"Database file not found: {full_path}"}
+        
+        print(f"Executing query on {full_path}: {request.query}")
+        
+        # Connect with timeout and extended error codes
+        try:
+            conn = sqlite3.connect(full_path, timeout=3.0, detect_types=sqlite3.PARSE_DECLTYPES)
+            conn.execute("PRAGMA quick_check")  # Verify database integrity
+        except sqlite3.DatabaseError as e:
+            # Specific error for corrupt database
+            return {"error": f"The file appears to be corrupted or not a valid SQLite database: {str(e)}"}
+            
+        conn.row_factory = sqlite3.Row  # This enables column access by name
+        cursor = conn.cursor()
+        
+        # Execute the query
+        cursor.execute(request.query)
+        
+        # Handle different query types
+        if request.query.strip().upper().startswith(("SELECT", "PRAGMA", "EXPLAIN")):
+            # For SELECT queries, return the results
+            rows = cursor.fetchall()
+            
+            # Extract column names
+            columns = [column[0] for column in cursor.description]
+            
+            # Convert rows to dictionaries
+            result_rows = []
+            for row in rows:
+                result_rows.append({columns[i]: row[i] for i in range(len(columns))})
+            
+            result = {
+                "columns": columns,
+                "rows": result_rows
+            }
+        else:
+            # For other queries (INSERT, UPDATE, DELETE), commit changes and return affected rows
+            conn.commit()
+            result = {
+                "columns": ["rowcount"],
+                "rows": [{"rowcount": cursor.rowcount}]
+            }
+        
+        # Close connection
+        conn.close()
+        
+        return result
+    except sqlite3.Error as e:
+        error_msg = f"SQLite error: {str(e)}"
+        print(f"Database query error with {request.path}: {error_msg}")
+        return {"error": error_msg}
+    except Exception as e:
+        error_msg = f"Error: {str(e)}"
+        print(f"General error with {request.path}: {error_msg}")
+        return {"error": error_msg}
+
+@app.post("/database/repair")
+async def repair_database(request: DatabasePathRequest):
+    """Repair a corrupted database or create a new one."""
+    try:
+        # Resolve the full path
+        if os.path.isabs(request.path):
+            full_path = request.path
+        else:
+            # Try relative to base directory
+            if base_directory:
+                full_path = os.path.join(base_directory, request.path)
+            else:
+                return {"error": "No base directory set"}
+        
+        # Create a backup if the file exists
+        backup_path = None
+        if os.path.exists(full_path):
+            backup_path = f"{full_path}.backup-{int(time.time())}"
+            try:
+                import shutil
+                shutil.copy2(full_path, backup_path)
+                print(f"Created backup of database at {backup_path}")
+            except Exception as e:
+                print(f"Warning: Could not create backup: {str(e)}")
+                backup_path = None
+        
+        # Create directory if it doesn't exist
+        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+        
+        # First try to repair the database if it exists
+        repair_result = None
+        if os.path.exists(full_path) and os.path.getsize(full_path) > 100:
+            repair_result = await attempt_database_repair(full_path)
+            if repair_result.get("success"):
+                return repair_result
+        
+        # If repair failed or database doesn't exist, create a new one
+        try:
+            print(f"Creating new database at {full_path}")
+            conn = sqlite3.connect(full_path)
+            # Create a simple test table to ensure it's working
+            conn.execute("CREATE TABLE IF NOT EXISTS sqlite_test (id INTEGER PRIMARY KEY, test_value TEXT)")
+            conn.commit()
+            conn.close()
+            
+            message = "New database created successfully"
+            if backup_path:
+                message += f". Your original database was backed up to {os.path.basename(backup_path)}"
+            
+            print(f"Successfully created new database at {full_path}")
+            return {"success": True, "message": message}
+        except Exception as e:
+            return {"error": f"Failed to create database: {str(e)}"}
+            
+    except Exception as e:
+        error_msg = f"Error repairing database: {str(e)}"
+        print(error_msg)
+        return {"error": error_msg}
+
+async def attempt_database_repair(db_path):
+    """Try to repair a SQLite database using various recovery techniques."""
+    print(f"Attempting to repair database at {db_path}")
+    
+    try:
+        # Try different pragmas to recover the database
+        recovery_methods = [
+            "PRAGMA integrity_check;",  # Check database integrity
+            "PRAGMA quick_check;",      # Faster integrity check
+            "VACUUM;",                  # Rebuild the database file
+            "PRAGMA wal_checkpoint;",   # Ensure WAL changes are in the main db
+            "PRAGMA journal_mode=DELETE;",  # Reset journal mode
+            "PRAGMA synchronous=OFF;",  # Temporarily disable synchronous
+        ]
+        
+        for method in recovery_methods:
+            try:
+                print(f"Trying recovery method: {method}")
+                # Use a short timeout to avoid hanging
+                conn = sqlite3.connect(db_path, timeout=5.0)
+                conn.execute(method)
+                conn.close()
+            except sqlite3.Error as e:
+                print(f"Recovery method {method} failed: {str(e)}")
+                # Continue to next method
+        
+        # Final test: Can we open and query the database?
+        try:
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            # Try to access the sqlite_master table which all databases have
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+            tables = cursor.fetchall()
+            conn.close()
+            
+            print(f"Repair successful! Found {len(tables)} tables in the database.")
+            return {
+                "success": True, 
+                "message": f"Database repaired successfully. Found {len(tables)} tables.",
+                "tables": [table[0] for table in tables]
+            }
+        except sqlite3.Error as e:
+            print(f"Database still corrupted after repair attempts: {str(e)}")
+            return {"success": False, "error": f"Repair failed: {str(e)}"}
+            
+    except Exception as e:
+        print(f"Error during repair attempt: {str(e)}")
+        return {"success": False, "error": f"Repair attempt failed: {str(e)}"}
 
 # Remove the uvicorn.run() call since we're using run.py now
 if __name__ == "__main__":

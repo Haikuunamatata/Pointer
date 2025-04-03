@@ -58,6 +58,8 @@ body {
   -webkit-app-region: drag;
   user-select: none;
   border-bottom: 1px solid var(--border-color);
+  position: relative;
+  z-index: 1000;
 }
 
 .titlebar-title {
@@ -73,6 +75,7 @@ body {
   left: 0;
   right: 0;
   pointer-events: none;
+  z-index: 1;
 }
 
 .titlebar-title:hover {
@@ -86,7 +89,8 @@ body {
   padding-right: 8px;
   -webkit-app-region: no-drag;
   margin-left: auto;
-  z-index: 1;
+  position: relative;
+  z-index: 1001;
 }
 
 .titlebar-actions {
@@ -168,6 +172,7 @@ body {
 /* File Menu Dropdown */
 .file-menu-container {
   position: relative;
+  z-index: 1002;
 }
 
 .titlebar-action-button.file-menu-button {
@@ -180,7 +185,7 @@ body {
   position: absolute;
   top: 100%;
   left: 0;
-  z-index: 1000;
+  z-index: 1003;
   min-width: 200px;
   background-color: var(--bg-secondary);
   border: 1px solid var(--border-color);
@@ -544,4 +549,189 @@ input:focus {
 
 .titlebar.windows .titlebar-button.close:hover {
   background-color: #e81123;
-} 
+}
+
+/* Add database viewer styles */
+.database-viewer {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  color: var(--text-primary);
+  background-color: var(--bg-primary);
+  overflow: hidden;
+}
+
+.database-header {
+  padding: 10px 15px;
+  border-bottom: 1px solid var(--border-color);
+  background-color: var(--bg-secondary);
+}
+
+.database-header h3 {
+  margin: 0;
+}
+
+.database-path {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.database-error {
+  padding: 10px 15px;
+  background-color: rgba(255, 0, 0, 0.1);
+  color: #ff5555;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.database-content {
+  display: flex;
+  height: calc(100% - 60px);
+}
+
+.database-tables {
+  width: 200px;
+  border-right: 1px solid var(--border-color);
+  overflow: auto;
+}
+
+.tables-header {
+  padding: 10px;
+  font-weight: bold;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.table-item {
+  padding: 8px 10px;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.table-item.selected {
+  background-color: var(--bg-hover);
+  border-left: 3px solid var(--accent-color);
+}
+
+.table-item:not(.selected) {
+  border-left: 3px solid transparent;
+}
+
+.database-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sql-editor {
+  padding: 10px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.sql-editor-label {
+  margin-bottom: 5px;
+  font-weight: bold;
+}
+
+.sql-editor-input-container {
+  display: flex;
+}
+
+.sql-textarea {
+  flex: 1;
+  height: 80px;
+  padding: 8px;
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  resize: none;
+  font-family: var(--font-mono);
+  font-size: 14px;
+}
+
+.execute-button {
+  margin-left: 10px;
+  padding: 0 15px;
+  height: 40px;
+  background-color: var(--accent-color);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.execute-button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.repair-button {
+  padding: 5px 10px;
+  background-color: var(--accent-color);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.repair-button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.data-table-container {
+  flex: 1;
+  overflow: auto;
+  padding: 10px;
+}
+
+.database-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.database-table th {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 2px solid var(--border-color);
+  background-color: var(--bg-secondary);
+}
+
+.database-table tr:nth-child(even) {
+  background-color: var(--bg-secondary);
+}
+
+.database-table tr:nth-child(odd) {
+  background-color: var(--bg-primary);
+}
+
+.database-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.null-value {
+  color: var(--text-disabled);
+}
+
+.loading-indicator, .empty-state {
+  text-align: center;
+  padding: 20px;
+  color: var(--text-secondary);
+}
+
+/* Additional styles for database file handling in file explorer */
+.file-item.database {
+  color: #7e57c2;  /* Purple for database files */
+}
+
+.file-item.database:before {
+  content: "🗃️";  /* Database emoji */
+  margin-right: 5px;
+}
+
+/* Styles for the rest of the app */
+// ... existing code ... 

@@ -7,6 +7,7 @@ import { lmStudio } from '../services/LMStudioService';
 import { FileSystemService } from '../services/FileSystemService';
 import { showToast } from '../services/ToastService';
 import Modal from './Modal';
+import { FileViewer, isImageFile, isBinaryFile, isPdfFile, isDatabaseFile } from './FileViewer';
 
 // Get access to the App's applyCustomTheme function through the window object
 declare global {
@@ -33,6 +34,8 @@ const EditorPane: React.FC<EditorPaneProps> = ({ fileId, file, onEditorReady }) 
   const editorRef = useRef<HTMLDivElement>(null);
   const editor = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const contentRef = useRef<string>('');
+  // Add state to track file type
+  const [fileType, setFileType] = useState<'text' | 'image' | 'binary' | 'pdf' | 'database'>('text');
   const [showPromptInput, setShowPromptInput] = useState(false);
   const [prompt, setPrompt] = useState('');
   const [aiResponse, setAiResponse] = useState('');
@@ -77,6 +80,21 @@ const EditorPane: React.FC<EditorPaneProps> = ({ fileId, file, onEditorReady }) 
 
   // Normalize content once when file changes
   useEffect(() => {
+    if (file?.name) {
+      // Determine file type based on extension
+      if (isImageFile(file.name)) {
+        setFileType('image');
+      } else if (isPdfFile(file.name)) {
+        setFileType('pdf');
+      } else if (isDatabaseFile(file.name)) {
+        setFileType('database');
+      } else if (isBinaryFile(file.name)) {
+        setFileType('binary');
+      } else {
+        setFileType('text');
+      }
+    }
+
     if (file?.content) {
       contentRef.current = file.content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
     } else if (fileId === 'welcome') {
@@ -85,12 +103,12 @@ const EditorPane: React.FC<EditorPaneProps> = ({ fileId, file, onEditorReady }) 
     } else {
       contentRef.current = '';
     }
-  }, [file?.content, fileId]);
+  }, [file?.content, file?.name, fileId]);
 
-  // Setup editor with ghost text completion
+  // Setup editor with ghost text completion - only for text files
   useEffect(() => {
-    // Only create editor once, don't recreate it on every render
-    if (!editorRef.current || editorInitializedRef.current) return;
+    // Only create editor for text files
+    if (fileType !== 'text' || !editorRef.current || editorInitializedRef.current) return;
 
     const language = file ? getLanguageFromFileName(file.name) : 'javascript';
     const uri = monaco.Uri.parse(file?.path || `file:///${fileId}.js`);
@@ -307,7 +325,7 @@ const EditorPane: React.FC<EditorPaneProps> = ({ fileId, file, onEditorReady }) 
       saveCurrentFile();
       removeGhostText();
     };
-  }, [fileId, file, onEditorReady, completionEnabled]);
+  }, [fileType, fileId, onEditorReady, completionEnabled]);
 
   // Helper function to extract imports from content
   const extractImports = (content: string): string[] => {
@@ -1688,10 +1706,11 @@ DO NOT include the [CURSOR] marker in your response. Provide ONLY the completion
     return calledFunctions;
   };
 
-  if (!file) {
-    return <div>No file loaded</div>;
+  // Render based on file type
+  if (fileType === 'image' || fileType === 'binary' || fileType === 'pdf' || fileType === 'database') {
+    return <FileViewer file={file} fileId={fileId} />;
   }
-  
+
   // Render the explanation content for the modal
   const renderExplanationContent = () => {
     if (functionExplanationDialog.isLoading) {
@@ -1729,22 +1748,16 @@ DO NOT include the [CURSOR] marker in your response. Provide ONLY the completion
   };
 
   return (
-    <div className="editor-pane">
-      <div 
-        ref={editorRef} 
-        className="monaco-editor-container" 
-        style={{ width: '100%', height: '100%' }}
+    <div style={{ height: '100%', position: 'relative' }}>
+      <div
+        ref={editorRef}
+        style={{
+          width: '100%',
+          height: '100%',
+          backgroundColor: 'var(--editor-bg, var(--bg-primary))',
+        }}
       />
-      
-      {/* Use the generic Modal component for function explanation */}
-      <Modal
-        isOpen={functionExplanationDialog.isOpen}
-        onClose={() => setFunctionExplanationDialog(prev => ({ ...prev, isOpen: false }))}
-        title={`Function: ${functionExplanationDialog.functionName}`}
-        content={renderExplanationContent()}
-        isStreaming={functionExplanationDialog.isStreaming}
-      />
-      
+      {/* Prompt input and other UI components */}
       {showPromptInput && (
         <div className="prompt-overlay">
           <div className="prompt-header">
@@ -1865,6 +1878,16 @@ DO NOT include the [CURSOR] marker in your response. Provide ONLY the completion
             )}
           </form>
         </div>
+      )}
+      {/* Function explanation dialog */}
+      {functionExplanationDialog.isOpen && (
+        <Modal
+          isOpen={functionExplanationDialog.isOpen}
+          onClose={() => setFunctionExplanationDialog(prev => ({ ...prev, isOpen: false }))}
+          title={`Function: ${functionExplanationDialog.functionName}`}
+          content={renderExplanationContent()}
+          isStreaming={functionExplanationDialog.isStreaming}
+        />
       )}
     </div>
   );
