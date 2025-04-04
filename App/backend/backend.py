@@ -27,7 +27,7 @@ from dotenv import load_dotenv
 from git_endpoints import router as git_router
 from github_oauth import GitHubOAuth
 import mimetypes
-import sqlite3  # Add sqlite3 import
+import sqlite3
 
 # Load environment variables
 load_dotenv()
@@ -1690,154 +1690,317 @@ async def serve_file(path: str, currentDir: str = None):
         print(f"Error serving file {path}: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-class DbSchemaRequest(BaseModel):
+class DatabasePathRequest(BaseModel):
     path: str
 
-class DbQueryRequest(BaseModel):
+class DatabaseQueryRequest(BaseModel):
     path: str
-    sql: str
+    query: str
 
-def get_db_connection(db_path: str) -> sqlite3.Connection:
-    """Establish and return a connection to the SQLite database."""
+@app.post("/database/schema")
+async def get_database_schema(request: DatabasePathRequest):
+    """Get the schema (tables and columns) of a SQLite database."""
     try:
-        # Allow connection usage across threads (FastAPI async)
-        conn = sqlite3.connect(db_path, uri=True, check_same_thread=False) 
-        conn.row_factory = sqlite3.Row  # Return rows as dictionary-like objects
-        return conn
-    except sqlite3.Error as e:
-        print(f"Error connecting to database {db_path}: {e}")
-        raise HTTPException(status_code=500, detail=f"Database connection error: {e}")
-
-def resolve_db_path(relative_path: str) -> str:
-    """Resolve the relative path to an absolute path within the workspace."""
-    if not base_directory:
-        raise HTTPException(status_code=400, detail="No workspace directory open.")
-    
-    # Normalize requested path
-    normalized_path = os.path.normpath(relative_path).replace('\\', '/')
-    
-    # Construct absolute path
-    full_path = os.path.abspath(os.path.join(base_directory, normalized_path))
-
-    # Security check: Ensure the path is within the base directory
-    if not full_path.startswith(os.path.abspath(base_directory)):
-        raise HTTPException(status_code=403, detail="Access denied: Path is outside the workspace.")
+        # Resolve the full path
+        if os.path.isabs(request.path):
+            full_path = request.path
+        else:
+            # Try relative to base directory
+            if base_directory:
+                full_path = os.path.join(base_directory, request.path)
+                if not os.path.exists(full_path):
+                    return {"error": f"Database file not found: {request.path}"}
+            else:
+                return {"error": f"Database file not found: {request.path}"}
         
-    if not os.path.exists(full_path):
-        raise HTTPException(status_code=404, detail="Database file not found.")
-    if not os.path.isfile(full_path):
-         raise HTTPException(status_code=400, detail="Path is not a file.")
-         
-    return full_path
-
-@app.post("/db/schema")
-async def get_database_schema(request: DbSchemaRequest):
-    """Get the schema of an SQLite database file."""
-    db_path = resolve_db_path(request.path)
-    schema = {"tables": {}}
-    
-    conn = None
-    try:
-        conn = get_db_connection(db_path)
+        # Check if file exists and is accessible
+        if not os.path.exists(full_path):
+            return {"error": f"Database file not found: {full_path}"}
+        
+        # Check file size - empty or very small files can't be valid databases
+        file_size = os.path.getsize(full_path)
+        if file_size < 100:  # SQLite header is at least 100 bytes
+            return {"error": f"File is too small to be a valid SQLite database: {file_size} bytes"}
+            
+        # Print diagnostics
+        print(f"Attempting to open database: {full_path}")
+        print(f"File size: {file_size} bytes")
+        print(f"SQLite version: {sqlite3.sqlite_version}")
+        
+        # Try to determine SQLite file version by reading the header
+        sqlite_version_info = detect_sqlite_version(full_path)
+        if sqlite_version_info:
+            print(f"Database file appears to be SQLite version: {sqlite_version_info}")
+        
+        # Connect with timeout and extended error codes
+        try:
+            conn = sqlite3.connect(full_path, timeout=3.0, detect_types=sqlite3.PARSE_DECLTYPES)
+            conn.execute("PRAGMA quick_check")  # Verify database integrity
+        except sqlite3.DatabaseError as e:
+            # Specific error for corrupt database
+            error_msg = f"The file appears to be corrupted or not a valid SQLite database: {str(e)}"
+            if sqlite_version_info:
+                error_msg += f"\nDatabase file format: {sqlite_version_info}"
+                error_msg += f"\nRunning with SQLite version: {sqlite3.sqlite_version}"
+                if "unsupported file format" in str(e).lower():
+                    error_msg += "\nThis might be a version incompatibility. The database may have been created with a newer version of SQLite."
+            return {"error": error_msg}
+        
         cursor = conn.cursor()
         
         # Get list of tables
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';")
-        tables = [row['name'] for row in cursor.fetchall()]
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name;")
+        table_names = [row[0] for row in cursor.fetchall()]
         
-        # Get schema for each table
-        for table_name in tables:
-            # Use parameterized query for table name to prevent SQL injection if possible
-            # Though PRAGMA might not support standard parameterization
-            # Safest here is strict validation or checking table_name against the fetched list
-            if table_name not in tables: continue # Ensure table name is valid
+        if not table_names:
+            print("No tables found in the database")
+        else:
+            print(f"Found {len(table_names)} tables: {', '.join(table_names)}")
+        
+        tables = []
+        for table_name in table_names:
+            # Get columns for each table
+            cursor.execute(f"PRAGMA table_info({table_name});")
+            columns = [row[1] for row in cursor.fetchall()]
             
-            cursor.execute(f'PRAGMA table_info("{table_name}");') # Use single quotes for f-string, keep double for table name
-            columns = [{"name": row['name'], "type": row['type'], "pk": row['pk']} for row in cursor.fetchall()]
-            schema["tables"][table_name] = columns
-            
-        return schema
+            tables.append({
+                "name": table_name,
+                "columns": columns
+            })
+        
+        # Close connection
+        conn.close()
+        
+        return {"tables": tables}
     except sqlite3.Error as e:
-        raise HTTPException(status_code=500, detail=f"Database schema error: {e}")
+        error_msg = f"SQLite error: {str(e)}"
+        print(f"Database error with {request.path}: {error_msg}")
+        return {"error": error_msg}
     except Exception as e:
-        # Catch any other unexpected errors during schema fetching
-        print(f"Unexpected error getting DB schema for {request.path}: {e}")
-        raise HTTPException(status_code=500, detail=f"Unexpected server error processing database schema: {e}")
-    finally:
-        if conn:
-            conn.close()
+        error_msg = f"Error: {str(e)}"
+        print(f"General error with {request.path}: {error_msg}")
+        return {"error": error_msg}
 
-@app.post("/db/query")
-async def execute_database_query(request: DbQueryRequest):
-    """Execute an SQL query against an SQLite database file."""
-    db_path = resolve_db_path(request.path)
-    sql = request.sql.strip()
-    
-    if not sql:
-        raise HTTPException(status_code=400, detail="SQL query cannot be empty.")
-
-    # Basic validation to prevent multiple statements (though sqlite3 might handle this)
-    # Allowing semicolons for valid SQL syntax, but restrict multiple separate statements
-    # A more robust parser would be needed for full safety, but this is a basic check.
-    if sql.count(';') > 1 or (sql.count(';') == 1 and not sql.endswith(';')):
-         print(f"Potentially unsafe query detected: {sql}")
-         # Allow single statements ending with semicolon, reject others with semicolons inside
-         # This is still basic; consider a library if more robust parsing is needed.
-         # For now, let's allow single statements, even with internal semicolons (e.g., in strings)
-         # but be mindful of potential injection risks if modifying data later.
-         pass # Relaxing this check for now, but be careful!
-
-    conn = None
+# Add function to detect SQLite version from file header
+def detect_sqlite_version(db_path):
+    """Try to determine the SQLite version by reading the file header."""
     try:
-        conn = get_db_connection(db_path)
+        with open(db_path, 'rb') as f:
+            header = f.read(100)  # Read first 100 bytes which should contain the header
+            
+            # Check SQLite format
+            if header[0:16] != b'SQLite format 3\x00':
+                return None  # Not a SQLite 3 database
+                
+            # Version information might be in the file, although this is a simplified check
+            # SQLite doesn't store the exact version in the header, but we can detect some format features
+            
+            # Get the page size (bytes 16-17, big-endian)
+            page_size = int.from_bytes(header[16:18], byteorder='big')
+            
+            # Get the file format write version (byte 18)
+            write_version = header[18]
+            
+            # Get the file format read version (byte 19)
+            read_version = header[19]
+            
+            format_info = f"Page size: {page_size}, Write format: {write_version}, Read format: {read_version}"
+            
+            # Rough version estimate based on file format versions
+            if write_version > 2 or read_version > 2:
+                return f"SQLite 3.7.0 or newer ({format_info})"
+            elif write_version == 2:
+                return f"SQLite 3.7.0 or equivalent ({format_info})"
+            elif write_version == 1:
+                return f"SQLite 3.0.0 or equivalent ({format_info})"
+            else:
+                return f"Unknown SQLite version ({format_info})"
+                
+    except Exception as e:
+        print(f"Error detecting SQLite version: {str(e)}")
+        return None
+
+@app.post("/database/query")
+async def execute_database_query(request: DatabaseQueryRequest):
+    """Execute a SQL query on a SQLite database."""
+    try:
+        # Resolve the full path
+        if os.path.isabs(request.path):
+            full_path = request.path
+        else:
+            # Try relative to base directory
+            if base_directory:
+                full_path = os.path.join(base_directory, request.path)
+                if not os.path.exists(full_path):
+                    return {"error": f"Database file not found: {request.path}"}
+            else:
+                return {"error": f"Database file not found: {request.path}"}
+        
+        # Check if file exists and is accessible
+        if not os.path.exists(full_path):
+            return {"error": f"Database file not found: {full_path}"}
+        
+        print(f"Executing query on {full_path}: {request.query}")
+        
+        # Connect with timeout and extended error codes
+        try:
+            conn = sqlite3.connect(full_path, timeout=3.0, detect_types=sqlite3.PARSE_DECLTYPES)
+            conn.execute("PRAGMA quick_check")  # Verify database integrity
+        except sqlite3.DatabaseError as e:
+            # Specific error for corrupt database
+            return {"error": f"The file appears to be corrupted or not a valid SQLite database: {str(e)}"}
+            
+        conn.row_factory = sqlite3.Row  # This enables column access by name
         cursor = conn.cursor()
         
-        start_time = time.time()
-        cursor.execute(sql)
-        execution_time = time.time() - start_time
-
-        # Check if it was a SELECT statement (case-insensitive)
-        is_select = sql.upper().startswith("SELECT") or sql.upper().startswith("PRAGMA")
+        # Execute the query
+        cursor.execute(request.query)
         
-        if is_select:
-            results = cursor.fetchall()
-            # Get column names from cursor description
-            columns = [description[0] for description in cursor.description] if cursor.description else []
-            # Convert rows to list of dictionaries
-            data = [dict(row) for row in results]
-            return {
-                "success": True,
+        # Handle different query types
+        if request.query.strip().upper().startswith(("SELECT", "PRAGMA", "EXPLAIN")):
+            # For SELECT queries, return the results
+            rows = cursor.fetchall()
+            
+            # Extract column names
+            columns = [column[0] for column in cursor.description]
+            
+            # Convert rows to dictionaries
+            result_rows = []
+            for row in rows:
+                result_rows.append({columns[i]: row[i] for i in range(len(columns))})
+            
+            result = {
                 "columns": columns,
-                "data": data,
-                "rowCount": len(data),
-                "executionTime": round(execution_time, 4) # Round execution time
+                "rows": result_rows
             }
         else:
-            # For INSERT, UPDATE, DELETE, etc.
-            conn.commit() # Commit changes for non-SELECT queries
-            return {
-                "success": True,
-                "message": f"Query executed successfully.",
-                "rowsAffected": cursor.rowcount,
-                "executionTime": round(execution_time, 4)
+            # For other queries (INSERT, UPDATE, DELETE), commit changes and return affected rows
+            conn.commit()
+            result = {
+                "columns": ["rowcount"],
+                "rows": [{"rowcount": cursor.rowcount}]
             }
-            
+        
+        # Close connection
+        conn.close()
+        
+        return result
     except sqlite3.Error as e:
-        # Return specific SQL errors
-        return JSONResponse(
-            status_code=400, 
-            content={
-                "success": False, 
-                "error": f"Database query error: {e}"
-            }
-        )
+        error_msg = f"SQLite error: {str(e)}"
+        print(f"Database query error with {request.path}: {error_msg}")
+        return {"error": error_msg}
     except Exception as e:
-         # Catch other potential errors
-         print(f"Server error during query execution: {e}")
-         raise HTTPException(status_code=500, detail=f"Server error during query execution: {e}")
-    finally:
-        if conn:
+        error_msg = f"Error: {str(e)}"
+        print(f"General error with {request.path}: {error_msg}")
+        return {"error": error_msg}
+
+@app.post("/database/repair")
+async def repair_database(request: DatabasePathRequest):
+    """Repair a corrupted database or create a new one."""
+    try:
+        # Resolve the full path
+        if os.path.isabs(request.path):
+            full_path = request.path
+        else:
+            # Try relative to base directory
+            if base_directory:
+                full_path = os.path.join(base_directory, request.path)
+            else:
+                return {"error": "No base directory set"}
+        
+        # Create a backup if the file exists
+        backup_path = None
+        if os.path.exists(full_path):
+            backup_path = f"{full_path}.backup-{int(time.time())}"
+            try:
+                import shutil
+                shutil.copy2(full_path, backup_path)
+                print(f"Created backup of database at {backup_path}")
+            except Exception as e:
+                print(f"Warning: Could not create backup: {str(e)}")
+                backup_path = None
+        
+        # Create directory if it doesn't exist
+        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+        
+        # First try to repair the database if it exists
+        repair_result = None
+        if os.path.exists(full_path) and os.path.getsize(full_path) > 100:
+            repair_result = await attempt_database_repair(full_path)
+            if repair_result.get("success"):
+                return repair_result
+        
+        # If repair failed or database doesn't exist, create a new one
+        try:
+            print(f"Creating new database at {full_path}")
+            conn = sqlite3.connect(full_path)
+            # Create a simple test table to ensure it's working
+            conn.execute("CREATE TABLE IF NOT EXISTS sqlite_test (id INTEGER PRIMARY KEY, test_value TEXT)")
+            conn.commit()
             conn.close()
+            
+            message = "New database created successfully"
+            if backup_path:
+                message += f". Your original database was backed up to {os.path.basename(backup_path)}"
+            
+            print(f"Successfully created new database at {full_path}")
+            return {"success": True, "message": message}
+        except Exception as e:
+            return {"error": f"Failed to create database: {str(e)}"}
+            
+    except Exception as e:
+        error_msg = f"Error repairing database: {str(e)}"
+        print(error_msg)
+        return {"error": error_msg}
+
+async def attempt_database_repair(db_path):
+    """Try to repair a SQLite database using various recovery techniques."""
+    print(f"Attempting to repair database at {db_path}")
+    
+    try:
+        # Try different pragmas to recover the database
+        recovery_methods = [
+            "PRAGMA integrity_check;",  # Check database integrity
+            "PRAGMA quick_check;",      # Faster integrity check
+            "VACUUM;",                  # Rebuild the database file
+            "PRAGMA wal_checkpoint;",   # Ensure WAL changes are in the main db
+            "PRAGMA journal_mode=DELETE;",  # Reset journal mode
+            "PRAGMA synchronous=OFF;",  # Temporarily disable synchronous
+        ]
+        
+        for method in recovery_methods:
+            try:
+                print(f"Trying recovery method: {method}")
+                # Use a short timeout to avoid hanging
+                conn = sqlite3.connect(db_path, timeout=5.0)
+                conn.execute(method)
+                conn.close()
+            except sqlite3.Error as e:
+                print(f"Recovery method {method} failed: {str(e)}")
+                # Continue to next method
+        
+        # Final test: Can we open and query the database?
+        try:
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            # Try to access the sqlite_master table which all databases have
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+            tables = cursor.fetchall()
+            conn.close()
+            
+            print(f"Repair successful! Found {len(tables)} tables in the database.")
+            return {
+                "success": True, 
+                "message": f"Database repaired successfully. Found {len(tables)} tables.",
+                "tables": [table[0] for table in tables]
+            }
+        except sqlite3.Error as e:
+            print(f"Database still corrupted after repair attempts: {str(e)}")
+            return {"success": False, "error": f"Repair failed: {str(e)}"}
+            
+    except Exception as e:
+        print(f"Error during repair attempt: {str(e)}")
+        return {"success": False, "error": f"Repair attempt failed: {str(e)}"}
 
 # Remove the uvicorn.run() call since we're using run.py now
 if __name__ == "__main__":

@@ -2,10 +2,10 @@ import React from 'react';
 import { FileSystemItem } from '../types';
 import DatabaseViewer from './DatabaseViewer';
 
-// Determine if the file is a binary type (excluding DB files now)
+// Determine if the file is a binary type
 const isBinaryFile = (filename: string): boolean => {
   const binaryExtensions = [
-    'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
+    'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
     'zip', 'rar', 'tar', 'gz', '7z', 'bin', 'exe', 'dll',
     'so', 'dylib', 'o', 'obj', 'class', 'jar', 'war',
     'dat', 'mp3', 'mp4', 'avi', 'mov',
@@ -34,14 +34,13 @@ const isPdfFile = (filename: string): boolean => {
   return ext === 'pdf';
 };
 
-// Determine if the file is an SQLite database file
+// Determine if the file is a database file
 const isDatabaseFile = (filename: string): boolean => {
-  const dbExtensions = ['db', 'sqlite', 'sqlite3'];
   const ext = filename.split('.').pop()?.toLowerCase() || '';
-  return dbExtensions.includes(ext);
+  return ext === 'db' || ext === 'sqlite' || ext === 'sqlite3';
 };
 
-// Component to display binary files (generic placeholder)
+// Component to display binary files (hex view)
 const BinaryFileViewer: React.FC<{ file: FileSystemItem }> = ({ file }) => {
   return (
     <div style={{
@@ -54,7 +53,7 @@ const BinaryFileViewer: React.FC<{ file: FileSystemItem }> = ({ file }) => {
     }}>
       <div style={{ textAlign: 'center', margin: '20px 0' }}>
         <h3>Binary File</h3>
-        <p>This file format cannot be displayed directly in the editor.</p>
+        <p>This file cannot be displayed in the editor.</p>
         <div style={{ 
           marginTop: '20px', 
           padding: '10px', 
@@ -155,12 +154,12 @@ interface FileViewerProps {
 
 const FileViewer: React.FC<FileViewerProps> = ({ file, fileId }) => {
   // Determine which viewer to use based on the file type
-  if (isDatabaseFile(file.name)) {
-    return <DatabaseViewer file={file} />;
-  } else if (isImageFile(file.name)) {
+  if (isImageFile(file.name)) {
     return <ImageViewer file={file} />;
   } else if (isPdfFile(file.name)) {
     return <PdfViewer file={file} />;
+  } else if (isDatabaseFile(file.name)) {
+    return <DatabaseViewer file={file} />;
   } else if (isBinaryFile(file.name)) {
     return <BinaryFileViewer file={file} />;
   }

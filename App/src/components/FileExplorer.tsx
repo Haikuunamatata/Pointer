@@ -2,6 +2,7 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { FileSystemItem } from '../types';
 import { FileSystemService } from '../services/FileSystemService';
 import { getIconForFile, FolderIcon, ChevronIcon } from './FileIcons';
+import { isDatabaseFile } from './FileViewer';
 
 declare global {
   interface Window {

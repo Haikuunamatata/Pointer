@@ -1,4 +1,5 @@
 import React from 'react';
+import { isDatabaseFile } from './FileViewer';
 
 const iconColors = {
   js: '#F1DD3F',
@@ -18,12 +19,18 @@ const iconColors = {
   php: '#777BB4',
   rb: '#CC342D',
   sql: '#CC2927',
+  db: '#7E57C2',  // Database color (purple)
   yaml: '#FF5F00',
   xml: '#F1662A',
   default: '#8B8B8B'
 };
 
 export const getIconForFile = (filename: string) => {
+  // Check if it's a database file first
+  if (isDatabaseFile(filename)) {
+    return <DatabaseIcon />;
+  }
+
   const extension = filename.split('.').pop()?.toLowerCase() || '';
 
   switch (extension) {
@@ -211,6 +218,13 @@ export const XMLIcon = () => (
 export const DefaultFileIcon = () => (
   <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
     <path d="M3 3V13H13V3H3ZM11 11H5V10H11V11ZM11 9H5V8H11V9ZM11 7H5V6H11V7ZM11 5H5V4H11V5Z" 
+      fill="currentColor" />
+  </svg>
+);
+
+export const DatabaseIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M8 3C5.24 3 3 3.9 3 5V11C3 12.1 5.24 13 8 13C10.76 13 13 12.1 13 11V5C13 3.9 10.76 3 8 3ZM8 4C10.42 4 12 4.87 12 5.5C12 6.13 10.42 7 8 7C5.58 7 4 6.13 4 5.5C4 4.87 5.58 4 8 4ZM4 6.71C4.91 7.22 6.36 7.5 8 7.5C9.64 7.5 11.09 7.22 12 6.71V8.5C12 9.13 10.42 10 8 10C5.58 10 4 9.13 4 8.5V6.71ZM4 9.71C4.91 10.22 6.36 10.5 8 10.5C9.64 10.5 11.09 10.22 12 9.71V11C12 11.63 10.42 12 8 12C5.58 12 4 11.63 4 11V9.71Z" 
       fill="currentColor" />
   </svg>
 ); 
