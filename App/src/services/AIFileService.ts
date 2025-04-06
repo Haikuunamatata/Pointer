@@ -1,5 +1,5 @@
 import { FileSystemService } from './FileSystemService';
-import { lmStudio } from './LMStudioService';
+import lmStudio from './LMStudioService';
 import { FileChangeEventService } from './FileChangeEventService';
 import { cleanAIResponse } from '../utils/textUtils';
 
@@ -681,6 +681,12 @@ ${content.length > 8000 ? content.substring(0, 8000) + "\n[truncated]" : content
           return {
             modelId,
             apiEndpoint,
+            fallbackEndpoints: [
+              apiEndpoint, // Try the configured endpoint first
+              'http://localhost:11434/v1', // Default Ollama endpoint
+              'http://localhost:1234/v1',  // Alternative port
+              'http://127.0.0.1:11434/v1', // Try with IP instead of localhost
+            ],
             ...modelConfig
           };
         }
@@ -693,6 +699,12 @@ ${content.length > 8000 ? content.substring(0, 8000) + "\n[truncated]" : content
         return {
           modelId, // Use the validated model ID
           apiEndpoint: parsed.apiEndpoint || defaultEndpoint,
+          fallbackEndpoints: [
+            parsed.apiEndpoint || defaultEndpoint, // Try the configured endpoint first
+            'http://localhost:11434/v1', // Default Ollama endpoint
+            'http://localhost:1234/v1',  // Alternative port
+            'http://127.0.0.1:11434/v1', // Try with IP instead of localhost
+          ],
           ...parsed
         };
       }
@@ -700,14 +712,24 @@ ${content.length > 8000 ? content.substring(0, 8000) + "\n[truncated]" : content
       // Return default values if nothing else is available
       return {
         modelId,
-        apiEndpoint
+        apiEndpoint,
+        fallbackEndpoints: [
+          defaultEndpoint, // Default Ollama endpoint
+          'http://localhost:1234/v1',  // Alternative port
+          'http://127.0.0.1:11434/v1', // Try with IP instead of localhost
+        ]
       };
     } catch (error) {
       console.error(`Error loading model configuration for ${purpose}:`, error);
       // Use a valid model ID as fallback
       return {
         modelId: 'deepseek-coder-v2-lite-instruct',
-        apiEndpoint: 'http://localhost:11434/v1'
+        apiEndpoint: 'http://localhost:11434/v1',
+        fallbackEndpoints: [
+          'http://localhost:11434/v1', // Default Ollama endpoint
+          'http://localhost:1234/v1',  // Alternative port
+          'http://127.0.0.1:11434/v1', // Try with IP instead of localhost
+        ]
       };
     }
   }

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { lmStudio } from '../services/LMStudioService';
+import lmStudio from '../services/LMStudioService';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { v4 as uuidv4 } from 'uuid';
@@ -1284,6 +1284,8 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   // Add state for tracking pending code inserts
   const [pendingInserts, setPendingInserts] = useState<{filename: string; content: string}[]>([]);
   const [autoInsertInProgress, setAutoInsertInProgress] = useState(false);
+  // Add state to track if insert model has been preloaded
+  const [insertModelPreloaded, setInsertModelPreloaded] = useState(false);
 
   // Add state for attached files
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
@@ -1297,6 +1299,20 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  
+  // Preload the insert model only when needed
+  const preloadInsertModel = async () => {
+    if (insertModelPreloaded) return; // Only preload once
+    
+    try {
+      console.log("Preloading insert model...");
+      // Get model ID without actually loading the model
+      await AIFileService.getModelIdForPurpose('insert');
+      setInsertModelPreloaded(true);
+    } catch (error) {
+      console.error("Error preloading insert model:", error);
+    }
+  };
   
   // Simple resize implementation
   const handleResizeStart = useCallback((e: React.MouseEvent) => {
@@ -1403,50 +1419,28 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
     try {
       if (messages.length <= 1) return "New Chat";
       
-      // Get model ID for summary purpose
-      const summaryModelId = await AIFileService.getModelIdForPurpose('summary');
-      
-      // Get model configuration from localStorage for other parameters
-      const modelConfigStr = localStorage.getItem('modelConfig');
-      const modelConfig = modelConfigStr ? JSON.parse(modelConfigStr) : {
-        temperature: 0.7,
-        maxTokens: 15, // Limit tokens for brief summary
-        topP: 1,
-        frequencyPenalty: 0,
-        presencePenalty: 0,
-      };
-      
       // Create a summary prompt with the conversation
       const userMessages = messages.filter(m => m.role === 'user').map(m => m.content).join("\n");
       
-      const summaryPrompt: ExtendedMessage[] = [
+      const summaryPrompt = [
         { 
-          role: 'system', 
-          content: 'You are a helpful assistant that generates extremely concise chat titles. Respond with ONLY 3-4 words that summarize the following user messages. No punctuation at the end.',
-          attachments: undefined
+          role: 'system' as 'system', 
+          content: 'You are a helpful assistant that generates extremely concise chat titles. Respond with ONLY 3-4 words that summarize the following user messages. No punctuation at the end.'
         },
-        { role: 'user', content: userMessages.slice(0, 500), attachments: undefined } // Limit input size
+        { role: 'user' as 'user', content: userMessages.slice(0, 500) } // Limit input size
       ];
       
-      // Make the API call to get a summary
-      const response = await fetch('http://localhost:23816/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: summaryModelId,
-          messages: summaryPrompt,
-          temperature: 0.7,
-          max_tokens: 15,
-          top_p: 1,
-          stream: false
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to generate AI summary');
-      }
+      // Get model configuration for summary purpose
+      const summaryModelId = await AIFileService.getModelIdForPurpose('summary');
       
-      const result = await response.json();
+      // Use LMStudioService to handle fallback endpoints
+      const result = await lmStudio.createChatCompletion({
+        model: summaryModelId,
+        messages: summaryPrompt,
+        temperature: 0.7,
+        max_tokens: 15
+      });
+      
       let summary = result.choices[0].message.content.trim();
       
       // Ensure summary is concise
@@ -1581,6 +1575,11 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   // Process auto-insert for code blocks
   const processAutoInsert = async () => {
     if (pendingInserts.length === 0 || autoInsertInProgress) return;
+    
+    // Make sure the insert model is preloaded before starting
+    if (!insertModelPreloaded) {
+      await preloadInsertModel();
+    }
     
     setAutoInsertInProgress(true);
     const currentInsert = pendingInserts[0];
@@ -1767,7 +1766,14 @@ Return ONLY the final merged code without any explanations. The code should be r
 
   // Run auto-insert whenever pendingInserts changes
   useEffect(() => {
-    processAutoInsert();
+    // Add a delay to prevent immediate loading of insertion model when page loads
+    if (pendingInserts.length > 0) {
+      const timer = setTimeout(() => {
+        processAutoInsert();
+      }, 2000); // 2 second delay
+      
+      return () => clearTimeout(timer);
+    }
   }, [pendingInserts, autoInsertInProgress]);
 
   // Function to handle file attachment via dialog
@@ -2013,6 +2019,11 @@ Return ONLY the final merged code without any explanations. The code should be r
           ...prev,
           ...codeBlocks.map(block => ({ filename: block.filename, content: block.content }))
         ]);
+        
+        // Only preload the insert model if we have code blocks to insert
+        setTimeout(() => {
+          preloadInsertModel();
+        }, 3000); // Delay loading insert model by 3 seconds
       }
 
     } catch (error) {
@@ -2197,8 +2208,13 @@ Return ONLY the final merged code without any explanations. The code should be r
           ...prev,
           ...codeBlocks.map(block => ({ filename: block.filename, content: block.content }))
         ]);
+        
+        // Only preload the insert model if we have code blocks to insert
+        setTimeout(() => {
+          preloadInsertModel();
+        }, 3000); // Delay loading insert model by 3 seconds
       }
-      
+
     } catch (error) {
       console.error('Error in handleSubmitEdit:', error);
     } finally {

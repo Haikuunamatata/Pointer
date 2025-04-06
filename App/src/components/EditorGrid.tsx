@@ -3,7 +3,7 @@ import * as monaco from 'monaco-editor';
 import { FileSystemItem } from '../types';
 import { getLanguageFromFileName } from '../utils/languageUtils';
 import { AIFileService } from '../services/AIFileService';
-import { lmStudio } from '../services/LMStudioService';
+import lmStudio from '../services/LMStudioService';
 import { FileSystemService } from '../services/FileSystemService';
 import { showToast } from '../services/ToastService';
 import Modal from './Modal';

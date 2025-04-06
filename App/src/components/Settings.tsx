@@ -32,7 +32,7 @@ const defaultConfig: ModelConfig = {
   contextLength: 8192,
   stopSequences: [],
   modelProvider: 'local',
-  apiEndpoint: 'http://localhost:11434/v1',
+  apiEndpoint: 'http://localhost:1234/v1',
   apiKey: '',
   purpose: 'general',
 };
