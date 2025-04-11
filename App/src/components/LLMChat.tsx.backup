@@ -1272,6 +1272,47 @@ const AUTO_INSERT_STYLES = `
   }
 `;
 
+// Helper functions for extracting tool arguments from malformed JSON
+const extractDirectoryPath = (argsString: string): string | null => {
+  // Handle specific pattern: directory_path\": \"C:/Documents/Cursor2TestFolder\"
+  const dirPathMatch = argsString.match(/directory_path\\?":\s*\\?"([^"\\}]+)/);
+  if (dirPathMatch && dirPathMatch[1]) {
+    console.log("Extracted directory path:", dirPathMatch[1]);
+    return dirPathMatch[1];
+  }
+  return null;
+};
+
+const extractFilePath = (argsString: string): string | null => {
+  // Handle specific pattern: file_path\": \"path/to/file.txt\"
+  const filePathMatch = argsString.match(/file_path\\?":\s*\\?"([^"\\}]+)/);
+  if (filePathMatch && filePathMatch[1]) {
+    console.log("Extracted file path:", filePathMatch[1]);
+    return filePathMatch[1];
+  }
+  return null;
+};
+
+const extractQuery = (argsString: string): string | null => {
+  // Handle specific pattern: query\": \"search term\"
+  const queryMatch = argsString.match(/query\\?":\s*\\?"([^"\\}]+)/);
+  if (queryMatch && queryMatch[1]) {
+    console.log("Extracted query:", queryMatch[1]);
+    return queryMatch[1];
+  }
+  return null;
+};
+
+const extractUrl = (argsString: string): string | null => {
+  // Handle specific pattern: url\": \"https://example.com\"
+  const urlMatch = argsString.match(/url\\?":\s*\\?"([^"\\}]+)/);
+  if (urlMatch && urlMatch[1]) {
+    console.log("Extracted URL:", urlMatch[1]);
+    return urlMatch[1];
+  }
+  return null;
+};
+
 export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectChat }: LLMChatProps) {
   // Add mode state
   const [mode, setMode] = useState<'chat' | 'agent'>('agent'); // Change to agent by default for testing
@@ -2527,878 +2568,1061 @@ Return ONLY the final merged code without any explanations. The code should be r
     if (mode !== 'agent') return;
     
     try {
-      console.log("Processing content for tool calls:", content.length, "characters");
+      // Extract complete function calls with a more precise regex
+      // This pattern looks for function_call: {JSON object} and matches the entire JSON object
+      // even if it spans multiple lines
+      const functionCallMatches = content.match(/function_call:\s*({[\s\S]*?})\s*(?=function_call:|$)/g) || [];
       
-      // Use a more reliable regex to catch all function calls
-      const functionCallMatches = content.match(/function_call:\s*({[\s\S]*?})(?:,"result":{[\s\S]*?})?/g) || [];
+      // No tool calls detected
+      if (functionCallMatches.length === 0) {
+        if (isInToolExecutionChain) {
+          // If we were in a tool chain but no more tool calls, reset the state
+          setIsInToolExecutionChain(false);
+        }
+        return;
+      }
       
-      console.log("Found function calls:", functionCallMatches.length, functionCallMatches);
+      // If we found tool calls, mark that we're in a tool execution chain
+      setIsInToolExecutionChain(true);
       
-      // Track processed calls
-      let processedAnyCall = false;
+      let toolWasExecuted = false;
       
       for (const fullMatch of functionCallMatches) {
         try {
-          // Skip if this already has a result
-          if (fullMatch.includes('"result":')) {
-            console.log("Skipping function call that already has a result");
-            continue;
-          }
-          
-          // Extract the JSON part
+          // Extract just the JSON part
           const jsonMatch = fullMatch.match(/function_call:\s*({[\s\S]*?})/);
-          if (!jsonMatch || !jsonMatch[1]) {
-            console.log("No valid JSON found in function call:", fullMatch);
-            continue;
-          }
+          if (!jsonMatch || !jsonMatch[1]) continue;
           
           const functionCallText = jsonMatch[1].trim();
           console.log("Attempting to parse function call:", functionCallText);
           
-          // Handle special case for second format
-          const isSecondFormat = functionCallText.includes('"arguments":"directory_path"');
-          
-          let functionCall;
-          let toolArgs;
-          
-          if (isSecondFormat) {
-            // Handle second format directly
-            const idMatch = functionCallText.match(/"id"\s*:\s*"([^"]+)"/);
-            const directoryPathMatch = functionCallText.match(/directory_path["\s:]+([^}]+?)(?=\s*[},]|$)/);
-            
-            if (!idMatch) {
-              console.log("Missing ID in second format");
-              continue;
-            }
-            
-            if (!directoryPathMatch) {
-              console.log("Missing directory path in second format");
-              continue;
-            }
-            
-            const id = idMatch[1];
-            const path = directoryPathMatch[1].replace(/[\\"{]+/g, '').trim();
-            
-            functionCall = {
-              id: id,
-              name: 'list_directory',
-              arguments: { directory_path: path }
-            };
-            
-            toolArgs = { directory_path: path };
-            console.log("Parsed second format:", functionCall);
-          } else {
-            // Standard format parsing
-            try {
-              functionCall = JSON.parse(functionCallText);
-            } catch (parseError) {
-              // If parsing fails, try to extract individual components
-              const idMatch = functionCallText.match(/"id"\s*:\s*"([^"]+)"/);
-              const nameMatch = functionCallText.match(/"name"\s*:\s*"([^"]+)"/);
-              const argsMatch = functionCallText.match(/"arguments"\s*:\s*"([^"]+)"/);
-              
-              if (!idMatch) {
-                console.log("Could not extract ID field from function call");
-                continue;
-              }
-              
-              // Handle the special case where name is empty but we have directory_path in arguments
-              let name = nameMatch && nameMatch[1] ? nameMatch[1] : '';
-              let args = argsMatch ? argsMatch[1] : "{}";
-              
-              // If name is empty but arguments contains directory_path, it's a list_directory call
-              if (!name && args.includes('directory_path')) {
-                name = 'list_directory';
-              }
-              
-              functionCall = {
-                id: idMatch[1],
-                name: name,
-                arguments: args
-              };
-            }
-            
-            // Skip if no id
-            if (!functionCall || !functionCall.id) {
-              console.log("Skipping function call - missing id");
-              continue;
-            }
-            
-            // If name is empty but we have an id, try to infer the name from arguments
-            if (!functionCall.name && typeof functionCall.arguments === 'string') {
-              if (functionCall.arguments.includes('directory_path')) {
-                functionCall.name = 'list_directory';
-              } else if (functionCall.arguments.includes('file_path')) {
-                functionCall.name = 'read_file';
-              } else if (functionCall.arguments.includes('query')) {
-                functionCall.name = 'web_search';
-              } else if (functionCall.arguments.includes('url')) {
-                functionCall.name = 'fetch_webpage';
-              }
-            }
-            
-            // Skip if still no name
-            if (!functionCall.name) {
-              console.log("Skipping function call - could not determine name");
-              continue;
-            }
-            
-            // Parse arguments
-            toolArgs = functionCall.arguments;
-            if (typeof toolArgs === 'string') {
-              // Check for empty or malformed arguments
-              if (toolArgs.trim() === '{}' || toolArgs.trim() === '{' || toolArgs.trim() === '') {
-                console.log("Skipping function call - empty or malformed arguments");
-                continue;
-              }
-              
-              // Check for Windows path pattern
-              const windowsPathMatch = toolArgs.match(/directory_path["\s:]+([^}]+?)(?=\s*[},]|$)/);
-              if (windowsPathMatch) {
-                const path = windowsPathMatch[1].replace(/[\\"{]+/g, '').trim();
-                toolArgs = { directory_path: path };
-              } else {
-                try {
-                  // Try to parse as JSON
-                  if (toolArgs.trim().startsWith('{') && toolArgs.trim().endsWith('}')) {
-                    toolArgs = JSON.parse(toolArgs);
-                  } else {
-                    // Simple string arguments (fallback)
-                    toolArgs = { 
-                      [functionCall.name === 'read_file' ? 'file_path' : 
-                       functionCall.name === 'list_directory' ? 'directory_path' : 
-                       functionCall.name === 'web_search' ? 'query' : 'url']: toolArgs 
-                    };
-                  }
-                } catch (e) {
-                  console.warn("Could not parse arguments as JSON, using as is");
-                  toolArgs = { directory_path: toolArgs };
-                }
-              }
-            }
-          }
-          
-          // Validate required arguments based on tool name
-          if (functionCall.name === 'list_directory' && (!toolArgs.directory_path || typeof toolArgs.directory_path !== 'string')) {
-            console.log("Skipping function call - missing or invalid directory_path");
+          // Only try to parse if it looks like valid JSON
+          if (!functionCallText.endsWith('}')) {
+            console.log("Skipping incomplete JSON object");
             continue;
           }
           
-          // Check if already processed
-          const alreadyProcessed = toolResults.some(result => result.id === functionCall.id);
+          // Try to clean up common JSON issues before parsing
+          let cleanedText = functionCallText
+            // Fix malformed argument strings that are missing the starting {
+            .replace(/"arguments":"\s*([^{])/, '"arguments":"{$1')
+            // Fix malformed argument strings that are missing the end }
+            .replace(/([^}])"(?=\s*})/, '$1"}')
+            // Fix escaped quotes inside argument strings
+            .replace(/"arguments":"(.*?)\\"/g, '"arguments":"$1"')
+            // Fix unescaped quotes inside argument strings
+            .replace(/"arguments":"(.*?)"(.*?)"(?=\s*})/, '"arguments":"$1\\"$2\\""}');
+            
+          console.log("Cleaned function call text:", cleanedText);
+          
+          let functionCall;
+          try {
+            functionCall = JSON.parse(cleanedText);
+          } catch (parseError) {
+            console.error("Initial JSON parse failed:", parseError);
+            
+            // Try a fallback approach for handling incomplete arguments object
+            // This handles the case where arguments is a string starting with { but not properly formed
+            if (cleanedText.includes('"arguments":"') && 
+                (cleanedText.includes('directory_path') || 
+                cleanedText.includes('file_path') || 
+                cleanedText.includes('query') || 
+                cleanedText.includes('url'))) {
+              
+              // Extract the ID and name
+              const idMatch = cleanedText.match(/"id"\s*:\s*"([^"]+)"/);
+              const nameMatch = cleanedText.match(/"name"\s*:\s*"([^"]+)"/);
+              
+              if (idMatch && nameMatch) {
+                const id = idMatch[1];
+                const name = nameMatch[1];
+                
+                // Extract the parameter name and value based on the expected tool
+                let args = {};
+                
+                if (name === 'read_file' && cleanedText.includes('file_path')) {
+                  const extractedPath = extractFilePath(cleanedText);
+                  if (extractedPath) {
+                    args = { file_path: extractedPath };
+                  }
+                } else if (name === 'list_directory' && cleanedText.includes('directory_path')) {
+                  const extractedPath = extractDirectoryPath(cleanedText);
+                  if (extractedPath) {
+                    args = { directory_path: extractedPath };
+                  }
+                } else if (name === 'web_search' && cleanedText.includes('query')) {
+                  const extractedQuery = extractQuery(cleanedText);
+                  if (extractedQuery) {
+                    args = { query: extractedQuery };
+                  }
+                } else if (name === 'fetch_webpage' && cleanedText.includes('url')) {
+                  const extractedUrl = extractUrl(cleanedText);
+                  if (extractedUrl) {
+                    args = { url: extractedUrl };
+                  }
+                }
+                
+                functionCall = {
+                  id,
+                  name,
+                  arguments: args
+                };
+                
+                console.log("Reconstructed function call:", functionCall);
+              }
+            }
+            
+            // If we still don't have a valid function call, skip this one
+            if (!functionCall) {
+              console.error("Could not parse function call, skipping");
+              continue;
+            }
+          }
+          
+          console.log("Parsed function call:", functionCall);
+          
+          // Skip if no id or name or already processed
+          if (!functionCall.id || !functionCall.name) {
+            console.log("Skipping function call - missing id or name");
+            continue;
+          }
+          
+          const alreadyProcessed = toolResults.some(result => 
+            result.id === functionCall.id
+          );
+          
           if (alreadyProcessed) {
             console.log("Skipping already processed tool call", functionCall.id);
             continue;
           }
           
-          // Mark that we processed at least one call
-          processedAnyCall = true;
+          // Prepare the arguments for the tool call
+          let toolArgs = {};
           
-          // Execute the tool
-          console.log("Executing tool:", functionCall.name, "with args:", toolArgs);
-          setIsExecutingTool(true);
-          
-          try {
-            const toolResult = await handleToolCall({
-              id: functionCall.id,
-              name: functionCall.name,
-              arguments: toolArgs
-            });
-            
-            const resultWithId = {
-              ...toolResult,
-              id: functionCall.id
-            };
-            
-            console.log("Tool execution successful:", resultWithId);
-            
-            // Update the AI's message to include the tool result
-            setMessages(prev => {
-              const updatedMessages = prev.map(msg => {
-                if (msg.role === 'assistant' && msg.content.includes(functionCall.id)) {
-                  // Find the function call in the message and add the result
-                  const updatedContent = msg.content.replace(
-                    new RegExp(`function_call:\\s*{[^}]*"id":"${functionCall.id}"[^}]*}(?!,"result")`),
-                    `function_call: {"id":"${functionCall.id}","name":"${functionCall.name}","arguments":${JSON.stringify(toolArgs)},"result":${JSON.stringify(resultWithId)}}`
-                  );
-                  return { ...msg, content: updatedContent };
+          if (typeof functionCall.arguments === 'string') {
+            // If arguments is a string that looks like JSON, try to parse it
+            if (functionCall.arguments.trim().startsWith('{') && 
+                functionCall.arguments.trim().endsWith('}')) {
+              try {
+                toolArgs = JSON.parse(functionCall.arguments);
+              } catch (e) {
+                console.warn("Could not parse arguments string as JSON:", functionCall.arguments);
+                
+                // Try to extract parameters using regex as a fallback
+                if (functionCall.name === 'read_file' && functionCall.arguments.includes('file_path')) {
+                  const extractedPath = extractFilePath(functionCall.arguments);
+                  if (extractedPath) {
+                    toolArgs = { file_path: extractedPath };
+                  }
+                } else if (functionCall.name === 'list_directory' && functionCall.arguments.includes('directory_path')) {
+                  const extractedPath = extractDirectoryPath(functionCall.arguments);
+                  if (extractedPath) {
+                    toolArgs = { directory_path: extractedPath };
+                  }
+                } else if (functionCall.name === 'web_search' && functionCall.arguments.includes('query')) {
+                  const extractedQuery = extractQuery(functionCall.arguments);
+                  if (extractedQuery) {
+                    toolArgs = { query: extractedQuery };
+                  }
+                } else if (functionCall.name === 'fetch_webpage' && functionCall.arguments.includes('url')) {
+                  const extractedUrl = extractUrl(functionCall.arguments);
+                  if (extractedUrl) {
+                    toolArgs = { url: extractedUrl };
+                  }
                 }
-                return msg;
-              });
-              console.log("Updated messages with tool result");
-              return updatedMessages;
-            });
-            
-            setToolResults(prev => [...prev, resultWithId]);
-            
-          } catch (toolError: any) {
-            console.error("Error executing tool:", toolError);
-            const errorResult = {
-              error: `Error executing tool: ${toolError.message}`,
-              id: functionCall.id
-            };
-            
-            // Update the AI's message to include the error
-            setMessages(prev => prev.map(msg => {
-              if (msg.role === 'assistant' && msg.content.includes(functionCall.id)) {
-                const updatedContent = msg.content.replace(
-                  new RegExp(`function_call:\\s*{[^}]*"id":"${functionCall.id}"[^}]*}(?!,"result")`),
-                  `function_call: {"id":"${functionCall.id}","name":"${functionCall.name}","arguments":${JSON.stringify(toolArgs)},"result":${JSON.stringify(errorResult)}}`
-                );
-                return { ...msg, content: updatedContent };
-              }
-              return msg;
-            }));
-            
-            setToolResults(prev => [...prev, errorResult]);
-          } finally {
-            setIsExecutingTool(false);
-          }
-        } catch (error) {
-          console.error("Error processing function call:", error);
-        }
-      }
-      
-      // After processing all function calls in this batch, check for remaining unprocessed calls
-      if (processedAnyCall) {
-        // Use setTimeout to allow state updates to complete
-        setTimeout(async () => {
-          const lastMessage = messages[messages.length - 1];
-          if (lastMessage && lastMessage.role === 'assistant') {
-            // Check if there are remaining function calls without results
-            const content = lastMessage.content;
-            const remainingCalls = content.match(/function_call:\s*({[\s\S]*?})(?!,"result")/g);
-            
-            if (remainingCalls && remainingCalls.length > 0) {
-              console.log("Found remaining tool calls:", remainingCalls.length, "Processing again");
-              await processToolCalls(content);
-            } else {
-              console.log("No remaining tool calls, continuing conversation with AI");
-              if (isInToolExecutionChain) {
-                continueLLMConversation();
               }
             }
-          } else {
-            console.log("No assistant message found, skipping further processing");
           }
-        }, 300);
-      } else {
-        console.log("No tool calls were processed in this run");
-      }
-    } catch (error) {
-      console.error('Error handling tool calls:', error);
-    }
-  };
-  
-  // Add a function to continue the conversation after tool execution
-  const continueLLMConversation = async () => {
-    if (!isInToolExecutionChain) return;
-    
-    try {
-      setIsProcessing(true);
-      
-      // Get the last user message and all tool results
-      const lastUserMessage = messages[messages.length - 1];
-      if (!lastUserMessage || lastUserMessage.role !== 'user') return;
-      
-      // Create a new conversation context with the original user message and tool results
-      const conversationContext = [
-        lastUserMessage,
-        ...toolResults.map(result => ({
-          role: 'tool' as const,
-          content: JSON.stringify(result),
-          tool_call_id: result.id
-        }))
-      ];
-      
-      // Get model configuration
-      const modelConfig = await AIFileService.getModelConfigForPurpose('agent');
-      const modelId = modelConfig.modelId;
-      
-      // Make a new call to the AI with the updated context
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          messages: conversationContext,
-          mode: 'agent',
-          model: modelId,
-          temperature: modelConfig.temperature || 0.7,
-          maxTokens: modelConfig.maxTokens || -1,
-          systemPrompt: '',
-          isContinuation: true
-        }),
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to get response from AI');
-      }
-      
-      const data = await response.json();
-      
-      // Create a new message for the AI's response
-      const newMessage: ExtendedMessage = {
-        role: 'assistant',
-        content: data.content,
-        tool_call_id: undefined
-      };
-      
-      // Add the new message to the conversation
-      setMessages(prev => [...prev, newMessage]);
-      
-      // Process any tool calls in the new response
-      await processToolCalls(data.content);
-      
-    } catch (error) {
-      console.error('Error continuing conversation:', error);
-      setMessages(prev => [
-        ...prev,
-        {
-          role: 'assistant',
-          content: 'Sorry, I encountered an error while processing your request.',
-          tool_call_id: undefined
+          
+          // Use the ToolService to call the tool
+          const result = await ToolService.callTool(functionCall.name, toolArgs);
+          
+          // If the backend tool returned an error, format it properly
+          if (result && result.success === false) {
+            console.warn(`Tool call failed for ${functionCall.name}:`, result.error);
+            return { 
+              error: result.error || `Failed to call tool: ${functionCall.name}`,
+              details: result.message || "No additional details available"
+            };
+          }
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Mark that we executed a tool
+          toolWasExecuted = true;
+        } catch (error) {
+          console.error(`Error processing tool call ${functionCall.name}:`, error);
+          // Add any additional error handling logic you want to execute
         }
-      ]);
-    } finally {
-      setIsProcessing(false);
-      setIsStreamingComplete(true);
+      }
+      
+      // If no tool calls were executed, reset the state
+      if (!toolWasExecuted) {
+        setIsInToolExecutionChain(false);
+      }
+    } catch (error) {
+      console.error('Error processing tool calls:', error);
+      // Add any additional error handling logic you want to execute
     }
   };
-
-  // Update the message rendering to handle the new message structure
-  const renderMessage = (message: ExtendedMessage, index: number) => {
-    const isUser = message.role === 'user';
-    const isAssistant = message.role === 'assistant';
-    const isTool = message.role === 'tool';
-    
-    return (
-      <div 
-        key={index} 
-        className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-4`}
-      >
-        <div 
-          className={`max-w-[80%] rounded-lg p-4 ${
-            isUser 
-              ? 'bg-blue-500 text-white' 
-              : isTool
-                ? 'bg-gray-200 text-gray-800'
-                : 'bg-gray-100 text-gray-800'
-          }`}
-        >
-          {isTool ? (
-            <div className="text-sm">
-              <pre className="whitespace-pre-wrap">{message.content}</pre>
-            </div>
-          ) : (
-            <div className="prose prose-sm max-w-none">
-              {message.content.split('\n').map((line, i) => (
-                <p key={i}>{line}</p>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  };
-
-  if (!isVisible) return null;
 
   return (
     <div
-      ref={containerRef}
-      className="llm-chat"
       style={{
-        display: isVisible ? 'flex' : 'none',
-        flexDirection: 'column',
         position: 'fixed',
-        top: '32px', // Account for titlebar height
+        top: 0,
+        left: 0,
         right: 0,
-        width: `${width}px`,
-        height: 'calc(100vh - 54px)', // Subtract titlebar (32px) + statusbar (22px)
-        backgroundColor: 'var(--bg-secondary)',
-        borderLeft: '1px solid var(--border-primary)',
-        zIndex: 1,
+        bottom: 0,
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        zIndex: 1000,
+        opacity: isVisible ? 1 : 0,
+        pointerEvents: isVisible ? 'auto' : 'none',
+        transition: 'opacity 0.3s ease',
       }}
     >
-      <div style={{ 
-        padding: '10px', 
-        borderBottom: '1px solid var(--border-primary)',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        height: '35px'
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <ChatModeSwitch mode={mode} onModeChange={setMode} />
-          <div className="chat-switcher">
-            <button
-              onClick={() => setIsChatListVisible(!isChatListVisible)}
-              className="settings-button"
-              title="Switch chats"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-              </svg>
-            </button>
-            {isChatListVisible && (
-              <div
-                className="chat-switcher-dropdown"
-                style={{
-                  position: 'absolute',
-                  top: '100%',
-                  left: 0,
-                  background: 'var(--bg-primary)',
-                  border: '1px solid var(--border-primary)',
-                  borderRadius: '4px',
-                  boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-                  zIndex: 1000,
-                  minWidth: '200px',
-                  maxHeight: '400px',
-                  overflowY: 'auto',
-                }}
-              >
-                <div
-                  style={{
-                    padding: '8px',
-                    borderBottom: '1px solid var(--border-primary)',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                  }}
-                >
-                  <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Recent Chats</span>
-                  <button
-                  onClick={handleNewChat}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      color: 'var(--text-primary)',
-                      cursor: 'pointer',
-                      fontSize: '12px',
-                      padding: '4px 8px',
-                    }}
-                  >
-                    New Chat
-                  </button>
-                </div>
-                {chats.length === 0 ? (
-                  <div style={{ padding: '10px', color: 'var(--text-secondary)', fontSize: '12px' }}>
-                    No saved chats
-                  </div>
-                ) : (
-                  chats.map(chat => (
-                    <button
-                      key={chat.id}
-                      className="chat-button"
-                      onClick={() => handleSelectChat(chat.id)}
-                      style={{
-                        width: '100%',
-                        padding: '8px 12px',
-                        background: chat.id === currentChatId ? 'var(--bg-hover)' : 'none',
-                        border: 'none',
-                        borderBottom: '1px solid var(--border-primary)',
-                        color: 'var(--text-primary)',
-                        cursor: 'pointer',
-                        textAlign: 'left',
-                        fontSize: '12px',
-                      }}
-                    >
-                      <div style={{ fontSize: '13px', fontWeight: chat.id === currentChatId ? 'bold' : 'normal' }}>
-                        {chat.name}
-                      </div>
-                      <div style={{ 
-                        fontSize: '11px', 
-                        color: 'var(--text-secondary)',
-                        marginTop: '2px' 
-                      }}>
-                        {new Date(chat.createdAt).toLocaleString()}
-                      </div>
-                    </button>
-                  ))
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <button
-            onClick={onClose}
-            className="close-button"
-            style={{
-              background: 'none',
-              border: 'none',
-              color: 'var(--text-primary)',
-              cursor: 'pointer',
-              padding: '4px',
-            }}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M18 6L6 18M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-      </div>
-
       <div
-        ref={chatContainerRef}
         style={{
-          flex: 1,
-          overflowY: 'auto',
-          padding: '16px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '16px',
+          backgroundColor: 'white',
+          padding: '20px',
+          borderRadius: '10px',
+          boxShadow: '0 0 10px rgba(0, 0, 0, 0.1)',
+          width: '80%',
+          maxWidth: '600px',
+          transform: isVisible ? 'scale(1)' : 'scale(0.9)',
+          opacity: isVisible ? 1 : 0,
+          transition: 'transform 0.3s ease, opacity 0.3s ease',
         }}
       >
-        {messages.length <= 1 ? (
-          <div className="empty-chat-message" style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            height: '100%',
-            color: 'var(--text-secondary)',
-            textAlign: 'center',
-            padding: '0 20px'
-          }}>
-            <svg 
-              width="48" 
-              height="48" 
-              viewBox="0 0 24 24" 
-              fill="none" 
-              stroke="currentColor" 
-              strokeWidth="1.5" 
-              style={{ marginBottom: '16px', opacity: 0.7 }}
-            >
-              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-            </svg>
-            <h3 style={{ fontSize: '18px', marginBottom: '8px' }}>Start a new conversation</h3>
-            <p style={{ fontSize: '14px', opacity: 0.8, maxWidth: '400px' }}>
-              Ask a question, get coding help, or have a chat with your AI assistant.
-            </p>
-          </div>
-        ) : (
-          <>
-            {messages.slice(1).map((message, index) => {
-              // Check if message has think blocks
-              const hasThinkBlocks = message.content.includes('<think>');
-              
-              // Calculate if this message should be faded
-              const shouldBeFaded = editingMessageIndex !== null && index + 1 > editingMessageIndex;
-              
-              // If it's a thinking message, render it differently
-              if (hasThinkBlocks) {
-                return (
-                  <div 
-                    key={index} 
-                    style={{ 
-                      width: '100%',
-                      opacity: shouldBeFaded ? 0.33 : 1,
-                      transition: 'opacity 0.2s ease',
-                    }}
-                  >
-                    <MessageRenderer message={message} />
-                  </div>
-                );
-              }
-
-              // Regular message
-              return (
-                <div
-                  key={index}
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: message.role === 'assistant' ? 'flex-start' : 'flex-end',
-                    position: 'relative',
-                    width: '100%',
-                    opacity: shouldBeFaded ? 0.5 : 1,
-                    transition: 'opacity 0.2s ease',
-                  }}
-                >
-                  <div
-                    className={`message ${message.role === 'assistant' ? 'assistant' : 'user'}`}
-                    style={{
-                      background: message.role === 'assistant' ? 'var(--bg-secondary)' : 'var(--bg-primary)',
-                      padding: '12px',
-                      borderRadius: '8px',
-                      maxWidth: '85%',
-                      border: message.role === 'assistant' ? 'none' : '1px solid var(--border-primary)',
-                    }}
-                  >
-                    <MessageRenderer message={message} />
-                  </div>
-                  {message.role === 'user' && (
-                    <div
-                      style={{
-                        marginTop: '4px',
-                        display: 'flex',
-                        justifyContent: 'flex-end',
-                        paddingRight: '4px',
-                      }}
-                      className="edit-button-container"
-                    >
-                      <button
-                        className="edit-button"
-                        onClick={() => handleEditMessage(index + 1)}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '3px',
-                          background: 'none',
-                          border: 'none',
-                          color: 'var(--text-tertiary)',
-                          cursor: shouldBeFaded ? 'not-allowed' : 'pointer',
-                          padding: '2px 4px',
-                          borderRadius: '3px',
-                          fontSize: '11px',
-                          transition: 'all 0.2s ease',
-                          opacity: shouldBeFaded ? 0.3 : 0.7,
-                          pointerEvents: shouldBeFaded ? 'none' : 'auto',
-                        }}
-                        onMouseEnter={(e: React.MouseEvent<HTMLButtonElement>) => {
-                          if (!shouldBeFaded) {
-                            e.currentTarget.style.background = 'var(--bg-hover)';
-                            e.currentTarget.style.opacity = '1';
-                            e.currentTarget.style.color = 'var(--text-secondary)';
-                          }
-                        }}
-                        onMouseLeave={(e: React.MouseEvent<HTMLButtonElement>) => {
-                          if (!shouldBeFaded) {
-                            e.currentTarget.style.background = 'none';
-                            e.currentTarget.style.opacity = '0.7';
-                            e.currentTarget.style.color = 'var(--text-tertiary)';
-                          }
-                        }}
-                        title={shouldBeFaded ? "Can't edit while another message is being edited" : "Edit message"}
-                        disabled={shouldBeFaded}
-                      >
-                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                        </svg>
-                        <span>Edit</span>
-                      </button>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </>
-        )}
-        <div ref={messagesEndRef} />
-      </div>
-
-      {/* Attached Files Section */}
-      {attachedFiles.length > 0 && (
-        <div className="attached-files-container">
-          <div
-            style={{
-              fontSize: '12px',
-              fontWeight: 'bold',
-              marginBottom: '6px',
-              color: 'var(--text-secondary)',
-            }}
-          >
-            Attached Files ({attachedFiles.length})
-          </div>
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '4px',
-            }}
-          >
-            {attachedFiles.map((file, index) => (
-              <div key={index} className="attached-file-item">
-                <div className="attached-file-name">
-                  <span className="attached-file-icon">📎</span>
-                  {file.name}
-                </div>
-                <button
-                  onClick={() => removeAttachedFile(index)}
-                  className="remove-file-button"
-                  title="Remove file"
-                >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <line x1="18" y1="6" x2="6" y2="18" />
-                    <line x1="6" y1="6" x2="18" y2="18" />
-                  </svg>
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <form
-        onSubmit={editingMessageIndex !== null ? handleSubmitEdit : handleSubmit}
-        style={{
-          borderTop: attachedFiles.length > 0 ? 'none' : '1px solid var(--border-primary)',
-          padding: '12px',
-          display: 'flex',
-          flexDirection: 'column',
-          background: 'var(--bg-secondary)',
-        }}
-      >
+        {/* Chat header */}
         <div
           style={{
-            position: 'relative',
             display: 'flex',
-            flexDirection: 'column',
-            gap: '8px',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginBottom: '20px',
           }}
         >
-          <textarea
-            value={input}
-            onChange={handleInputChange}
-            placeholder={editingMessageIndex !== null ? "Edit your message..." : "Type your message... (Use @ to attach files)"}
-            style={{
-              width: '100%',
-              padding: '12px',
-              borderRadius: '4px',
-              border: '1px solid var(--border-primary)',
-              background: 'var(--bg-primary)',
-              color: 'var(--text-primary)',
-              resize: 'none',
-              fontSize: '13px',
-              minHeight: '60px',
-              maxHeight: '150px',
-              overflow: 'auto',
-            }}
-            rows={2}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                if (editingMessageIndex !== null) {
-                  handleSubmitEdit(e);
-                } else {
-                  handleSubmit(e);
-                }
-              } else if (e.key === 'Escape' && editingMessageIndex !== null) {
-                handleCancelEdit();
-              } else if (e.key === 'Escape' && showFileSuggestions) {
-                setShowFileSuggestions(false);
-                e.preventDefault();
-              }
-            }}
-            disabled={isProcessing}
-          />
-
-          {/* File suggestions dropdown */}
-          {showFileSuggestions && (
-            <div
-              ref={suggestionBoxRef}
-              className="file-suggestions-dropdown"
-            >
-              {fileSuggestions.map((file, index) => (
-                <div
-                  key={index}
-                  onClick={() => selectFileSuggestion(file)}
-                  className="file-suggestion-item"
-                >
-                  <span className="file-suggestion-icon">📄</span>
-                  {file.name}
-                </div>
-              ))}
-            </div>
-          )}
-
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'flex-end',
-              marginTop: '8px',
-              gap: '8px',
-            }}
-          >
-            {editingMessageIndex !== null && (
-              <button
-                onClick={handleCancelEdit}
-                style={{
-                  padding: '8px 16px',
-                  borderRadius: '4px',
-                  border: '1px solid var(--border-primary)',
-                  background: 'var(--bg-secondary)',
-                  color: 'var(--text-secondary)',
-                  cursor: 'pointer',
-                  fontSize: '13px',
-                  fontWeight: 500,
-                }}
-                type="button"
-              >
-                Cancel
-              </button>
-            )}
-            
-            {/* Add hidden file input */}
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleFileInputChange}
-              style={{ display: 'none' }}
-            />
-            
-            {/* File attachment button */}
-            {!editingMessageIndex && !isProcessing && (
-              <button
-                onClick={handleFileAttachment}
-                type="button"
-                className="add-file-button"
-                title="Attach file"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M12 5v14M5 12h14" />
-                </svg>
-              </button>
-            )}
-            
-            {isProcessing ? (
-              <button
-                onClick={handleCancel}
-                style={{
-                  padding: '8px 16px',
-                  borderRadius: '4px',
-                  border: '1px solid var(--border-primary)',
-                  background: 'var(--bg-secondary)',
-                  color: 'var(--text-error)',
-                  cursor: 'pointer',
-                  fontSize: '13px',
-                  fontWeight: 500,
-                }}
-                type="button"
-              >
-                Cancel
-              </button>
-            ) : (
-              <button
-                type="submit"
-                disabled={!input.trim() && attachedFiles.length === 0}
-                style={{
-                  padding: '8px 16px',
-                  borderRadius: '4px',
-                  border: '1px solid var(--border-primary)',
-                  background: (input.trim() || attachedFiles.length > 0) ? 'var(--accent-color)' : 'var(--bg-secondary)',
-                  color: (input.trim() || attachedFiles.length > 0) ? 'white' : 'var(--text-secondary)',
-                  cursor: (input.trim() || attachedFiles.length > 0) ? 'pointer' : 'not-allowed',
-                  fontSize: '13px',
-                  fontWeight: 500,
-                }}
-              >
-                {editingMessageIndex !== null ? 'Update' : 'Send'}
-              </button>
-            )}
-          </div>
-        </div>
-      </form>
-
-      {/* Auto-insert indicator */}
-      <AutoInsertIndicator 
-        count={pendingInserts.length} 
-        isProcessing={autoInsertInProgress} 
-      />
-    </div>
-  );
-} 
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`
+            }
+          ]);
+          
+          // Add the result to the toolResults array
+          setToolResults(prev => [...prev, { ...functionCall, result }]);
+          
+          // Add the result to the current content
+          currentContent += `\n\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`;
+          
+          // Add the result to the messages
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `\`\`\`\n${functionCall.name} returned:\n\`\`\`\n${JSON.stringify(result)}\n\`\`\`\n`

@@ -1,4 +1,4 @@
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 import weakref
 from fastapi import FastAPI, HTTPException, WebSocket, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -29,6 +29,9 @@ from github_oauth import GitHubOAuth
 import mimetypes
 import sqlite3
 
+# Import tool handling functionality
+from tools_handlers import handle_tool_call, TOOL_DEFINITIONS
+
 # Load environment variables
 load_dotenv()
 
@@ -41,6 +44,27 @@ try:
 except ValueError as e:
     print(f"Warning: GitHub OAuth not configured: {str(e)}")
     github_oauth = None
+
+# Tool calling API endpoints
+class ToolCallRequest(BaseModel):
+    tool_name: str
+    params: Dict[str, Any]
+
+@app.post("/api/tools/call")
+async def call_tool(request: ToolCallRequest):
+    """
+    Call a tool with specified parameters.
+    """
+    print(f"Tool call request: {request.tool_name}, params: {request.params}")
+    result = await handle_tool_call(request.tool_name, request.params)
+    return result
+
+@app.get("/api/tools/list")
+async def list_tools():
+    """
+    Get a list of available tools.
+    """
+    return {"tools": TOOL_DEFINITIONS}
 
 # GitHub API endpoints
 @app.get("/github/user-repos")
@@ -219,7 +243,6 @@ def is_text_file(filename: str) -> bool:
         return False
     
     # For unknown extensions, try to detect by checking first few bytes
-    # This is a fallback for files without extensions or with uncommon extensions
     try:
         file_path = os.path.join(base_directory, filename) if base_directory else filename
         if os.path.exists(file_path) and os.path.isfile(file_path):

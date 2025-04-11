@@ -602,9 +602,9 @@ ${content.length > 8000 ? content.substring(0, 8000) + "\n[truncated]" : content
   }
 
   // Get the appropriate model ID for the given purpose
-  static async getModelIdForPurpose(purpose: 'chat' | 'insert' | 'autocompletion' | 'summary'): Promise<string> {
+  static async getModelIdForPurpose(purpose: 'chat' | 'insert' | 'autocompletion' | 'summary' | 'agent'): Promise<string> {
     // Use a fallback model that likely exists in the user's system
-    const fallbackModel = 'deepseek-coder-v2-lite-instruct';
+    const fallbackModel = 'Error occured while getting the model ID';
     let modelId = fallbackModel;
     
     try {
@@ -662,13 +662,12 @@ ${content.length > 8000 ? content.substring(0, 8000) + "\n[truncated]" : content
   }
 
   // Get the complete model configuration for the given purpose
-  static async getModelConfigForPurpose(purpose: 'chat' | 'insert' | 'autocompletion' | 'summary'): Promise<any> {
+  static async getModelConfigForPurpose(purpose: 'chat' | 'insert' | 'autocompletion' | 'summary' | 'agent'): Promise<any> {
     try {
       const defaultEndpoint = 'http://localhost:11434/v1';
       let apiEndpoint = defaultEndpoint;
       let modelId = await this.getModelIdForPurpose(purpose);
       
-      // Try to load from settings file
       const settingsResult = await FileSystemService.readSettingsFiles('C:/ProgramData/Pointer/data/settings');
       if (settingsResult.success && settingsResult.settings.models && 
           settingsResult.settings.modelAssignments && settingsResult.settings.modelAssignments[purpose]) {
@@ -677,15 +676,12 @@ ${content.length > 8000 ? content.substring(0, 8000) + "\n[truncated]" : content
           const modelConfig = settingsResult.settings.models[assignedModelId];
           apiEndpoint = modelConfig.apiEndpoint || defaultEndpoint;
           
-          // Use the ID from getModelIdForPurpose which has proper fallback handling
           return {
             modelId,
             apiEndpoint,
             fallbackEndpoints: [
-              apiEndpoint, // Try the configured endpoint first
-              'http://localhost:11434/v1', // Default Ollama endpoint
-              'http://localhost:1234/v1',  // Alternative port
-              'http://127.0.0.1:11434/v1', // Try with IP instead of localhost
+              apiEndpoint,
+              // should be user configurable soon
             ],
             ...modelConfig
           };
@@ -697,38 +693,31 @@ ${content.length > 8000 ? content.substring(0, 8000) + "\n[truncated]" : content
       if (modelConfigStr) {
         const parsed = JSON.parse(modelConfigStr);
         return {
-          modelId, // Use the validated model ID
+          modelId,
           apiEndpoint: parsed.apiEndpoint || defaultEndpoint,
           fallbackEndpoints: [
-            parsed.apiEndpoint || defaultEndpoint, // Try the configured endpoint first
-            'http://localhost:11434/v1', // Default Ollama endpoint
-            'http://localhost:1234/v1',  // Alternative port
-            'http://127.0.0.1:11434/v1', // Try with IP instead of localhost
+            parsed.apiEndpoint || defaultEndpoint,
+            // should be user configurable soon
           ],
           ...parsed
         };
       }
       
-      // Return default values if nothing else is available
       return {
         modelId,
         apiEndpoint,
         fallbackEndpoints: [
-          defaultEndpoint, // Default Ollama endpoint
-          'http://localhost:1234/v1',  // Alternative port
-          'http://127.0.0.1:11434/v1', // Try with IP instead of localhost
+          defaultEndpoint,
+          // should be user configurable soon
         ]
       };
     } catch (error) {
       console.error(`Error loading model configuration for ${purpose}:`, error);
-      // Use a valid model ID as fallback
       return {
         modelId: 'deepseek-coder-v2-lite-instruct',
         apiEndpoint: 'http://localhost:11434/v1',
         fallbackEndpoints: [
-          'http://localhost:11434/v1', // Default Ollama endpoint
-          'http://localhost:1234/v1',  // Alternative port
-          'http://127.0.0.1:11434/v1', // Try with IP instead of localhost
+          // should be user configurable soon
         ]
       };
     }

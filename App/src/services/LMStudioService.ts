@@ -32,6 +32,9 @@ interface StreamingChatCompletionOptions {
   top_p?: number;
   frequency_penalty?: number;
   presence_penalty?: number;
+  tools?: any[]; // Tool definitions array
+  tool_choice?: string | object; // Tool choice parameter
+  purpose?: 'chat' | 'insert' | 'autocompletion' | 'summary' | 'agent'; // Add purpose parameter
   onUpdate: (content: string) => void;
 }
 
@@ -55,7 +58,7 @@ interface CompletionResponse {
 
 class LMStudioService {
   // Gets the full API endpoint for a specific purpose
-  private async getApiEndpoint(purpose: 'chat' | 'insert' | 'autocompletion' | 'summary'): Promise<string> {
+  private async getApiEndpoint(purpose: 'chat' | 'insert' | 'autocompletion' | 'summary' | 'agent'): Promise<string> {
     try {
       const modelConfig = await AIFileService.getModelConfigForPurpose(purpose);
       if (!modelConfig.apiEndpoint) {
@@ -192,13 +195,16 @@ class LMStudioService {
       top_p = 1,
       frequency_penalty = 0,
       presence_penalty = 0,
+      tools,
+      tool_choice,
+      purpose = 'chat', // Default to 'chat' if not provided
       onUpdate
     } = options;
     
     try {
-      // Get the endpoint based on chat purpose
-      const modelConfig = await AIFileService.getModelConfigForPurpose('chat');
-      console.log(`Attempting to connect to API at: ${modelConfig.apiEndpoint}`);
+      // Get the endpoint based on provided purpose
+      const modelConfig = await AIFileService.getModelConfigForPurpose(purpose);
+      console.log(`Attempting to connect to API at: ${modelConfig.apiEndpoint} for purpose: ${purpose}`);
 
       if (!messages || messages.length === 0) {
         throw new Error('Messages array is required and cannot be empty');
@@ -219,25 +225,47 @@ class LMStudioService {
           }
 
           console.log(`Trying endpoint: ${baseUrl}`);
+          const requestBody: any = {
+            model,
+            messages: messages.map(msg => ({
+              role: msg.role,
+              content: msg.content
+            })),
+            temperature,
+            max_tokens,
+            top_p,
+            frequency_penalty,
+            presence_penalty,
+            stream: true,
+          };
+
+          // Add tools and tool_choice if provided
+          if (tools && tools.length > 0) {
+            requestBody.tools = tools;
+            if (tool_choice) {
+              requestBody.tool_choice = tool_choice;
+            }
+          }
+
+          // Enhanced debug logging
+          console.log('Final API request payload:', JSON.stringify({
+            ...requestBody,
+            messages: requestBody.messages.length > 0 ? '[Messages included]' : '[]',
+            tools: requestBody.tools ? `[${requestBody.tools.length} tools included]` : 'undefined',
+            tool_choice: requestBody.tool_choice || 'undefined',
+            model: requestBody.model,
+            endpoint: `${baseUrl}/chat/completions`,
+            temperature: requestBody.temperature,
+            stream: requestBody.stream
+          }, null, 2));
+
           const response = await fetch(`${baseUrl}/chat/completions`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               'Accept': 'text/event-stream',
             },
-            body: JSON.stringify({
-              model,
-              messages: messages.map(msg => ({
-                role: msg.role,
-                content: msg.content
-              })),
-              temperature,
-              max_tokens,
-              top_p,
-              frequency_penalty,
-              presence_penalty,
-              stream: true,
-            }),
+            body: JSON.stringify(requestBody),
           });
 
           if (!response.ok) {
@@ -252,33 +280,143 @@ class LMStudioService {
 
           let buffer = '';
           let accumulatedContent = '';  // Keep track of all content
+          let toolCallDetected = false;
+          let toolCallData = '';
+          let toolCallBuffer = ''; // Buffer for collecting tool call fragments
+          let completeFunctionCalls: Record<string, any> = {}; // Track complete function calls
+          let lastToolCallUpdateTime = Date.now();
+          let partialToolCall: any = null; // To accumulate partial tool calls
+          
+          // Function to flush a complete tool call to the output
+          const flushToolCall = (toolCall: any) => {
+            if (!toolCall || !toolCall.id || !toolCall.function) return;
+            
+            // Format the tool call data for the client
+            const formattedToolCall = `function_call: ${JSON.stringify({
+              id: toolCall.id,
+              name: toolCall.function.name || '',
+              arguments: toolCall.function.arguments || '{}'
+            })}`;
+            
+            // Add to accumulated content and notify client
+            accumulatedContent += formattedToolCall;
+            console.log("Flushing complete tool call to client:", formattedToolCall);
+            onUpdate(accumulatedContent);
+          };
+          
+          // Set up a periodic check for tool calls that may be stuck
+          const toolCallInterval = setInterval(() => {
+            const now = Date.now();
+            // If we have a partial tool call and it hasn't been updated in 2 seconds, flush it
+            if (partialToolCall && (now - lastToolCallUpdateTime > 2000)) {
+              console.log("Timeout - flushing incomplete tool call:", partialToolCall);
+              flushToolCall(partialToolCall);
+              partialToolCall = null;
+            }
+          }, 500);
 
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            const chunk = new TextDecoder().decode(value);
-            buffer += chunk;
-
-            const lines = buffer.split('\n');
-            buffer = lines.pop() || '';
-
-            for (const line of lines) {
-              if (line.trim() === '' || line.trim() === 'data: [DONE]') continue;
-
-              try {
-                if (!line.startsWith('data: ')) continue;
-                const jsonData = line.replace(/^data: /, '');
-                const data = JSON.parse(jsonData);
-                const content = data.choices[0]?.delta?.content || '';
-                if (content) {
-                  accumulatedContent += content;  // Accumulate content
-                  onUpdate(accumulatedContent);   // Send accumulated content
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) {
+                // When done, flush any remaining partial tool call
+                if (partialToolCall) {
+                  console.log("End of stream - flushing incomplete tool call:", partialToolCall);
+                  flushToolCall(partialToolCall);
                 }
-              } catch (error) {
-                console.error('Error parsing SSE message:', error);
+                break;
+              }
+
+              const chunk = new TextDecoder().decode(value);
+              buffer += chunk;
+
+              const lines = buffer.split('\n');
+              buffer = lines.pop() || '';
+
+              for (const line of lines) {
+                if (line.trim() === '' || line.trim() === 'data: [DONE]') continue;
+
+                try {
+                  if (!line.startsWith('data: ')) continue;
+                  const jsonData = line.replace(/^data: /, '');
+                  const data = JSON.parse(jsonData);
+                  
+                  // Check for tool call in the response
+                  const content = data.choices[0]?.delta?.content || '';
+                  if (content) {
+                    // Regular content (not a tool call via choices.delta.tool_calls)
+                    accumulatedContent += content;
+                    onUpdate(accumulatedContent);
+                  }
+                  
+                  // Check if there's a tool_call in the choices object directly
+                  const toolCallDelta = data.choices[0]?.delta?.tool_calls?.[0];
+                  if (toolCallDelta) {
+                    lastToolCallUpdateTime = Date.now();
+                    
+                    // Initialize partial tool call if needed
+                    if (!partialToolCall) {
+                      partialToolCall = {
+                        id: toolCallDelta.id || `tool-call-${Date.now()}`,
+                        type: toolCallDelta.type || 'function',
+                        function: {
+                          name: '',
+                          arguments: ''
+                        }
+                      };
+                    }
+                    
+                    // Update the ID if it's now available
+                    if (toolCallDelta.id && !partialToolCall.id) {
+                      partialToolCall.id = toolCallDelta.id;
+                    }
+                    
+                    // Update function name if present in this delta
+                    if (toolCallDelta.function?.name) {
+                      partialToolCall.function.name = 
+                        (partialToolCall.function.name || '') + toolCallDelta.function.name;
+                    }
+                    
+                    // Update function arguments if present in this delta
+                    if (toolCallDelta.function?.arguments) {
+                      partialToolCall.function.arguments = 
+                        (partialToolCall.function.arguments || '') + toolCallDelta.function.arguments;
+                    }
+                    
+                    // Check if we have a complete function call
+                    const isComplete = partialToolCall.id && 
+                                      partialToolCall.function.name && 
+                                      partialToolCall.function.arguments;
+                                      
+                    if (isComplete) {
+                      // Try to validate the arguments as proper JSON
+                      try {
+                        // Clean and validate arguments
+                        const args = partialToolCall.function.arguments;
+                        // If it looks like JSON, try to parse it
+                        if (args.trim().startsWith('{') && args.trim().endsWith('}')) {
+                          JSON.parse(args); // Just to validate
+                        }
+                        
+                        console.log("Complete tool call assembled:", partialToolCall);
+                        flushToolCall(partialToolCall);
+                        partialToolCall = null;
+                      } catch (e) {
+                        // Arguments aren't valid JSON yet, continue accumulating
+                        console.log("Arguments not yet valid JSON:", partialToolCall.function.arguments);
+                      }
+                    } else {
+                      console.log("Still accumulating tool call:", partialToolCall);
+                    }
+                  }
+                } catch (error) {
+                  console.error('Error parsing SSE message:', error, line);
+                }
               }
             }
+          } finally {
+            clearInterval(toolCallInterval);
+            reader.releaseLock();
           }
           
           // If we get here, the request succeeded, so we can return
@@ -347,6 +485,26 @@ class LMStudioService {
     } catch (error) {
       console.error('Error in createCompletion:', error);
       throw error;
+    }
+  }
+
+  private hasCompleteToolCall(buffer: string): boolean {
+    // Check if the buffer contains a complete function call
+    try {
+      // Look for a pattern that indicates a complete function call
+      const match = buffer.match(/function_call:\s*({[\s\S]*?})\s*(?=function_call:|$)/);
+      if (!match) return false;
+      
+      // Extract the JSON part
+      const jsonStr = match[1];
+      if (!jsonStr) return false;
+      
+      // Try to parse the JSON to verify it's complete
+      const parsedCall = JSON.parse(jsonStr);
+      return !!(parsedCall && parsedCall.id && parsedCall.name);
+    } catch (error) {
+      // If parsing fails, it's not a complete call
+      return false;
     }
   }
 }

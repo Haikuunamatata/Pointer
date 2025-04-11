@@ -564,4 +564,18 @@ export class FileSystemService {
       throw error;
     }
   }
+
+  static async listDirectory(path: string): Promise<string[]> {
+    try {
+      const response = await fetch(`http://localhost:23816/list-directory?path=${encodeURIComponent(path)}`);
+      if (!response.ok) {
+        throw new Error(`Failed to list directory: ${response.statusText}`);
+      }
+      const data = await response.json();
+      return data.contents;
+    } catch (error) {
+      console.error('Error listing directory:', error);
+      throw error;
+    }
+  }
 }

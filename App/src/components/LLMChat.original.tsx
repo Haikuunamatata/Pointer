@@ -10,12 +10,12 @@ import { FileChangeEventService } from '../services/FileChangeEventService';
 import { AIFileService } from '../services/AIFileService';
 import { Message } from '../types';
 import { FileSystemService } from '../services/FileSystemService';
-import { ChatModeSwitch } from './ChatModeSwitch';
-import ToolService from '../services/ToolService';
+import agentService from '../services/AgentService';
 
 // Extend the Message interface to include attachments
 interface ExtendedMessage extends Message {
   attachments?: AttachedFile[];
+  tool_calls?: any[];
 }
 
 interface ChatSession {
@@ -557,506 +557,48 @@ interface CodeProps extends React.HTMLAttributes<HTMLElement> {
 }
 
 // Component to render messages with markdown and code syntax highlighting
-const MessageRenderer: React.FC<{ message: ExtendedMessage }> = ({ message }) => {
+const MessageRenderer: React.FC<{ 
+  message: ExtendedMessage; 
+  toolResponses?: Record<string, any>;
+}> = ({ message, toolResponses }) => {
   const [thinkTimes] = useState<ThinkTimes>({});
   
-  // Check if we have an incomplete think block
-  const hasIncompleteThink = message.content.includes('<think>') && 
-    !message.content.includes('</think>');
-
-  // Start timing when a think block starts
-  useEffect(() => {
-    if (hasIncompleteThink) {
-      const thinkStart = Date.now();
-      const thinkKey = message.content; // Use the full message content as the key
-      thinkTimes[thinkKey] = thinkStart;
-    }
-  }, [hasIncompleteThink, message.content, thinkTimes]);
-
-  // If we have an incomplete think, extract the content after <think>
-  if (hasIncompleteThink) {
-    const parts = message.content.split('<think>');
+  // Add tool call rendering
+  if (message.tool_calls && message.tool_calls.length > 0 && toolResponses) {
     return (
-      <>
-        {/* Render content before <think> tag */}
-        {parts[0] && (
-          <div className="message-content">
-            {message.attachments && message.attachments.length > 0 && (
-              <div className="message-attachments">
-                <div className="attachments-header">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-                  </svg>
-                  <span>{message.attachments.length} attached {message.attachments.length === 1 ? 'file' : 'files'}</span>
-                </div>
-                <div className="attachments-list">
-                  {message.attachments.map((file, index) => (
-                    <div key={index} className="attachment-item">
-                      <div className="attachment-name">
-                        <span className="attachment-icon">📄</span>
-                        {file.name}
-                      </div>
-                      <button
-                        className="attachment-expand-button"
-                        onClick={() => window.open(`data:text/plain;charset=utf-8,${encodeURIComponent(file.content)}`, '_blank')}
-                        title="View file content"
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <polyline points="15 3 21 3 21 9"></polyline>
-                          <polyline points="9 21 3 21 3 15"></polyline>
-                          <line x1="21" y1="3" x2="14" y2="10"></line>
-                          <line x1="3" y1="21" x2="10" y2="14"></line>
-                        </svg>
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+      <div className={`message ${message.role}`}>
+        <div className="message-content">
+          {message.content && (
             <ReactMarkdown
               components={{
-                p: ({ children, ...props }) => {
-                  const hasCodeBlock = React.Children.toArray(children).some(
-                    child => React.isValidElement(child) && child.type === 'code'
-                  );
-                  return hasCodeBlock ? <div {...props}>{children}</div> : <p {...props}>{children}</p>;
-                },
-                ul: ({ children, ...props }) => (
-                  <ul style={{ 
-                    margin: '8px 0',
-                    paddingLeft: '24px',
-                    listStyleType: 'disc'
-                  }} {...props}>
-                    {children}
-                  </ul>
-                ),
-                ol: ({ children, ...props }) => (
-                  <ol style={{ 
-                    margin: '8px 0',
-                    paddingLeft: '24px',
-                    listStyleType: 'decimal'
-                  }} {...props}>
-                    {children}
-                  </ol>
-                ),
-                li: ({ children, ...props }) => (
-                  <li style={{ 
-                    margin: '4px 0',
-                    lineHeight: '1.5'
-                  }} {...props}>
-                    {children}
-                  </li>
-                ),
-                code({ className, children, ...props }: CodeProps) {
-                  let content = String(children).replace(/\n$/, '');
-                  
-                  // Check if this is a code block (triple backticks) or inline code (single backtick)
-                  const isCodeBlock = content.includes('\n') || content.length > 50;
-                  
-                  if (!isCodeBlock) {
-                    return (
-                      <code
-                        style={{
-                          background: 'var(--bg-code)',
-                          padding: '2px 4px',
-                          borderRadius: '3px',
-                          fontSize: '0.9em',
-                          fontFamily: 'var(--font-mono)',
-                          color: 'var(--inline-code-color, #cc0000)',
-                        }}
-                        {...props}
-                      >
-                        {content}
-                      </code>
-                    );
-                  }
-
-                  let language = '';
-                  let filename = '';
-                  
-                  if (className) {
-                    const match = /language-(\w+)(?::(.+))?/.exec(className);
-                    if (match) {
-                      language = match[1] || '';
-                      filename = match[2] || '';
-                    }
-                  }
-
-                  // If no filename was provided in the className, try to extract it from the first line
-                  if (!filename) {
-                    const lines = content.split('\n');
-                    const firstLine = lines[0].trim();
-                    
-                    // Extract potential filename from any comment style
-                    // Match HTML comments, regular comments, and other common comment styles
-                    const commentPatterns = [
-                      /^<!--\s*(.*?\.[\w]+)\s*-->/, // HTML comments
-                      /^\/\/\s*(.*?\.[\w]+)\s*$/, // Single line comments
-                      /^#\s*(.*?\.[\w]+)\s*$/, // Hash comments
-                      /^\/\*\s*(.*?\.[\w]+)\s*\*\/$/, // Multi-line comments
-                      /^--\s*(.*?\.[\w]+)\s*$/, // SQL comments
-                      /^%\s*(.*?\.[\w]+)\s*$/, // Matlab/LaTeX comments
-                      /^;\s*(.*?\.[\w]+)\s*$/, // Assembly/Lisp comments
-                    ];
-
-                    for (const pattern of commentPatterns) {
-                      const match = firstLine.match(pattern);
-                      if (match && match[1]) {
-                        const potentialPath = match[1].trim();
-                        // Basic check if it looks like a file path (no spaces)
-                        if (!potentialPath.includes(' ')) {
-                          filename = potentialPath;
-                          // Remove the first line from the content since we're using it as the filename
-                          content = lines.slice(1).join('\n').trim();
-                          break;
-                        }
-                      }
-                    }
-                  }
-                  
-                  return (
-                    <CollapsibleCodeBlock
-                      language={language || 'text'}
-                      filename={filename}
-                      content={content}
-                    />
-                  );
+                code({ node, inline, className, children, ...props }) {
+                  // ... existing code block implementation
                 }
               }}
             >
-              {parts[0]}
+              {message.content}
             </ReactMarkdown>
+          )}
+          
+          <div className="tool-calls">
+            {message.tool_calls.map(toolCall => (
+              <ToolCallResponse 
+                key={toolCall.id} 
+                toolCall={toolCall} 
+                toolResponse={toolResponses[toolCall.id] || { status: 'pending' }} 
+              />
+            ))}
           </div>
-        )}
-        <ThinkingBlock content={parts[1]} />
-      </>
-    );
-  }
-
-  // Split content into think blocks and other content
-  const parts = message.content.split(/(<think>.*?<\/think>)/s);
-  
-  // If no think blocks and no special parts, render as a regular message
-  if (parts.length === 1) {
-    return (
-      <div className="message-content">
-        {message.attachments && message.attachments.length > 0 && (
-          <div className="message-attachments">
-            <div className="attachments-header">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-              </svg>
-              <span>{message.attachments.length} attached {message.attachments.length === 1 ? 'file' : 'files'}</span>
-            </div>
-            <div className="attachments-list">
-              {message.attachments.map((file, index) => (
-                <div key={index} className="attachment-item">
-                  <div className="attachment-name">
-                    <span className="attachment-icon">📄</span>
-                    {file.name}
-                  </div>
-                  <button
-                    className="attachment-expand-button"
-                    onClick={() => window.open(`data:text/plain;charset=utf-8,${encodeURIComponent(file.content)}`, '_blank')}
-                    title="View file content"
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <polyline points="15 3 21 3 21 9"></polyline>
-                      <polyline points="9 21 3 21 3 15"></polyline>
-                      <line x1="21" y1="3" x2="14" y2="10"></line>
-                      <line x1="3" y1="21" x2="10" y2="14"></line>
-                    </svg>
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-        
-        <ReactMarkdown
-          components={{
-            p: ({ children, ...props }) => {
-              const hasCodeBlock = React.Children.toArray(children).some(
-                child => React.isValidElement(child) && child.type === 'code'
-              );
-              return hasCodeBlock ? <div {...props}>{children}</div> : <p {...props}>{children}</p>;
-            },
-            ul: ({ children, ...props }) => (
-              <ul style={{ 
-                margin: '8px 0',
-                paddingLeft: '24px',
-                listStyleType: 'disc'
-              }} {...props}>
-                {children}
-              </ul>
-            ),
-            ol: ({ children, ...props }) => (
-              <ol style={{ 
-                margin: '8px 0',
-                paddingLeft: '24px',
-                listStyleType: 'decimal'
-              }} {...props}>
-                {children}
-              </ol>
-            ),
-            li: ({ children, ...props }) => (
-              <li style={{ 
-                margin: '4px 0',
-                lineHeight: '1.5'
-              }} {...props}>
-                {children}
-              </li>
-            ),
-            code({ className, children, ...props }: CodeProps) {
-              let content = String(children).replace(/\n$/, '');
-              
-              // Check if this is a code block (triple backticks) or inline code (single backtick)
-              const isCodeBlock = content.includes('\n') || content.length > 50;
-              
-              if (!isCodeBlock) {
-                return (
-                  <code
-                    style={{
-                      background: 'var(--bg-code)',
-                      padding: '2px 4px',
-                      borderRadius: '3px',
-                      fontSize: '0.9em',
-                      fontFamily: 'var(--font-mono)',
-                      color: 'var(--inline-code-color, #cc0000)',
-                    }}
-                    {...props}
-                  >
-                    {content}
-                  </code>
-                );
-              }
-
-              let language = '';
-              let filename = '';
-              
-              if (className) {
-                const match = /language-(\w+)(?::(.+))?/.exec(className);
-                if (match) {
-                  language = match[1] || '';
-                  filename = match[2] || '';
-                }
-              }
-
-              // If no filename was provided in the className, try to extract it from the first line
-              if (!filename) {
-                const lines = content.split('\n');
-                const firstLine = lines[0].trim();
-                
-                // Extract potential filename from any comment style
-                // Match HTML comments, regular comments, and other common comment styles
-                const commentPatterns = [
-                  /^<!--\s*(.*?\.[\w]+)\s*-->/, // HTML comments
-                  /^\/\/\s*(.*?\.[\w]+)\s*$/, // Single line comments
-                  /^#\s*(.*?\.[\w]+)\s*$/, // Hash comments
-                  /^\/\*\s*(.*?\.[\w]+)\s*\*\/$/, // Multi-line comments
-                  /^--\s*(.*?\.[\w]+)\s*$/, // SQL comments
-                  /^%\s*(.*?\.[\w]+)\s*$/, // Matlab/LaTeX comments
-                  /^;\s*(.*?\.[\w]+)\s*$/, // Assembly/Lisp comments
-                ];
-
-                for (const pattern of commentPatterns) {
-                  const match = firstLine.match(pattern);
-                  if (match && match[1]) {
-                    const potentialPath = match[1].trim();
-                    // Basic check if it looks like a file path (no spaces)
-                    if (!potentialPath.includes(' ')) {
-                      filename = potentialPath;
-                      // Remove the first line from the content since we're using it as the filename
-                      content = lines.slice(1).join('\n').trim();
-                      break;
-                    }
-                  }
-                }
-              }
-              
-              return (
-                <CollapsibleCodeBlock
-                  language={language || 'text'}
-                  filename={filename}
-                  content={content}
-                />
-              );
-            }
-          }}
-        >
-          {message.content}
-        </ReactMarkdown>
+        </div>
       </div>
     );
   }
-
-  // Handle messages with think blocks
+  
+  // The rest of the existing MessageRenderer implementation
   return (
-    <>
-      {parts.map((part, index) => {
-        if (part.startsWith('<think>') && part.endsWith('</think>')) {
-          // Extract content between think tags
-          const thinkContent = part.slice(7, -8); // Remove <think> and </think>
-          // Calculate actual thinking time using the full message as key
-          const thinkKey = message.content;
-          const thinkTime = thinkTimes[thinkKey] ? Math.round((Date.now() - thinkTimes[thinkKey]) / 1000) : 0;
-          return <ThinkBlock key={index} content={thinkContent} thinkTime={thinkTime} />;
-        }
-
-        // Regular content
-        return part ? (
-          <div key={index} className="message-content">
-            {/* Display file attachments if they exist and it's the first part */}
-            {index === 0 && message.attachments && message.attachments.length > 0 && (
-              <div className="message-attachments">
-                <div className="attachments-header">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-                  </svg>
-                  <span>{message.attachments.length} attached {message.attachments.length === 1 ? 'file' : 'files'}</span>
-                </div>
-                <div className="attachments-list">
-                  {message.attachments.map((file, index) => (
-                    <div key={index} className="attachment-item">
-                      <div className="attachment-name">
-                        <span className="attachment-icon">📄</span>
-                        {file.name}
-                      </div>
-                      <button
-                        className="attachment-expand-button"
-                        onClick={() => window.open(`data:text/plain;charset=utf-8,${encodeURIComponent(file.content)}`, '_blank')}
-                        title="View file content"
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <polyline points="15 3 21 3 21 9"></polyline>
-                          <polyline points="9 21 3 21 3 15"></polyline>
-                          <line x1="21" y1="3" x2="14" y2="10"></line>
-                          <line x1="3" y1="21" x2="10" y2="14"></line>
-                        </svg>
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            
-            <ReactMarkdown
-              components={{
-                p: ({ children, ...props }) => {
-                  const hasCodeBlock = React.Children.toArray(children).some(
-                    child => React.isValidElement(child) && child.type === 'code'
-                  );
-                  return hasCodeBlock ? <div {...props}>{children}</div> : <p {...props}>{children}</p>;
-                },
-                ul: ({ children, ...props }) => (
-                  <ul style={{ 
-                    margin: '8px 0',
-                    paddingLeft: '24px',
-                    listStyleType: 'disc'
-                  }} {...props}>
-                    {children}
-                  </ul>
-                ),
-                ol: ({ children, ...props }) => (
-                  <ol style={{ 
-                    margin: '8px 0',
-                    paddingLeft: '24px',
-                    listStyleType: 'decimal'
-                  }} {...props}>
-                    {children}
-                  </ol>
-                ),
-                li: ({ children, ...props }) => (
-                  <li style={{ 
-                    margin: '4px 0',
-                    lineHeight: '1.5'
-                  }} {...props}>
-                    {children}
-                  </li>
-                ),
-                code({ className, children, ...props }: CodeProps) {
-                  let content = String(children).replace(/\n$/, '');
-                  
-                  // Check if this is a code block (triple backticks) or inline code (single backtick)
-                  const isCodeBlock = content.includes('\n') || content.length > 50;
-                  
-                  if (!isCodeBlock) {
-                    return (
-                      <code
-                        style={{
-                          background: 'var(--bg-code)',
-                          padding: '2px 4px',
-                          borderRadius: '3px',
-                          fontSize: '0.9em',
-                          fontFamily: 'var(--font-mono)',
-                          color: 'var(--inline-code-color, #cc0000)',
-                        }}
-                        {...props}
-                      >
-                        {content}
-                      </code>
-                    );
-                  }
-
-                  let language = '';
-                  let filename = '';
-                  
-                  if (className) {
-                    const match = /language-(\w+)(?::(.+))?/.exec(className);
-                    if (match) {
-                      language = match[1] || '';
-                      filename = match[2] || '';
-                    }
-                  }
-
-                  // If no filename was provided in the className, try to extract it from the first line
-                  if (!filename) {
-                    const lines = content.split('\n');
-                    const firstLine = lines[0].trim();
-                    
-                    // Extract potential filename from any comment style
-                    // Match HTML comments, regular comments, and other common comment styles
-                    const commentPatterns = [
-                      /^<!--\s*(.*?\.[\w]+)\s*-->/, // HTML comments
-                      /^\/\/\s*(.*?\.[\w]+)\s*$/, // Single line comments
-                      /^#\s*(.*?\.[\w]+)\s*$/, // Hash comments
-                      /^\/\*\s*(.*?\.[\w]+)\s*\*\/$/, // Multi-line comments
-                      /^--\s*(.*?\.[\w]+)\s*$/, // SQL comments
-                      /^%\s*(.*?\.[\w]+)\s*$/, // Matlab/LaTeX comments
-                      /^;\s*(.*?\.[\w]+)\s*$/, // Assembly/Lisp comments
-                    ];
-
-                    for (const pattern of commentPatterns) {
-                      const match = firstLine.match(pattern);
-                      if (match && match[1]) {
-                        const potentialPath = match[1].trim();
-                        // Basic check if it looks like a file path (no spaces)
-                        if (!potentialPath.includes(' ')) {
-                          filename = potentialPath;
-                          // Remove the first line from the content since we're using it as the filename
-                          content = lines.slice(1).join('\n').trim();
-                          break;
-                        }
-                      }
-                    }
-                  }
-                  
-                  return (
-                    <CollapsibleCodeBlock
-                      language={language || 'text'}
-                      filename={filename}
-                      content={content}
-                    />
-                  );
-                }
-              }}
-            >
-              {part}
-            </ReactMarkdown>
-          </div>
-        ) : null;
-      })}
-    </>
+    <div className={`message ${message.role}`}>
+      {/* ... existing code */}
+    </div>
   );
 };
 
@@ -1263,7 +805,7 @@ const AUTO_INSERT_STYLES = `
       transform: rotate(0deg);
     }
     to {
-      transform: rotate(-360deg);
+      transform: rotate(360deg);
     }
   }
 
@@ -1272,10 +814,75 @@ const AUTO_INSERT_STYLES = `
   }
 `;
 
-export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectChat }: LLMChatProps) {
-  // Add mode state
-  const [mode, setMode] = useState<'chat' | 'agent'>('agent'); // Change to agent by default for testing
+// Add mode type
+type ChatMode = 'chat' | 'agent';
+
+// Add mode toggle component
+const ModeSwitcher: React.FC<{
+  mode: ChatMode;
+  onChange: (mode: ChatMode) => void;
+}> = ({ mode, onChange }) => {
+  return (
+    <div className="mode-switcher">
+      <div className="mode-switcher-container">
+        <div 
+          className={`mode-option ${mode === 'chat' ? 'active' : ''}`} 
+          onClick={() => onChange('chat')}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="18" height="18">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+          </svg>
+          <span>Chat</span>
+        </div>
+        <div 
+          className={`mode-option ${mode === 'agent' ? 'active' : ''}`} 
+          onClick={() => onChange('agent')}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="18" height="18">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+          </svg>
+          <span>Agent</span>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Add Tool Call Response component
+const ToolCallResponse: React.FC<{ toolCall: any; toolResponse: any }> = ({ toolCall, toolResponse }) => {
+  const functionName = toolCall.function.name;
+  const functionArgs = JSON.parse(toolCall.function.arguments);
   
+  return (
+    <div className="tool-call-response">
+      <div className="tool-call-header">
+        <span className="tool-call-name">{functionName}</span>
+        <span className="tool-call-args">
+          {Object.entries(functionArgs).map(([key, value]) => (
+            <span key={key} className="tool-call-arg">
+              <span className="arg-name">{key}:</span>
+              <span className="arg-value">{JSON.stringify(value)}</span>
+            </span>
+          ))}
+        </span>
+      </div>
+      <div className="tool-call-result">
+        {toolResponse.status === 'error' ? (
+          <div className="tool-call-error">Error: {toolResponse.error}</div>
+        ) : (
+          <pre className="tool-call-content">
+            {typeof toolResponse.content === 'object' 
+              ? JSON.stringify(toolResponse.content, null, 2)
+              : toolResponse.content
+            }
+          </pre>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectChat }: LLMChatProps) {
   // Update the initial state and types to use ExtendedMessage
   const [messages, setMessages] = useState<ExtendedMessage[]>([INITIAL_SYSTEM_MESSAGE]);
   const [input, setInput] = useState('');
@@ -1304,16 +911,6 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  
-  // Add agent-specific state
-  const [toolResults, setToolResults] = useState<{[key: string]: any}[]>([]);
-  const [isExecutingTool, setIsExecutingTool] = useState(false);
-  
-  // Add a state variable to track streaming completion
-  const [isStreamingComplete, setIsStreamingComplete] = useState(false);
-  
-  // Add state to track if the agent is in a tool execution chain
-  const [isInToolExecutionChain, setIsInToolExecutionChain] = useState(false);
   
   // Preload the insert model only when needed
   const preloadInsertModel = async () => {
@@ -1924,32 +1521,28 @@ Return ONLY the final merged code without any explanations. The code should be r
     };
   }, []);
 
-  // System messages for different modes
-  const chatSystemMessage = 'You are a helpful coding assistant.';
-  const agentSystemMessage = 'You are a helpful coding assistant with access to tools.';
-
-  // Modify handleSubmit to use the correct model based on mode
+  // Modify handleSubmit to send attachments separately
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() && !attachedFiles.length) return;
-    if (isProcessing) return;
-
+    
+    if ((!input.trim() && attachedFiles.length === 0) || isProcessing) return;
+    
     try {
       setIsProcessing(true);
-      setIsStreamingComplete(false); // Reset streaming complete state
       
       // Auto-accept any pending changes before sending new message
       await autoAcceptChanges();
       
-      // Create the user message
-      const userMessage: ExtendedMessage = {
-        role: 'user',
+      // Add user message with attachments as a separate field
+      const userMessage: ExtendedMessage = { 
+        role: 'user', 
         content: input,
         attachments: attachedFiles.length > 0 ? [...attachedFiles] : undefined
       };
       
       setMessages(prev => [...prev, userMessage]);
       setInput('');
+      // Clear attached files after sending
       setAttachedFiles([]);
 
       // Create a new AbortController for this request
@@ -1958,142 +1551,67 @@ Return ONLY the final merged code without any explanations. The code should be r
       // Add a temporary message for streaming
       setMessages(prev => [...prev, { role: 'assistant', content: '' }]);
 
-      // Get model configuration based on mode
-      const modelConfig = await AIFileService.getModelConfigForPurpose(mode === 'agent' ? 'agent' : 'chat');
-      const modelId = modelConfig.modelId;
+      // Get model ID for chat purpose
+      const chatModelId = await AIFileService.getModelIdForPurpose('chat');
+      
+      // Get model configuration from localStorage for other parameters
+      const modelConfigStr = localStorage.getItem('modelConfig');
+      const modelConfig = modelConfigStr ? JSON.parse(modelConfigStr) : {
+        temperature: 0.7,
+        maxTokens: -1,
+        topP: 1,
+        frequencyPenalty: 0,
+        presencePenalty: 0,
+      };
 
-      // Prepare messages for API
+      // Prepare messages for API - convert attachments to content for LLM
       const messagesForAPI = messages.map(msg => {
         if (msg.attachments && msg.attachments.length > 0) {
+          // Create a copy of the message with attachments included in content
           let contentWithAttachments = msg.content;
+          
           if (contentWithAttachments && contentWithAttachments.trim() !== '') {
             contentWithAttachments += '\n\n';
           }
-          msg.attachments.forEach(file => {
+          
+          msg.attachments.forEach((file, index) => {
             contentWithAttachments += `File: ${file.name}\n\`\`\`\n${file.content}\n\`\`\`\n\n`;
           });
+          
           return { role: msg.role, content: contentWithAttachments };
         }
         return { role: msg.role, content: msg.content };
       });
-
-      // Add tools configuration if in agent mode
-      const apiConfig = {
-        model: modelId,
-        messages: [
-          {
-            role: 'system' as const,
-            content: mode === 'agent' ? agentSystemMessage : chatSystemMessage,
-          },
-          ...messagesForAPI
-        ],
-        temperature: modelConfig.temperature || 0.7,
-        max_tokens: modelConfig.maxTokens || -1,
+      
+      // Add the current message with attachments
+      if (userMessage.attachments && userMessage.attachments.length > 0) {
+        let contentWithAttachments = userMessage.content;
+        
+        if (contentWithAttachments && contentWithAttachments.trim() !== '') {
+          contentWithAttachments += '\n\n';
+        }
+        
+        userMessage.attachments.forEach((file, index) => {
+          contentWithAttachments += `File: ${file.name}\n\`\`\`\n${file.content}\n\`\`\`\n\n`;
+        });
+        
+        messagesForAPI.push({ role: userMessage.role, content: contentWithAttachments });
+      } else {
+        messagesForAPI.push({ role: userMessage.role, content: userMessage.content });
+      }
+      
+      // Call the LMStudio API
+      let finalContent = '';
+      await lmStudio.createStreamingChatCompletion({
+        model: chatModelId,
+        messages: messagesForAPI,
+        temperature: modelConfig.temperature,
+        max_tokens: modelConfig.maxTokens,
         top_p: modelConfig.topP,
         frequency_penalty: modelConfig.frequencyPenalty,
         presence_penalty: modelConfig.presencePenalty,
-        ...(mode === 'agent' && {
-          tools: [
-            {
-              type: "function",
-              function: {
-                name: "read_file",
-                description: "Read the contents of a file",
-                parameters: {
-                  type: "object",
-                  properties: {
-                    file_path: {
-                      type: "string",
-                      description: "The path to the file to read"
-                    }
-                  },
-                  required: ["file_path"]
-                }
-              }
-            },
-            {
-              type: "function",
-              function: {
-                name: "list_directory",
-                description: "List the contents of a directory",
-                parameters: {
-                  type: "object",
-                  properties: {
-                    directory_path: {
-                      type: "string",
-                      description: "The path to the directory to list"
-                    }
-                  },
-                  required: ["directory_path"]
-                }
-              }
-            },
-            {
-              type: "function",
-              function: {
-                name: "web_search",
-                description: "Search the web for information",
-                parameters: {
-                  type: "object",
-                  properties: {
-                    query: {
-                      type: "string",
-                      description: "The search query"
-                    },
-                    num_results: {
-                      type: "integer",
-                      description: "Number of results to return (default: 3)"
-                    }
-                  },
-                  required: ["query"]
-                }
-              }
-            },
-            {
-              type: "function",
-              function: {
-                name: "fetch_webpage",
-                description: "Fetch and extract content from a webpage",
-                parameters: {
-                  type: "object",
-                  properties: {
-                    url: {
-                      type: "string",
-                      description: "The URL of the webpage to fetch"
-                    }
-                  },
-                  required: ["url"]
-                }
-              }
-            }
-          ],
-          tool_choice: "auto"
-        })
-      };
-
-      // Debug log to check if tools are present
-      console.log(`Mode: ${mode}, Tools included: ${apiConfig.tools ? 'yes' : 'no'}`);
-      if (mode === 'agent') {
-        console.log('API Config in agent mode:', JSON.stringify(apiConfig, null, 2));
-      }
-
-      let currentContent = '';
-      // Log what we're about to pass to the API
-      console.log('Passing to API:', {
-        ...apiConfig,
-        messages: '[Messages included]',
-        tools: apiConfig.tools ? `[${apiConfig.tools.length} tools included]` : 'No tools',
-        tool_choice: apiConfig.tool_choice || 'No tool_choice'
-      });
-      
-      // Add a debounce timeout reference for tool calls
-      let toolCallTimeoutRef: ReturnType<typeof setTimeout> | null = null;
-      
-      await lmStudio.createStreamingChatCompletion({
-        ...apiConfig,
-        purpose: mode === 'agent' ? 'agent' : 'chat',
-        onUpdate: async (content: string) => {
-          currentContent = content;
+        onUpdate: (content: string) => {
+          finalContent = content;
           setMessages(prev => {
             const newMessages = [...prev];
             newMessages[newMessages.length - 1] = {
@@ -2102,88 +1620,28 @@ Return ONLY the final merged code without any explanations. The code should be r
             };
             return newMessages;
           });
-
-          // In agent mode, debounce the tool call processing
-          if (mode === 'agent' && content.includes('function_call:')) {
-            // Clear any existing timeout
-            if (toolCallTimeoutRef) {
-              clearTimeout(toolCallTimeoutRef);
-            }
-            
-            // Set a new timeout to process tool calls after 200ms of no updates
-            toolCallTimeoutRef = setTimeout(() => {
-              processToolCalls(content);
-              toolCallTimeoutRef = null;
-            }, 200);
-          } else if (mode !== 'agent') {
-            // For regular chat mode, process immediately
-            await processToolCalls(content);
-          }
         }
       });
       
-      // Ensure we process any final tool calls after streaming is complete
-      setIsStreamingComplete(true);
-      if (mode === 'agent' && currentContent.includes('function_call:')) {
-        console.log('Processing final tool calls after streaming completion');
-        // Cancel any pending timeout
-        if (toolCallTimeoutRef) {
-          clearTimeout(toolCallTimeoutRef);
-          toolCallTimeoutRef = null;
-        }
-        // Process immediately
-        await processToolCalls(currentContent);
-      }
-
-      // Extract and queue code blocks for auto-insert
-      const codeBlocks = extractCodeBlocks(currentContent);
+      // After the response is complete, extract code blocks and queue them for auto-insert
+      const codeBlocks = extractCodeBlocks(finalContent);
       if (codeBlocks.length > 0) {
+        // Queue all code blocks with filenames for auto-insert
         setPendingInserts(prev => [
           ...prev,
           ...codeBlocks.map(block => ({ filename: block.filename, content: block.content }))
         ]);
         
+        // Only preload the insert model if we have code blocks to insert
         setTimeout(() => {
           preloadInsertModel();
-        }, 3000);
+        }, 3000); // Delay loading insert model by 3 seconds
       }
 
     } catch (error) {
       console.error('Error in handleSubmit:', error);
-      setMessages(prev => [
-        ...prev,
-        {
-          role: 'assistant',
-          content: 'I apologize, but I encountered an error processing your request. Please try again.'
-        }
-      ]);
     } finally {
       setIsProcessing(false);
-    }
-  };
-
-  // Add tool handling function
-  const handleToolCall = async (functionCall: any) => {
-    const { name, arguments: args } = functionCall;
-    
-    try {
-      // Use the ToolService to call the tool
-      const result = await ToolService.callTool(name, args);
-      
-      // If the backend tool returned an error, format it properly
-      if (result && result.success === false) {
-        console.warn(`Tool call failed for ${name}:`, result.error);
-        return { 
-          error: result.error || `Failed to call tool: ${name}`,
-          details: result.message || "No additional details available"
-        };
-      }
-      
-      return result;
-    } catch (err) {
-      const error = err as Error;
-      console.error(`Exception calling tool ${name}:`, error);
-      return { error: `Failed to call tool: ${error.message}` };
     }
   };
 
@@ -2299,9 +1757,18 @@ Return ONLY the final merged code without any explanations. The code should be r
       // Add a temporary message for streaming
       setMessages(prev => [...prev, { role: 'assistant', content: '' }]);
 
-      // Get model configuration based on mode
-      const modelConfig = await AIFileService.getModelConfigForPurpose(mode === 'agent' ? 'agent' : 'chat');
-      const modelId = modelConfig.modelId;
+      // Get model ID for chat purpose
+      const chatModelIdForEdit = await AIFileService.getModelIdForPurpose('chat');
+      
+      // Get model configuration from localStorage for other parameters
+      const modelConfigStr = localStorage.getItem('modelConfig');
+      const modelConfig = modelConfigStr ? JSON.parse(modelConfigStr) : {
+        temperature: 0.7,
+        maxTokens: -1,
+        topP: 1,
+        frequencyPenalty: 0,
+        presencePenalty: 0,
+      };
 
       // Prepare messages for API - convert attachments to content for LLM
       const messagesForAPI = updatedMessages.map(msg => {
@@ -2322,124 +1789,18 @@ Return ONLY the final merged code without any explanations. The code should be r
         return { role: msg.role, content: msg.content };
       });
       
-      // Add tools configuration if in agent mode
-      const apiConfig = {
-        model: modelId,
-        messages: [
-          {
-            role: 'system' as const,
-            content: mode === 'agent' ? agentSystemMessage : chatSystemMessage,
-          },
-          ...messagesForAPI
-        ],
-        temperature: modelConfig.temperature || 0.7,
-        max_tokens: modelConfig.maxTokens || -1,
+      // Call the LMStudio API
+      let finalContent = '';
+      await lmStudio.createStreamingChatCompletion({
+        model: chatModelIdForEdit,
+        messages: messagesForAPI,
+        temperature: modelConfig.temperature,
+        max_tokens: modelConfig.maxTokens,
         top_p: modelConfig.topP,
         frequency_penalty: modelConfig.frequencyPenalty,
         presence_penalty: modelConfig.presencePenalty,
-        ...(mode === 'agent' && {
-          tools: [
-            {
-              type: "function",
-              function: {
-                name: "read_file",
-                description: "Read the contents of a file",
-                parameters: {
-                  type: "object",
-                  properties: {
-                    file_path: {
-                      type: "string",
-                      description: "The path to the file to read"
-                    }
-                  },
-                  required: ["file_path"]
-                }
-              }
-            },
-            {
-              type: "function",
-              function: {
-                name: "list_directory",
-                description: "List the contents of a directory",
-                parameters: {
-                  type: "object",
-                  properties: {
-                    directory_path: {
-                      type: "string",
-                      description: "The path to the directory to list"
-                    }
-                  },
-                  required: ["directory_path"]
-                }
-              }
-            },
-            {
-              type: "function",
-              function: {
-                name: "web_search",
-                description: "Search the web for information",
-                parameters: {
-                  type: "object",
-                  properties: {
-                    query: {
-                      type: "string",
-                      description: "The search query"
-                    },
-                    num_results: {
-                      type: "integer",
-                      description: "Number of results to return (default: 3)"
-                    }
-                  },
-                  required: ["query"]
-                }
-              }
-            },
-            {
-              type: "function",
-              function: {
-                name: "fetch_webpage",
-                description: "Fetch and extract content from a webpage",
-                parameters: {
-                  type: "object",
-                  properties: {
-                    url: {
-                      type: "string",
-                      description: "The URL of the webpage to fetch"
-                    }
-                  },
-                  required: ["url"]
-                }
-              }
-            }
-          ],
-          tool_choice: "auto"
-        })
-      };
-      
-      // Debug log to check if tools are present in edit message handler
-      console.log(`Edit - Mode: ${mode}, Tools included: ${apiConfig.tools ? 'yes' : 'no'}`);
-      if (mode === 'agent') {
-        console.log('Edit - API Config in agent mode:', JSON.stringify(apiConfig, null, 2));
-      }
-
-      // Call the LMStudio API
-      let currentContent = '';
-      // Log what we're about to pass to the API (edit handler)
-      console.log('Edit - Passing to API:', {
-        ...apiConfig,
-        messages: '[Messages included]',
-        tools: apiConfig.tools ? `[${apiConfig.tools.length} tools included]` : 'No tools',
-        tool_choice: apiConfig.tool_choice || 'No tool_choice'
-      });
-      
-      // Add a debounce timeout reference for tool calls
-      let toolCallTimeoutRef: ReturnType<typeof setTimeout> | null = null;
-      
-      await lmStudio.createStreamingChatCompletion({
-        ...apiConfig,
-        purpose: mode === 'agent' ? 'agent' : 'chat',
-        onUpdate: async (content: string) => {
-          currentContent = content;
+        onUpdate: (content: string) => {
+          finalContent = content;
           setMessages(prev => {
             const newMessages = [...prev];
             newMessages[newMessages.length - 1] = {
@@ -2448,61 +1809,26 @@ Return ONLY the final merged code without any explanations. The code should be r
             };
             return newMessages;
           });
-
-          // In agent mode, debounce the tool call processing
-          if (mode === 'agent' && content.includes('function_call:')) {
-            // Clear any existing timeout
-            if (toolCallTimeoutRef) {
-              clearTimeout(toolCallTimeoutRef);
-            }
-            
-            // Set a new timeout to process tool calls after 200ms of no updates
-            toolCallTimeoutRef = setTimeout(() => {
-              processToolCalls(content);
-              toolCallTimeoutRef = null;
-            }, 200);
-          } else if (mode !== 'agent') {
-            // For regular chat mode, process immediately
-            await processToolCalls(content);
-          }
         }
       });
       
-      // Ensure we process any final tool calls after streaming is complete
-      setIsStreamingComplete(true);
-      if (mode === 'agent' && currentContent.includes('function_call:')) {
-        console.log('Processing final tool calls after streaming completion');
-        // Cancel any pending timeout
-        if (toolCallTimeoutRef) {
-          clearTimeout(toolCallTimeoutRef);
-          toolCallTimeoutRef = null;
-        }
-        // Process immediately
-        await processToolCalls(currentContent);
-      }
-      
       // After the response is complete, extract code blocks and queue them for auto-insert
-      const codeBlocks = extractCodeBlocks(currentContent);
+      const codeBlocks = extractCodeBlocks(finalContent);
       if (codeBlocks.length > 0) {
+        // Queue all code blocks with filenames for auto-insert
         setPendingInserts(prev => [
           ...prev,
           ...codeBlocks.map(block => ({ filename: block.filename, content: block.content }))
         ]);
         
+        // Only preload the insert model if we have code blocks to insert
         setTimeout(() => {
           preloadInsertModel();
-        }, 3000);
+        }, 3000); // Delay loading insert model by 3 seconds
       }
 
     } catch (error) {
       console.error('Error in handleSubmitEdit:', error);
-      setMessages(prev => [
-        ...prev,
-        {
-          role: 'assistant',
-          content: 'I apologize, but I encountered an error processing your request. Please try again.'
-        }
-      ]);
     } finally {
       setIsProcessing(false);
     }
@@ -2522,525 +1848,41 @@ Return ONLY the final merged code without any explanations. The code should be r
     }
   }, []);
 
-  // Add a helper function to process tool calls
-  const processToolCalls = async (content: string) => {
-    if (mode !== 'agent') return;
-    
-    try {
-      console.log("Processing content for tool calls:", content.length, "characters");
-      
-      // Use a more reliable regex to catch all function calls
-      const functionCallMatches = content.match(/function_call:\s*({[\s\S]*?})(?:,"result":{[\s\S]*?})?/g) || [];
-      
-      console.log("Found function calls:", functionCallMatches.length, functionCallMatches);
-      
-      // Track processed calls
-      let processedAnyCall = false;
-      
-      for (const fullMatch of functionCallMatches) {
-        try {
-          // Skip if this already has a result
-          if (fullMatch.includes('"result":')) {
-            console.log("Skipping function call that already has a result");
-            continue;
-          }
-          
-          // Extract the JSON part
-          const jsonMatch = fullMatch.match(/function_call:\s*({[\s\S]*?})/);
-          if (!jsonMatch || !jsonMatch[1]) {
-            console.log("No valid JSON found in function call:", fullMatch);
-            continue;
-          }
-          
-          const functionCallText = jsonMatch[1].trim();
-          console.log("Attempting to parse function call:", functionCallText);
-          
-          // Handle special case for second format
-          const isSecondFormat = functionCallText.includes('"arguments":"directory_path"');
-          
-          let functionCall;
-          let toolArgs;
-          
-          if (isSecondFormat) {
-            // Handle second format directly
-            const idMatch = functionCallText.match(/"id"\s*:\s*"([^"]+)"/);
-            const directoryPathMatch = functionCallText.match(/directory_path["\s:]+([^}]+?)(?=\s*[},]|$)/);
-            
-            if (!idMatch) {
-              console.log("Missing ID in second format");
-              continue;
-            }
-            
-            if (!directoryPathMatch) {
-              console.log("Missing directory path in second format");
-              continue;
-            }
-            
-            const id = idMatch[1];
-            const path = directoryPathMatch[1].replace(/[\\"{]+/g, '').trim();
-            
-            functionCall = {
-              id: id,
-              name: 'list_directory',
-              arguments: { directory_path: path }
-            };
-            
-            toolArgs = { directory_path: path };
-            console.log("Parsed second format:", functionCall);
-          } else {
-            // Standard format parsing
-            try {
-              functionCall = JSON.parse(functionCallText);
-            } catch (parseError) {
-              // If parsing fails, try to extract individual components
-              const idMatch = functionCallText.match(/"id"\s*:\s*"([^"]+)"/);
-              const nameMatch = functionCallText.match(/"name"\s*:\s*"([^"]+)"/);
-              const argsMatch = functionCallText.match(/"arguments"\s*:\s*"([^"]+)"/);
-              
-              if (!idMatch) {
-                console.log("Could not extract ID field from function call");
-                continue;
-              }
-              
-              // Handle the special case where name is empty but we have directory_path in arguments
-              let name = nameMatch && nameMatch[1] ? nameMatch[1] : '';
-              let args = argsMatch ? argsMatch[1] : "{}";
-              
-              // If name is empty but arguments contains directory_path, it's a list_directory call
-              if (!name && args.includes('directory_path')) {
-                name = 'list_directory';
-              }
-              
-              functionCall = {
-                id: idMatch[1],
-                name: name,
-                arguments: args
-              };
-            }
-            
-            // Skip if no id
-            if (!functionCall || !functionCall.id) {
-              console.log("Skipping function call - missing id");
-              continue;
-            }
-            
-            // If name is empty but we have an id, try to infer the name from arguments
-            if (!functionCall.name && typeof functionCall.arguments === 'string') {
-              if (functionCall.arguments.includes('directory_path')) {
-                functionCall.name = 'list_directory';
-              } else if (functionCall.arguments.includes('file_path')) {
-                functionCall.name = 'read_file';
-              } else if (functionCall.arguments.includes('query')) {
-                functionCall.name = 'web_search';
-              } else if (functionCall.arguments.includes('url')) {
-                functionCall.name = 'fetch_webpage';
-              }
-            }
-            
-            // Skip if still no name
-            if (!functionCall.name) {
-              console.log("Skipping function call - could not determine name");
-              continue;
-            }
-            
-            // Parse arguments
-            toolArgs = functionCall.arguments;
-            if (typeof toolArgs === 'string') {
-              // Check for empty or malformed arguments
-              if (toolArgs.trim() === '{}' || toolArgs.trim() === '{' || toolArgs.trim() === '') {
-                console.log("Skipping function call - empty or malformed arguments");
-                continue;
-              }
-              
-              // Check for Windows path pattern
-              const windowsPathMatch = toolArgs.match(/directory_path["\s:]+([^}]+?)(?=\s*[},]|$)/);
-              if (windowsPathMatch) {
-                const path = windowsPathMatch[1].replace(/[\\"{]+/g, '').trim();
-                toolArgs = { directory_path: path };
-              } else {
-                try {
-                  // Try to parse as JSON
-                  if (toolArgs.trim().startsWith('{') && toolArgs.trim().endsWith('}')) {
-                    toolArgs = JSON.parse(toolArgs);
-                  } else {
-                    // Simple string arguments (fallback)
-                    toolArgs = { 
-                      [functionCall.name === 'read_file' ? 'file_path' : 
-                       functionCall.name === 'list_directory' ? 'directory_path' : 
-                       functionCall.name === 'web_search' ? 'query' : 'url']: toolArgs 
-                    };
-                  }
-                } catch (e) {
-                  console.warn("Could not parse arguments as JSON, using as is");
-                  toolArgs = { directory_path: toolArgs };
-                }
-              }
-            }
-          }
-          
-          // Validate required arguments based on tool name
-          if (functionCall.name === 'list_directory' && (!toolArgs.directory_path || typeof toolArgs.directory_path !== 'string')) {
-            console.log("Skipping function call - missing or invalid directory_path");
-            continue;
-          }
-          
-          // Check if already processed
-          const alreadyProcessed = toolResults.some(result => result.id === functionCall.id);
-          if (alreadyProcessed) {
-            console.log("Skipping already processed tool call", functionCall.id);
-            continue;
-          }
-          
-          // Mark that we processed at least one call
-          processedAnyCall = true;
-          
-          // Execute the tool
-          console.log("Executing tool:", functionCall.name, "with args:", toolArgs);
-          setIsExecutingTool(true);
-          
-          try {
-            const toolResult = await handleToolCall({
-              id: functionCall.id,
-              name: functionCall.name,
-              arguments: toolArgs
-            });
-            
-            const resultWithId = {
-              ...toolResult,
-              id: functionCall.id
-            };
-            
-            console.log("Tool execution successful:", resultWithId);
-            
-            // Update the AI's message to include the tool result
-            setMessages(prev => {
-              const updatedMessages = prev.map(msg => {
-                if (msg.role === 'assistant' && msg.content.includes(functionCall.id)) {
-                  // Find the function call in the message and add the result
-                  const updatedContent = msg.content.replace(
-                    new RegExp(`function_call:\\s*{[^}]*"id":"${functionCall.id}"[^}]*}(?!,"result")`),
-                    `function_call: {"id":"${functionCall.id}","name":"${functionCall.name}","arguments":${JSON.stringify(toolArgs)},"result":${JSON.stringify(resultWithId)}}`
-                  );
-                  return { ...msg, content: updatedContent };
-                }
-                return msg;
-              });
-              console.log("Updated messages with tool result");
-              return updatedMessages;
-            });
-            
-            setToolResults(prev => [...prev, resultWithId]);
-            
-          } catch (toolError: any) {
-            console.error("Error executing tool:", toolError);
-            const errorResult = {
-              error: `Error executing tool: ${toolError.message}`,
-              id: functionCall.id
-            };
-            
-            // Update the AI's message to include the error
-            setMessages(prev => prev.map(msg => {
-              if (msg.role === 'assistant' && msg.content.includes(functionCall.id)) {
-                const updatedContent = msg.content.replace(
-                  new RegExp(`function_call:\\s*{[^}]*"id":"${functionCall.id}"[^}]*}(?!,"result")`),
-                  `function_call: {"id":"${functionCall.id}","name":"${functionCall.name}","arguments":${JSON.stringify(toolArgs)},"result":${JSON.stringify(errorResult)}}`
-                );
-                return { ...msg, content: updatedContent };
-              }
-              return msg;
-            }));
-            
-            setToolResults(prev => [...prev, errorResult]);
-          } finally {
-            setIsExecutingTool(false);
-          }
-        } catch (error) {
-          console.error("Error processing function call:", error);
-        }
-      }
-      
-      // After processing all function calls in this batch, check for remaining unprocessed calls
-      if (processedAnyCall) {
-        // Use setTimeout to allow state updates to complete
-        setTimeout(async () => {
-          const lastMessage = messages[messages.length - 1];
-          if (lastMessage && lastMessage.role === 'assistant') {
-            // Check if there are remaining function calls without results
-            const content = lastMessage.content;
-            const remainingCalls = content.match(/function_call:\s*({[\s\S]*?})(?!,"result")/g);
-            
-            if (remainingCalls && remainingCalls.length > 0) {
-              console.log("Found remaining tool calls:", remainingCalls.length, "Processing again");
-              await processToolCalls(content);
-            } else {
-              console.log("No remaining tool calls, continuing conversation with AI");
-              if (isInToolExecutionChain) {
-                continueLLMConversation();
-              }
-            }
-          } else {
-            console.log("No assistant message found, skipping further processing");
-          }
-        }, 300);
-      } else {
-        console.log("No tool calls were processed in this run");
-      }
-    } catch (error) {
-      console.error('Error handling tool calls:', error);
-    }
-  };
+  // Add state for chat/agent mode
+  const [mode, setMode] = useState<ChatMode>('chat');
+  const [availableTools, setAvailableTools] = useState<any[]>([]);
+  const [toolResponses, setToolResponses] = useState<Record<string, any>>({});
   
-  // Add a function to continue the conversation after tool execution
-  const continueLLMConversation = async () => {
-    if (!isInToolExecutionChain) return;
+  // Load available tools for agent mode
+  useEffect(() => {
+    const loadTools = async () => {
+      const tools = await agentService.getAvailableTools();
+      setAvailableTools(tools);
+    };
     
-    try {
-      setIsProcessing(true);
-      
-      // Get the last user message and all tool results
-      const lastUserMessage = messages[messages.length - 1];
-      if (!lastUserMessage || lastUserMessage.role !== 'user') return;
-      
-      // Create a new conversation context with the original user message and tool results
-      const conversationContext = [
-        lastUserMessage,
-        ...toolResults.map(result => ({
-          role: 'tool' as const,
-          content: JSON.stringify(result),
-          tool_call_id: result.id
-        }))
-      ];
-      
-      // Get model configuration
-      const modelConfig = await AIFileService.getModelConfigForPurpose('agent');
-      const modelId = modelConfig.modelId;
-      
-      // Make a new call to the AI with the updated context
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          messages: conversationContext,
-          mode: 'agent',
-          model: modelId,
-          temperature: modelConfig.temperature || 0.7,
-          maxTokens: modelConfig.maxTokens || -1,
-          systemPrompt: '',
-          isContinuation: true
-        }),
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to get response from AI');
-      }
-      
-      const data = await response.json();
-      
-      // Create a new message for the AI's response
-      const newMessage: ExtendedMessage = {
-        role: 'assistant',
-        content: data.content,
-        tool_call_id: undefined
-      };
-      
-      // Add the new message to the conversation
-      setMessages(prev => [...prev, newMessage]);
-      
-      // Process any tool calls in the new response
-      await processToolCalls(data.content);
-      
-    } catch (error) {
-      console.error('Error continuing conversation:', error);
-      setMessages(prev => [
-        ...prev,
-        {
-          role: 'assistant',
-          content: 'Sorry, I encountered an error while processing your request.',
-          tool_call_id: undefined
-        }
-      ]);
-    } finally {
-      setIsProcessing(false);
-      setIsStreamingComplete(true);
-    }
-  };
-
-  // Update the message rendering to handle the new message structure
-  const renderMessage = (message: ExtendedMessage, index: number) => {
-    const isUser = message.role === 'user';
-    const isAssistant = message.role === 'assistant';
-    const isTool = message.role === 'tool';
-    
-    return (
-      <div 
-        key={index} 
-        className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-4`}
-      >
-        <div 
-          className={`max-w-[80%] rounded-lg p-4 ${
-            isUser 
-              ? 'bg-blue-500 text-white' 
-              : isTool
-                ? 'bg-gray-200 text-gray-800'
-                : 'bg-gray-100 text-gray-800'
-          }`}
-        >
-          {isTool ? (
-            <div className="text-sm">
-              <pre className="whitespace-pre-wrap">{message.content}</pre>
-            </div>
-          ) : (
-            <div className="prose prose-sm max-w-none">
-              {message.content.split('\n').map((line, i) => (
-                <p key={i}>{line}</p>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  };
+    loadTools();
+  }, []);
 
   if (!isVisible) return null;
 
   return (
     <div
+      className={`llm-chat ${isVisible ? 'visible' : 'hidden'}`}
       ref={containerRef}
-      className="llm-chat"
-      style={{
-        display: isVisible ? 'flex' : 'none',
-        flexDirection: 'column',
-        position: 'fixed',
-        top: '32px', // Account for titlebar height
-        right: 0,
-        width: `${width}px`,
-        height: 'calc(100vh - 54px)', // Subtract titlebar (32px) + statusbar (22px)
-        backgroundColor: 'var(--bg-secondary)',
-        borderLeft: '1px solid var(--border-primary)',
-        zIndex: 1,
-      }}
     >
-      <div style={{ 
-        padding: '10px', 
-        borderBottom: '1px solid var(--border-primary)',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        height: '35px'
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <ChatModeSwitch mode={mode} onModeChange={setMode} />
-          <div className="chat-switcher">
-            <button
-              onClick={() => setIsChatListVisible(!isChatListVisible)}
-              className="settings-button"
-              title="Switch chats"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-              </svg>
-            </button>
-            {isChatListVisible && (
-              <div
-                className="chat-switcher-dropdown"
-                style={{
-                  position: 'absolute',
-                  top: '100%',
-                  left: 0,
-                  background: 'var(--bg-primary)',
-                  border: '1px solid var(--border-primary)',
-                  borderRadius: '4px',
-                  boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-                  zIndex: 1000,
-                  minWidth: '200px',
-                  maxHeight: '400px',
-                  overflowY: 'auto',
-                }}
-              >
-                <div
-                  style={{
-                    padding: '8px',
-                    borderBottom: '1px solid var(--border-primary)',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                  }}
-                >
-                  <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Recent Chats</span>
-                  <button
-                  onClick={handleNewChat}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      color: 'var(--text-primary)',
-                      cursor: 'pointer',
-                      fontSize: '12px',
-                      padding: '4px 8px',
-                    }}
-                  >
-                    New Chat
-                  </button>
-                </div>
-                {chats.length === 0 ? (
-                  <div style={{ padding: '10px', color: 'var(--text-secondary)', fontSize: '12px' }}>
-                    No saved chats
-                  </div>
-                ) : (
-                  chats.map(chat => (
-                    <button
-                      key={chat.id}
-                      className="chat-button"
-                      onClick={() => handleSelectChat(chat.id)}
-                      style={{
-                        width: '100%',
-                        padding: '8px 12px',
-                        background: chat.id === currentChatId ? 'var(--bg-hover)' : 'none',
-                        border: 'none',
-                        borderBottom: '1px solid var(--border-primary)',
-                        color: 'var(--text-primary)',
-                        cursor: 'pointer',
-                        textAlign: 'left',
-                        fontSize: '12px',
-                      }}
-                    >
-                      <div style={{ fontSize: '13px', fontWeight: chat.id === currentChatId ? 'bold' : 'normal' }}>
-                        {chat.name}
-                      </div>
-                      <div style={{ 
-                        fontSize: '11px', 
-                        color: 'var(--text-secondary)',
-                        marginTop: '2px' 
-                      }}>
-                        {new Date(chat.createdAt).toLocaleString()}
-                      </div>
-                    </button>
-                  ))
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <button
-            onClick={onClose}
-            className="close-button"
-            style={{
-              background: 'none',
-              border: 'none',
-              color: 'var(--text-primary)',
-              cursor: 'pointer',
-              padding: '4px',
-            }}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M18 6L6 18M6 6l12 12" />
+      <div className="chat-header">
+        <h2>Chat</h2>
+        <div className="header-right">
+          {/* Add mode switcher here */}
+          <ModeSwitcher mode={mode} onChange={setMode} />
+          <button className="close-button" onClick={onClose}>
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="24" height="24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         </div>
       </div>
-
+      
       <div
         ref={chatContainerRef}
         style={{
@@ -3254,151 +2096,155 @@ Return ONLY the final merged code without any explanations. The code should be r
           <textarea
             value={input}
             onChange={handleInputChange}
-            placeholder={editingMessageIndex !== null ? "Edit your message..." : "Type your message... (Use @ to attach files)"}
-            style={{
-              width: '100%',
-              padding: '12px',
-              borderRadius: '4px',
-              border: '1px solid var(--border-primary)',
-              background: 'var(--bg-primary)',
-              color: 'var(--text-primary)',
-              resize: 'none',
-              fontSize: '13px',
-              minHeight: '60px',
-              maxHeight: '150px',
-              overflow: 'auto',
-            }}
-            rows={2}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                if (editingMessageIndex !== null) {
-                  handleSubmitEdit(e);
-                } else {
-                  handleSubmit(e);
+              placeholder={editingMessageIndex !== null ? "Edit your message..." : "Type your message... (Use @ to attach files)"}
+              style={{
+                width: '100%',
+                padding: '12px',
+                borderRadius: '4px',
+                border: '1px solid var(--border-primary)',
+                background: 'var(--bg-primary)',
+                color: 'var(--text-primary)',
+                resize: 'none',
+                fontSize: '13px',
+                minHeight: '60px',
+                maxHeight: '150px',
+                overflow: 'auto',
+              }}
+              rows={2}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  if (editingMessageIndex !== null) {
+                    handleSubmitEdit(e);
+                  } else {
+                    handleSubmit(e);
+                  }
+                } else if (e.key === 'Escape' && editingMessageIndex !== null) {
+                  handleCancelEdit();
+                } else if (e.key === 'Escape' && showFileSuggestions) {
+                  setShowFileSuggestions(false);
+                  e.preventDefault();
                 }
-              } else if (e.key === 'Escape' && editingMessageIndex !== null) {
-                handleCancelEdit();
-              } else if (e.key === 'Escape' && showFileSuggestions) {
-                setShowFileSuggestions(false);
-                e.preventDefault();
-              }
-            }}
-            disabled={isProcessing}
-          />
-
-          {/* File suggestions dropdown */}
-          {showFileSuggestions && (
-            <div
-              ref={suggestionBoxRef}
-              className="file-suggestions-dropdown"
-            >
-              {fileSuggestions.map((file, index) => (
-                <div
-                  key={index}
-                  onClick={() => selectFileSuggestion(file)}
-                  className="file-suggestion-item"
-                >
-                  <span className="file-suggestion-icon">📄</span>
-                  {file.name}
-                </div>
-              ))}
-            </div>
-          )}
-
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'flex-end',
-              marginTop: '8px',
-              gap: '8px',
-            }}
-          >
-            {editingMessageIndex !== null && (
-              <button
-                onClick={handleCancelEdit}
-                style={{
-                  padding: '8px 16px',
-                  borderRadius: '4px',
-                  border: '1px solid var(--border-primary)',
-                  background: 'var(--bg-secondary)',
-                  color: 'var(--text-secondary)',
-                  cursor: 'pointer',
-                  fontSize: '13px',
-                  fontWeight: 500,
-                }}
-                type="button"
-              >
-                Cancel
-              </button>
-            )}
-            
-            {/* Add hidden file input */}
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleFileInputChange}
-              style={{ display: 'none' }}
+              }}
+              disabled={isProcessing}
             />
-            
-            {/* File attachment button */}
-            {!editingMessageIndex && !isProcessing && (
-              <button
-                onClick={handleFileAttachment}
-                type="button"
-                className="add-file-button"
-                title="Attach file"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M12 5v14M5 12h14" />
-                </svg>
-              </button>
-            )}
-            
-            {isProcessing ? (
-              <button
-                onClick={handleCancel}
-                style={{
-                  padding: '8px 16px',
-                  borderRadius: '4px',
-                  border: '1px solid var(--border-primary)',
-                  background: 'var(--bg-secondary)',
-                  color: 'var(--text-error)',
-                  cursor: 'pointer',
-                  fontSize: '13px',
-                  fontWeight: 500,
-                }}
-                type="button"
-              >
-                Cancel
-              </button>
-            ) : (
-              <button
-                type="submit"
-                disabled={!input.trim() && attachedFiles.length === 0}
-                style={{
-                  padding: '8px 16px',
-                  borderRadius: '4px',
-                  border: '1px solid var(--border-primary)',
-                  background: (input.trim() || attachedFiles.length > 0) ? 'var(--accent-color)' : 'var(--bg-secondary)',
-                  color: (input.trim() || attachedFiles.length > 0) ? 'white' : 'var(--text-secondary)',
-                  cursor: (input.trim() || attachedFiles.length > 0) ? 'pointer' : 'not-allowed',
-                  fontSize: '13px',
-                  fontWeight: 500,
-                }}
-              >
-                {editingMessageIndex !== null ? 'Update' : 'Send'}
-              </button>
-            )}
-          </div>
-        </div>
-      </form>
 
-      {/* Auto-insert indicator */}
-      <AutoInsertIndicator 
-        count={pendingInserts.length} 
-        isProcessing={autoInsertInProgress} 
-      />
+            {/* File suggestions dropdown */}
+            {showFileSuggestions && (
+              <div
+                ref={suggestionBoxRef}
+                className="file-suggestions-dropdown"
+              >
+                {fileSuggestions.map((file, index) => (
+                  <div
+                    key={index}
+                    onClick={() => selectFileSuggestion(file)}
+                    className="file-suggestion-item"
+                  >
+                    <span className="file-suggestion-icon">📄</span>
+                    {file.name}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'flex-end',
+                marginTop: '8px',
+                gap: '8px',
+              }}
+            >
+              {editingMessageIndex !== null && (
+                <button
+                  onClick={handleCancelEdit}
+                  style={{
+                    padding: '8px 16px',
+                    borderRadius: '4px',
+                    border: '1px solid var(--border-primary)',
+                    background: 'var(--bg-secondary)',
+                    color: 'var(--text-secondary)',
+                    cursor: 'pointer',
+                    fontSize: '13px',
+                    fontWeight: 500,
+                  }}
+                  type="button"
+                >
+                  Cancel
+                </button>
+              )}
+              
+              {/* Add hidden file input */}
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileInputChange}
+                style={{ display: 'none' }}
+              />
+              
+              {/* File attachment button */}
+              {!editingMessageIndex && !isProcessing && (
+                <button
+                  onClick={handleFileAttachment}
+                  type="button"
+                  className="add-file-button"
+                  title="Attach file"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M12 5v14M5 12h14" />
+                  </svg>
+                </button>
+              )}
+              
+              {isProcessing ? (
+                <button
+                  onClick={handleCancel}
+                  style={{
+                    padding: '8px 16px',
+                    borderRadius: '4px',
+                    border: '1px solid var(--border-primary)',
+                    background: 'var(--bg-secondary)',
+                    color: 'var(--text-error)',
+                    cursor: 'pointer',
+                    fontSize: '13px',
+                    fontWeight: 500,
+                  }}
+                  type="button"
+                >
+                  Cancel
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={!input.trim() && attachedFiles.length === 0}
+                  style={{
+                    padding: '8px 16px',
+                    borderRadius: '4px',
+                    border: '1px solid var(--border-primary)',
+                    background: (input.trim() || attachedFiles.length > 0) ? 'var(--accent-color)' : 'var(--bg-secondary)',
+                    color: (input.trim() || attachedFiles.length > 0) ? 'white' : 'var(--text-secondary)',
+                    cursor: (input.trim() || attachedFiles.length > 0) ? 'pointer' : 'not-allowed',
+                    fontSize: '13px',
+                    fontWeight: 500,
+                  }}
+                >
+                  {editingMessageIndex !== null ? 'Update' : 'Send'}
+                </button>
+              )}
+            </div>
+          </div>
+        </form>
+      </div>
+
+      {autoInsertInProgress && (
+        <div className="auto-insert-indicator">
+          <AutoInsertIndicator 
+            count={pendingInserts.length} 
+            isProcessing={autoInsertInProgress} 
+          />
+        </div>
+      )}
     </div>
   );
 } 

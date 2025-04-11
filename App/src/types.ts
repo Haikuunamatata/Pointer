@@ -9,8 +9,9 @@ export interface FileSystemItem {
 }
 
 export interface Message {
-  role: 'system' | 'user' | 'assistant';
+  role: 'system' | 'user' | 'assistant' | 'tool';
   content: string;
+  tool_call_id?: string;
 }
 
 export interface FileSystemState {
@@ -34,7 +35,7 @@ export interface ModelConfig {
   modelProvider?: string;
   apiEndpoint?: string;
   apiKey?: string;
-  purpose?: 'chat' | 'insert' | 'autocompletion' | 'summary' | 'general';
+  purpose?: 'chat' | 'insert' | 'autocompletion' | 'summary' | 'agent' | 'general';
 }
 
 export interface EditorSettings {
@@ -218,6 +219,7 @@ export interface ModelAssignments {
   insert: string;
   autocompletion: string;
   summary: string;
+  agent: string;
 }
 
 export interface AppSettings {
@@ -232,4 +234,17 @@ export interface AppSettings {
     titleFormat?: string;
     [key: string]: any;
   };
+}
+
+export interface AttachedFile {
+  name: string;
+  path: string;
+  content: string;
+}
+
+export interface ExtendedMessage extends Message {
+  attachments?: AttachedFile[];
+  id?: string;
+  timestamp?: string;
+  tool_call_id?: string;
 } 

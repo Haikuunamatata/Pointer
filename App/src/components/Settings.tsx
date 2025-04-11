@@ -42,6 +42,7 @@ const defaultModelAssignments: ModelAssignments = {
   insert: 'default',
   autocompletion: 'default',
   summary: 'default',
+  agent: 'default',  // Add agent mode assignment
 };
 
 const defaultDiscordRpcSettings: DiscordRpcSettings = {
@@ -603,7 +604,7 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
         if (result.settings.modelAssignments) {
           const assignments = { ...defaultModelAssignments };
           Object.keys(result.settings.modelAssignments).forEach(key => {
-            if (key === 'chat' || key === 'insert' || key === 'autocompletion' || key === 'summary') {
+            if (key === 'chat' || key === 'insert' || key === 'autocompletion' || key === 'summary' || key === 'agent') {
               assignments[key as keyof ModelAssignments] = result.settings.modelAssignments[key];
             }
           });
@@ -1140,6 +1141,33 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                             onChange={(e) => setModelAssignments(prev => ({
                               ...prev,
                               summary: e.target.value
+                            }))}
+                            style={{
+                              width: '100%',
+                              padding: '8px',
+                              background: 'var(--bg-primary)',
+                              border: '1px solid var(--border-primary)',
+                              borderRadius: '4px',
+                              color: 'var(--text-primary)',
+                            }}
+                          >
+                            {Object.keys(modelConfigs).map(modelId => (
+                              <option key={modelId} value={modelId}>
+                                {modelConfigs[modelId].name || modelId}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px' }}>
+                            Agent Model
+                          </label>
+                          <select
+                            value={modelAssignments.agent}
+                            onChange={(e) => setModelAssignments(prev => ({
+                              ...prev,
+                              agent: e.target.value
                             }))}
                             style={{
                               width: '100%',
@@ -2308,10 +2336,6 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                           <tr>
                             <td style={{ padding: '8px', borderBottom: '1px solid var(--border-secondary)' }}>Toggle Sidebar</td>
                             <td style={{ padding: '8px', borderBottom: '1px solid var(--border-secondary)' }}>Ctrl+B</td>
-                          </tr>
-                          <tr>
-                            <td style={{ padding: '8px', borderBottom: '1px solid var(--border-secondary)' }}>Toggle Top Bar</td>
-                            <td style={{ padding: '8px', borderBottom: '1px solid var(--border-secondary)' }}>Ctrl+Shift+B</td>
                           </tr>
                           <tr>
                             <td style={{ padding: '8px', borderBottom: '1px solid var(--border-secondary)' }}>Close Tab</td>
