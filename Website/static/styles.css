@@ -1,13 +1,18 @@
 :root {
     --primary-gradient: linear-gradient(120deg, #6a11cb, #2575fc);
+    --secondary-gradient: linear-gradient(120deg, #ff0f7b, #f89b29);
+    --tertiary-gradient: linear-gradient(120deg, #00c6ff, #0072ff);
+    --glass-background: rgba(255, 255, 255, 0.05);
+    --glass-border: rgba(255, 255, 255, 0.1);
+    --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
     --text-color: #ffffff;
-    --background: #000000;
+    --background: #0f0f12;
     --nav-height: 64px;
     --grid-size: 30px;
-    --grid-color: rgba(255, 255, 255, 0.1);
+    --grid-color: rgba(255, 255, 255, 0.05);
     --mobile-padding: 1rem;
-    --navbar-background: rgba(0, 0, 0, 0.8);
-    --navbar-border: rgba(255, 255, 255, 0.1);
+    --navbar-background: rgba(15, 15, 18, 0.7);
+    --navbar-border: rgba(255, 255, 255, 0.08);
     --navbar-height: 70px;
     --accent-color: #6366f1;
     --accent-color-rgba: rgba(99, 102, 241, 0.8);
@@ -33,14 +38,14 @@ html {
     width: auto;
     max-width: 90%;
     height: var(--navbar-height);
-    background-color: rgba(0, 0, 0, 0.65);
+    background: var(--navbar-background);
     backdrop-filter: blur(15px);
     -webkit-backdrop-filter: blur(15px);
-    border: 1px solid rgba(255, 255, 255, 0.15);
+    border: 1px solid var(--glass-border);
     border-radius: 18px;
     z-index: 1000;
     transition: all 0.3s ease;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+    box-shadow: var(--glass-shadow);
 }
 
 .navbar-container {
@@ -179,6 +184,9 @@ html {
 body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
     background: var(--background);
+    background-image: 
+        radial-gradient(circle at 15% 50%, rgba(106, 17, 203, 0.15), transparent 25%),
+        radial-gradient(circle at 85% 30%, rgba(37, 117, 252, 0.15), transparent 25%);
     color: var(--text-color);
     min-height: 100vh;
     overflow-x: hidden;
@@ -233,9 +241,9 @@ body {
 }
 
 .download-windows-btn {
-    background: var(--text-color);
-    color: var(--background);
-    border: none;
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-color);
+    border: 1px solid var(--glass-border);
     padding: 1rem 2rem;
     border-radius: 8px;
     font-weight: 600;
@@ -248,55 +256,37 @@ body {
     transition: transform 0.3s ease, background-color 0.3s ease, box-shadow 0.3s ease;
     position: relative;
     overflow: hidden;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
     z-index: 1;
-}
-
-.download-windows-btn::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: var(--primary-gradient);
-    opacity: 0;
-    z-index: -1;
-    transition: opacity 0.3s ease;
 }
 
 .download-windows-btn:hover {
-    color: var(--text-color);
-    transform: translateY(-2px);
-    box-shadow: 0 5px 15px rgba(37, 117, 252, 0.2);
-}
-
-.download-windows-btn:hover::before {
-    opacity: 1;
+    transform: translateY(-3px);
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.25);
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.2);
 }
 
 .editor-preview {
-    width: 80%;
+    width: 90%;
     max-width: 1200px;
-    margin: 0 auto;
-    background: #1e1e1e;
-    border-radius: 8px 8px 0 0;
+    margin: 3rem auto;
+    border-radius: 12px;
     overflow: hidden;
-    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3),
-                0 0 100px rgba(255, 255, 255, 0.15);
-    position: absolute;
-    bottom: -500px;
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 1;
-    animation: slideUp 1.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
-    animation-delay: 0.6s;
-    transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s ease;
+    position: relative;
+    box-shadow: 0 20px 80px rgba(0, 0, 0, 0.3);
+    transform: translateY(0);
+    transition: transform 0.5s ease, box-shadow 0.5s ease;
+    z-index: 2;
+    border: 1px solid var(--glass-border);
 }
 
 .editor-preview:hover {
-    transform: translate(-50%, -260px);
-    box-shadow: 0 30px 60px rgba(0, 0, 0, 0.4),
-                0 0 120px rgba(255, 255, 255, 0.2);
+    transform: translateY(-5px);
+    box-shadow: 0 25px 100px rgba(0, 0, 0, 0.4),
+                0 0 30px rgba(99, 102, 241, 0.2);
 }
 
 .editor-preview::after {
@@ -375,16 +365,16 @@ body {
 .hero::before {
     content: '';
     position: absolute;
-    width: 400px;
-    height: 400px;
-    background: radial-gradient(circle, rgba(37, 117, 252, 0.15) 0%, transparent 70%);
+    width: 150%;
+    height: 150%;
+    top: -25%;
+    left: -25%;
+    background: 
+        radial-gradient(circle at var(--cursor-x) var(--cursor-y), rgba(99, 102, 241, 0.15), transparent 30%),
+        radial-gradient(circle at calc(100% - var(--cursor-x)) calc(100% - var(--cursor-y)), rgba(106, 17, 203, 0.15), transparent 30%);
     pointer-events: none;
-    left: var(--cursor-x);
-    top: var(--cursor-y);
-    transform: translate(-50%, -50%);
-    opacity: 0;
-    transition: opacity 0.3s ease;
-    z-index: 1;
+    z-index: 0;
+    transition: all 0.3s ease;
 }
 
 .hero.cursor-active::before {
@@ -392,9 +382,23 @@ body {
 }
 
 .features-section {
-    padding: 100px 2rem;
-    background: var(--background);
+    padding: 5rem 2rem;
+    background-color: var(--background);
     position: relative;
+    overflow: hidden;
+}
+
+.features-section::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-image: 
+        radial-gradient(circle at 25% 25%, rgba(99, 102, 241, 0.08), transparent 25%),
+        radial-gradient(circle at 75% 75%, rgba(106, 17, 203, 0.08), transparent 25%);
+    z-index: 0;
 }
 
 .features-section h2 {
@@ -412,24 +416,38 @@ body {
 }
 
 .feature-card {
-    background: rgba(255, 255, 255, 0.05);
+    background: rgba(15, 15, 18, 0.6);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-radius: 16px;
     padding: 2rem;
-    border-radius: 12px;
     text-align: center;
-    transition: transform 0.3s ease, box-shadow 0.3s ease;
-    animation: fadeInUp 0.8s ease-out forwards;
-    opacity: 0;
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    cursor: pointer;
+    transition: all 0.3s ease;
+    position: relative;
+    z-index: 1;
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
+    overflow: hidden;
 }
 
-.feature-card:nth-child(1) { animation-delay: 0.2s; }
-.feature-card:nth-child(2) { animation-delay: 0.4s; }
-.feature-card:nth-child(3) { animation-delay: 0.6s; }
+.feature-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(135deg, 
+                rgba(255, 255, 255, 0.05) 0%, 
+                rgba(255, 255, 255, 0) 100%);
+    z-index: -1;
+}
 
 .feature-card:hover {
     transform: translateY(-10px);
-    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 15px 35px rgba(0, 0, 0, 0.3),
+                0 0 20px rgba(99, 102, 241, 0.2);
+    border-color: rgba(255, 255, 255, 0.15);
 }
 
 .feature-card:hover i {
@@ -462,27 +480,45 @@ body {
 }
 
 .pricing-card {
-    background: rgba(255, 255, 255, 0.05);
-    padding: 3rem 2rem;
-    border-radius: 12px;
-    text-align: center;
-    transition: transform 0.3s ease, box-shadow 0.3s ease;
-    animation: fadeInUp 0.8s ease-out forwards;
-    opacity: 0;
-    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: rgba(15, 15, 18, 0.6);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-radius: 16px;
+    padding: 2.5rem 2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    transition: all 0.4s ease;
+    position: relative;
+    overflow: hidden;
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
 }
 
-.pricing-card:nth-child(1) { animation-delay: 0.2s; }
-.pricing-card:nth-child(2) { animation-delay: 0.4s; }
+.pricing-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(135deg, 
+                rgba(255, 255, 255, 0.05) 0%, 
+                rgba(255, 255, 255, 0) 100%);
+    z-index: -1;
+}
 
 .pricing-card.featured {
-    background: rgba(37, 117, 252, 0.1);
-    border: 2px solid #2575fc;
+    border: 1px solid rgba(99, 102, 241, 0.3);
+    box-shadow: 0 15px 35px rgba(0, 0, 0, 0.3),
+                0 0 20px rgba(99, 102, 241, 0.2);
 }
 
 .pricing-card:hover {
     transform: translateY(-10px);
-    box-shadow: 0 15px 30px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 15px 35px rgba(0, 0, 0, 0.3),
+                0 0 20px rgba(99, 102, 241, 0.2);
+    border-color: rgba(255, 255, 255, 0.15);
 }
 
 .pricing-card h3 {
@@ -512,18 +548,28 @@ body {
 }
 
 .pricing-btn {
-    background: var(--primary-gradient);
+    background: rgba(255, 255, 255, 0.05);
     color: var(--text-color);
-    border: none;
-    padding: 1rem 2rem;
+    border: 1px solid var(--glass-border);
+    padding: 0.75rem 1.5rem;
     border-radius: 8px;
     font-weight: 600;
     cursor: pointer;
-    transition: transform 0.3s ease, background-color 0.3s ease;
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    display: inline-block;
+    text-align: center;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
 }
 
 .pricing-btn:hover {
-    transform: translateY(-2px);
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.2);
+    transform: translateY(-3px);
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.25);
 }
 
 @keyframes fadeInUp {
@@ -538,15 +584,9 @@ body {
 }
 
 @keyframes float {
-    0% {
-        transform: translateY(0px);
-    }
-    50% {
-        transform: translateY(-10px);
-    }
-    100% {
-        transform: translateY(0px);
-    }
+    0% { transform: translateY(0px); }
+    50% { transform: translateY(-10px); }
+    100% { transform: translateY(0px); }
 }
 
 .hero-content h1 {
@@ -670,7 +710,10 @@ body {
 }
 
 .site-footer {
-    background: rgba(255, 255, 255, 0.05);
+    background: rgba(15, 15, 18, 0.8);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-top: 1px solid var(--glass-border);
     padding: 4rem 2rem 2rem;
     margin-top: 4rem;
 }
@@ -1117,67 +1160,60 @@ body {
 
 /* Make sure the cards have a consistent appearance */
 .core-card {
-    background: rgba(18, 18, 20, 0.95);
-    padding: 1.6rem;
-    border-radius: 12px;
-    transition: all 0.25s ease;
-    animation: fadeInUp 0.8s ease-out forwards;
-    opacity: 0;
-    position: relative;
-    border: 1px solid rgba(39, 39, 45, 0.9);
-    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);
-    overflow: hidden;
+    background: rgba(15, 15, 18, 0.6);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-radius: 16px;
+    padding: 2rem;
     display: flex;
     flex-direction: column;
     justify-content: flex-start;
     align-items: flex-start;
-    min-height: 100%;
-}
-
-/* Adjust the icon container to match the screenshot */
-.core-card i {
-    font-size: 1.4rem;
-    margin-bottom: 1.4rem;
-    color: var(--accent-color);
+    gap: 1rem;
     transition: all 0.3s ease;
-    padding: 0.6rem;
-    background-color: rgba(30, 30, 35, 0.9);
-    border-radius: 8px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
+    position: relative;
+    z-index: 1;
+    cursor: pointer;
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
+    overflow: hidden;
 }
 
-/* Fine tune the card grid placement further */
-.div1 {
-    grid-column: 1 / span 2;
-    grid-row: 1 / span 1;
-    animation-delay: 0.1s;
+.core-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(135deg, 
+                rgba(255, 255, 255, 0.05) 0%, 
+                rgba(255, 255, 255, 0) 100%);
+    z-index: -1;
 }
 
-.div2 {
-    grid-column: 3 / span 2;
-    grid-row: 1 / span 2;
-    animation-delay: 0.2s;
+.core-card:hover {
+    transform: translateY(-10px);
+    box-shadow: 0 15px 35px rgba(0, 0, 0, 0.3),
+                0 0 20px rgba(99, 102, 241, 0.2);
+    border-color: rgba(255, 255, 255, 0.15);
 }
 
-.div3 {
-    grid-column: 1 / span 2;
-    grid-row: 2 / span 1;
-    animation-delay: 0.3s;
+.core-card i {
+    font-size: 2rem;
+    color: transparent;
+    background: var(--primary-gradient);
+    -webkit-background-clip: text;
+    background-clip: text;
+    margin-bottom: 0.5rem;
+    transition: all 0.3s ease;
 }
 
-.div4 {
-    grid-column: 1 / span 2;
-    grid-row: 3 / span 1;
-    animation-delay: 0.4s;
-}
-
-.div6 {
-    grid-column: 3 / span 2;
-    grid-row: 3 / span 1;
-    animation-delay: 0.5s;
-}
+.div1 i { background: var(--primary-gradient); -webkit-background-clip: text; background-clip: text; }
+.div2 i { background: var(--secondary-gradient); -webkit-background-clip: text; background-clip: text; }
+.div3 i { background: var(--tertiary-gradient); -webkit-background-clip: text; background-clip: text; }
+.div4 i { background: linear-gradient(120deg, #ff5e62, #ff9966); -webkit-background-clip: text; background-clip: text; }
+.div6 i { background: linear-gradient(120deg, #4facfe, #00f2fe); -webkit-background-clip: text; background-clip: text; }
 
 /* Import Space Grotesk font for quotation marks */
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500&display=swap');
@@ -1367,65 +1403,60 @@ body {
 }
 
 .core-card {
-    background: rgba(22, 22, 24, 0.95);
-    padding: 1.8rem;
+    background: rgba(15, 15, 18, 0.6);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
     border-radius: 16px;
-    transition: all 0.3s ease, transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-    animation: fadeInUp 0.8s ease-out forwards;
-    opacity: 0;
-    position: relative;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
-    overflow: hidden;
+    padding: 2rem;
     display: flex;
     flex-direction: column;
     justify-content: flex-start;
     align-items: flex-start;
-    min-height: 100%;
-    cursor: default;
-}
-
-/* Icon styles - make them more prominent */
-.core-card i {
-    font-size: 1.8rem;
-    margin-bottom: 1.2rem;
-    color: var(--accent-color);
+    gap: 1rem;
     transition: all 0.3s ease;
-    padding: 0.8rem;
-    background-color: rgba(99, 102, 241, 0.1);
-    border-radius: 12px;
+    position: relative;
+    z-index: 1;
+    cursor: pointer;
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
+    overflow: hidden;
 }
 
-/* New bento grid card placements */
-.div1 {
-    grid-column: 1 / span 2;
-    grid-row: 1 / span 1;
-    animation-delay: 0.1s;
+.core-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(135deg, 
+                rgba(255, 255, 255, 0.05) 0%, 
+                rgba(255, 255, 255, 0) 100%);
+    z-index: -1;
 }
 
-.div2 {
-    grid-column: 3 / span 2;
-    grid-row: 1 / span 2;
-    animation-delay: 0.2s;
+.core-card:hover {
+    transform: translateY(-10px);
+    box-shadow: 0 15px 35px rgba(0, 0, 0, 0.3),
+                0 0 20px rgba(99, 102, 241, 0.2);
+    border-color: rgba(255, 255, 255, 0.15);
 }
 
-.div3 {
-    grid-column: 1 / span 2;
-    grid-row: 2 / span 1;
-    animation-delay: 0.3s;
+.core-card i {
+    font-size: 2rem;
+    color: transparent;
+    background: var(--primary-gradient);
+    -webkit-background-clip: text;
+    background-clip: text;
+    margin-bottom: 0.5rem;
+    transition: all 0.3s ease;
 }
 
-.div4 {
-    grid-column: 3 / span 2;
-    grid-row: 3 / span 1;
-    animation-delay: 0.4s;
-}
-
-.div6 {
-    grid-column: 1 / span 2;
-    grid-row: 3 / span 1;
-    animation-delay: 0.5s;
-}
+.div1 i { background: var(--primary-gradient); -webkit-background-clip: text; background-clip: text; }
+.div2 i { background: var(--secondary-gradient); -webkit-background-clip: text; background-clip: text; }
+.div3 i { background: var(--tertiary-gradient); -webkit-background-clip: text; background-clip: text; }
+.div4 i { background: linear-gradient(120deg, #ff5e62, #ff9966); -webkit-background-clip: text; background-clip: text; }
+.div6 i { background: linear-gradient(120deg, #4facfe, #00f2fe); -webkit-background-clip: text; background-clip: text; }
 
 /* Card text styles */
 .core-card h3 {
@@ -1538,4 +1569,179 @@ body {
         font-size: 2rem;
         margin-bottom: 2rem;
     }
+}
+
+/* Adding glass morphism to modals */
+.modal-content {
+    background: rgba(15, 15, 18, 0.85);
+    backdrop-filter: blur(15px);
+    -webkit-backdrop-filter: blur(15px);
+    border: 1px solid var(--glass-border);
+    border-radius: 16px;
+    box-shadow: var(--glass-shadow);
+}
+
+.modal-header {
+    border-bottom: 1px solid var(--glass-border);
+}
+
+/* Additional animations */
+@keyframes float {
+    0% { transform: translateY(0px); }
+    50% { transform: translateY(-10px); }
+    100% { transform: translateY(0px); }
+}
+
+@keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.4); }
+    70% { box-shadow: 0 0 0 15px rgba(99, 102, 241, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0); }
+}
+
+@keyframes gradientShift {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+
+/* Add glow effect to your text in hero section */
+.your-text {
+    position: relative;
+    display: inline-block;
+    color: transparent;
+    background: linear-gradient(90deg, #6a11cb, #2575fc, #6a11cb);
+    background-size: 200% auto;
+    animation: gradientShift 8s linear infinite;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.your-text::after {
+    content: "";
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    left: 0;
+    top: 0;
+    filter: blur(20px);
+    opacity: 0.3;
+    background: linear-gradient(90deg, #6a11cb, #2575fc, #6a11cb);
+    background-size: 200% auto;
+    animation: gradientShift 8s linear infinite;
+    z-index: -1;
+}
+
+/* Enhanced glassmorphism effect on button hover */
+.download-windows-btn:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.25), 
+                0 0 15px rgba(99, 102, 241, 0.2);
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.25);
+}
+
+/* Floating animation for editor preview */
+.editor-preview {
+    animation: float 6s ease-in-out infinite;
+}
+
+/* Glass effect for the grid background */
+.grid-background {
+    background-image: 
+        linear-gradient(var(--grid-color) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
+    background-size: var(--grid-size) var(--grid-size);
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    top: 0;
+    left: 0;
+    z-index: 0;
+    opacity: 0.4;
+    perspective: 1000px;
+    transform-style: preserve-3d;
+    transform: rotateX(70deg) translateZ(-100px);
+}
+
+/* Enhanced hovering effect for core cards */
+.core-card {
+    transition: all 0.4s cubic-bezier(0.165, 0.84, 0.44, 1);
+}
+
+.core-card:hover {
+    transform: translateY(-10px) scale(1.02);
+    box-shadow: 0 15px 35px rgba(0, 0, 0, 0.3),
+                0 0 25px rgba(99, 102, 241, 0.3);
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.core-card::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(125deg, 
+                rgba(255, 255, 255, 0.3) 0%, 
+                rgba(255, 255, 255, 0.1) 10%, 
+                rgba(255, 255, 255, 0) 100%);
+    opacity: 0;
+    transition: opacity 0.4s ease;
+    z-index: -1;
+    border-radius: 16px;
+}
+
+.core-card:hover::after {
+    opacity: 0.4;
+}
+
+/* Subtle glow effect for feature icons */
+.feature-card i {
+    filter: drop-shadow(0 0 8px rgba(99, 102, 241, 0.5));
+    transition: all 0.3s ease;
+}
+
+.feature-card:hover i {
+    filter: drop-shadow(0 0 12px rgba(99, 102, 241, 0.8));
+    transform: scale(1.1);
+}
+
+/* Enhanced glassmorphism for pricing section */
+.pricing-section::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-image: 
+        radial-gradient(circle at 75% 25%, rgba(106, 17, 203, 0.08), transparent 25%),
+        radial-gradient(circle at 25% 75%, rgba(37, 117, 252, 0.08), transparent 25%);
+    z-index: 0;
+}
+
+/* Enhanced glass effect for pricing buttons */
+.pricing-btn {
+    position: relative;
+    overflow: hidden;
+}
+
+.pricing-btn::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, 
+                rgba(255, 255, 255, 0), 
+                rgba(255, 255, 255, 0.2), 
+                rgba(255, 255, 255, 0));
+    transition: left 0.8s ease;
+}
+
+.pricing-btn:hover::before {
+    left: 100%;
 }

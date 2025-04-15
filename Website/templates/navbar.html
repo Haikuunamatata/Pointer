@@ -1,27 +1,27 @@
 <!-- navbar.html - Reusable navbar template for Pointer website -->
-<nav class="floating-navbar">
-    <div class="navbar-container">
+<nav class="fixed top-5 left-1/2 transform -translate-x-1/2 max-w-[90%] h-[70px] bg-background-light/70 backdrop-blur-xl border border-white/10 rounded-2xl z-50 shadow-lg transition-all duration-300">
+    <div class="h-full flex items-center justify-between px-6">
         <div class="navbar-logo">
-            <a href="/">
-                <img src="{{ url_for('static', filename='logo.png') }}" alt="Pointer Logo">
+            <a href="/" class="flex items-center text-white no-underline px-2.5">
+                <img src="{{ url_for('static', filename='logo.png') }}" alt="Pointer Logo" class="h-8 mr-2.5 transition-transform duration-300 hover:scale-110">
                 {% if show_text_logo %}
-                <span>Pointer</span>
+                <span class="text-2xl font-semibold bg-primary-gradient bg-clip-text text-transparent">Pointer</span>
                 {% endif %}
             </a>
         </div>
-        <div class="navbar-links">
-            <a href="/#">Home</a>
-            <a href="{{ features_path | default('#features') }}">Features</a>
+        <div class="hidden md:flex gap-6 mx-4">
+            <a href="/#" class="text-white no-underline text-base font-medium relative transition-all duration-300 py-2 px-3 rounded-lg hover:bg-white/10">Home</a>
+            <a href="{{ features_path | default('#features') }}" class="text-white no-underline text-base font-medium relative transition-all duration-300 py-2 px-3 rounded-lg hover:bg-white/10">Features</a>
             {% if show_downloads_link %}
-            <a href="/downloads">Downloads</a>
+            <a href="/downloads" class="text-white no-underline text-base font-medium relative transition-all duration-300 py-2 px-3 rounded-lg hover:bg-white/10">Downloads</a>
             {% endif %}
-            <a href="https://github.com/f1shyondrugs/Pointer" target="_blank">GitHub</a>
+            <a href="https://github.com/f1shyondrugs/Pointer" target="_blank" class="text-white no-underline text-base font-medium relative transition-all duration-300 py-2 px-3 rounded-lg hover:bg-white/10">GitHub</a>
             {% if show_pricing_link %}
-            <a onclick="alert('Bruv its free')">Pricing</a>
+            <a onclick="alert('Bruv its free')" class="text-white no-underline text-base font-medium relative transition-all duration-300 py-2 px-3 rounded-lg hover:bg-white/10 cursor-pointer">Pricing</a>
             {% endif %}
         </div>
-        <div class="navbar-mobile-toggle">
+        <button class="md:hidden text-2xl cursor-pointer p-2 rounded-lg transition-colors duration-300 hover:bg-white/10">
             <i class="fas fa-bars"></i>
-        </div>
+        </button>
     </div>
 </nav> 

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="scroll-smooth">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -31,6 +31,84 @@
     <!-- Canonical URL -->
     <link rel="canonical" href="{{ request.url }}">
     
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        primary: {
+                            DEFAULT: '#6366f1',
+                            light: 'rgba(99, 102, 241, 0.2)',
+                            dark: '#4f46e5'
+                        },
+                        secondary: {
+                            DEFAULT: '#ff0f7b',
+                            light: 'rgba(255, 15, 123, 0.2)',
+                            dark: '#e00d6f'
+                        },
+                        tertiary: {
+                            DEFAULT: '#00c6ff',
+                            light: 'rgba(0, 198, 255, 0.2)',
+                            dark: '#00a6d6'
+                        },
+                        background: {
+                            DEFAULT: '#0f0f12',
+                            light: '#1a1a21'
+                        }
+                    },
+                    backgroundImage: {
+                        'primary-gradient': 'linear-gradient(120deg, #6a11cb, #2575fc)',
+                        'secondary-gradient': 'linear-gradient(120deg, #ff0f7b, #f89b29)',
+                        'tertiary-gradient': 'linear-gradient(120deg, #00c6ff, #0072ff)'
+                    },
+                    backdropBlur: {
+                        xs: '2px',
+                    },
+                    animation: {
+                        'gradient-shift': 'gradientShift 8s linear infinite',
+                        'float': 'float 6s ease-in-out infinite',
+                        'fadeInUp': 'fadeInUp 0.8s ease-out forwards',
+                        'scrollRight': 'scrollRight 30s linear infinite',
+                        'scrollLeft': 'scrollLeft 30s linear infinite'
+                    },
+                    keyframes: {
+                        gradientShift: {
+                            '0%': { backgroundPosition: '0% 50%' },
+                            '50%': { backgroundPosition: '100% 50%' },
+                            '100%': { backgroundPosition: '0% 50%' }
+                        },
+                        float: {
+                            '0%': { transform: 'translateY(0px)' },
+                            '50%': { transform: 'translateY(-10px)' },
+                            '100%': { transform: 'translateY(0px)' }
+                        },
+                        fadeInUp: {
+                            'from': { 
+                                opacity: '0',
+                                transform: 'translateY(20px)'
+                            },
+                            'to': { 
+                                opacity: '1',
+                                transform: 'translateY(0)'
+                            }
+                        },
+                        scrollRight: {
+                            '0%': { transform: 'translateX(0)' },
+                            '100%': { transform: 'translateX(calc(-300px * 5 - 6rem))' }
+                        },
+                        scrollLeft: {
+                            '0%': { transform: 'translateX(calc(-300px * 5 - 6rem))' },
+                            '100%': { transform: 'translateX(0)' }
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     
@@ -59,1501 +137,332 @@
             80% { opacity: 1; transform: translateY(0); }
             100% { opacity: 0; transform: translateY(-20px); }
         }
+        
+        /* Transition styles for smooth scrolling */
+        .section-animate {
+            opacity: 0;
+            transform: translateY(30px);
+            transition: opacity 0.8s ease, transform 0.8s ease;
+        }
+        
+        .section-visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .card-animate {
+            opacity: 0;
+            transform: translateY(20px);
+            transition: opacity 0.5s ease, transform 0.5s ease;
+        }
+        
+        .card-visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        /* Smooth transition between sections */
+        section {
+            position: relative;
+            z-index: 1;
+            overflow: hidden;
+        }
+        
+        section::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 150px;
+            background: linear-gradient(to bottom, transparent, var(--background));
+            pointer-events: none;
+            z-index: 2;
+            opacity: 0.7;
+        }
+        
+        /* For sections with light background */
+        section.bg-background-light::after {
+            background: linear-gradient(to bottom, transparent, #1a1a21);
+        }
+        
+        /* Overlap effect for connecting sections */
+        section:not(:first-child) {
+            margin-top: -100px;
+            padding-top: 150px;
+        }
+        
+        /* Animation pause on hover */
+        .hover\:pause:hover {
+            animation-play-state: paused;
+        }
     </style>
 </head>
-<body>
+<body class="bg-background min-h-screen text-white overflow-x-hidden font-sans">
     {% with show_pricing_link=True, show_downloads_link=False, show_text_logo=False, features_path="#features" %}
     {% include 'navbar.html' %}
     {% endwith %}
     
-    <main class="hero">
-        <div class="grid-background">
-            <div class="beam-h2"></div>
-            <div class="beam-v2"></div>
-        </div>
-        <div class="hero-content">
-            <h1><span class="your-text">Your</span> AI Code Editor</h1>
-            <p style="font-family: 'Fira Code', monospace;">Powered by local LLMs for lightning-fast responses,<br>
-               Pointer brings AI-assisted coding right to your editor,<br>
-               with zero latency and complete privacy.</p>
-            <div class="button-container">
-                <a onclick="alert('Coming soon!')" style="text-decoration: none;" class="download-windows-btn">
+    <main class="relative min-h-screen flex flex-col items-center justify-start text-center overflow-hidden pt-[110px]">
+        <!-- Background effects -->
+        <div class="absolute inset-0 bg-gradient-to-r from-primary/10 to-tertiary/10 opacity-20"></div>
+        <div class="absolute inset-0 bg-[radial-gradient(circle_at_15%_50%,rgba(106,17,203,0.15),transparent_25%),radial-gradient(circle_at_85%_30%,rgba(37,117,252,0.15),transparent_25%)] parallax" data-speed="-0.05"></div>
+        
+        <!-- Grid background -->
+        <div class="absolute inset-0 bg-grid opacity-30 transform perspective-1000 preserve-3d rotate-x-70 -translate-z-100 parallax" data-speed="0.02"></div>
+        
+        <!-- Floating orbs -->
+        <div class="absolute left-[10%] top-[20%] w-[300px] h-[300px] rounded-full bg-primary/5 blur-3xl parallax" data-speed="0.08"></div>
+        <div class="absolute right-[15%] top-[50%] w-[250px] h-[250px] rounded-full bg-tertiary/5 blur-3xl parallax" data-speed="0.12"></div>
+        
+        <div class="relative z-10 mt-[15vh] mb-8">
+            <h1 class="text-7xl md:text-8xl font-bold mb-4 tracking-tight animate-fadeInUp">
+                <span class="relative inline-block bg-gradient-to-r from-[#6a11cb] via-[#2575fc] to-[#6a11cb] bg-[length:200%_auto] animate-gradient-shift bg-clip-text text-transparent italic">Your</span> AI Code Editor
+            </h1>
+            
+            <p class="text-lg md:text-xl mb-8 opacity-0 animate-[fadeInUp_0.8s_0.2s_ease-out_forwards] font-mono">
+                Powered by local LLMs for lightning-fast responses,<br>
+                Pointer brings AI-assisted coding right to your editor,<br>
+                with zero latency and complete privacy.
+            </p>
+            
+            <div class="flex flex-col md:flex-row gap-4 justify-center">
+                <a onclick="alert('Coming soon!')" class="inline-flex items-center gap-2 px-8 py-4 rounded-lg bg-white/5 backdrop-blur-md border border-white/10 text-white font-semibold shadow-lg transition-all duration-300 hover:translate-y-[-3px] hover:shadow-xl hover:bg-white/10 hover:border-white/20 opacity-0 animate-[fadeInUp_0.8s_0.4s_ease-out_forwards]">
                     <i class="fas fa-download"></i>
                     <span>COMING SOON</span>
                 </a>
 
-                <button class="download-windows-btn" onclick="window.open('https://github.com/f1shyondrugs/Pointer', '_blank')">
+                <button onclick="window.open('https://github.com/f1shyondrugs/Pointer', '_blank')" class="inline-flex items-center gap-2 px-8 py-4 rounded-lg bg-white/5 backdrop-blur-md border border-white/10 text-white font-semibold shadow-lg transition-all duration-300 hover:translate-y-[-3px] hover:shadow-xl hover:bg-white/10 hover:border-white/20 opacity-0 animate-[fadeInUp_0.8s_0.5s_ease-out_forwards]">
                     <i class="fab fa-github"></i>
                     You're welcome to contribute
                 </button>
             </div>
         </div>
         
-        <div class="editor-preview">
+        <div class="w-[90%] max-w-[1200px] mx-auto mt-12 rounded-xl overflow-hidden relative shadow-2xl border border-white/10 transition-all duration-500 ease-out hover:translate-y-[-5px] hover:shadow-[0_25px_100px_rgba(0,0,0,0.4),0_0_30px_rgba(99,102,241,0.2)] z-10 animate-float">
             <div class="editor-window">
-                <div class="window-controls">
-                    <span class="control close"></span>
-                    <span class="control minimize"></span>
-                    <span class="control maximize"></span>
-                </div>
                 <div class="editor-content" style="padding: 0; margin: 0;">
-                    <img src="{{ url_for('static', filename='preview.png') }}" alt="Editor Preview" style="width: 100%; height: auto; display: block; margin: 0; padding: 0;">
+                    <img src="{{ url_for('static', filename='preview.png') }}" alt="Editor Preview" class="w-full h-auto block m-0 p-0">
                 </div>
             </div>
         </div>
     </main>
 
-    <section id="community" class="features-section">
-        <h2>Join Our Growing Community</h2>
-        <div class="features-grid">
-            <div class="feature-card">
-                <i class="fas fa-code-branch fa-3x" style="color: #6366f1;"></i>
-                <p style="margin-top: 20px;">Open Source Project</p>
+    <section id="community" class="relative py-20 px-8 bg-background overflow-hidden">
+        <!-- Background glow effects -->
+        <div class="absolute inset-0 bg-[radial-gradient(circle_at_25%_25%,rgba(99,102,241,0.08),transparent_25%),radial-gradient(circle_at_75%_75%,rgba(106,17,203,0.08),transparent_25%)] pointer-events-none parallax" data-speed="-0.03"></div>
+        <div class="absolute left-[-10%] top-[30%] w-[400px] h-[400px] rounded-full bg-primary/5 blur-3xl parallax" data-speed="0.06"></div>
+        
+        <h2 class="text-4xl md:text-5xl font-bold text-center mb-16">Join Our Growing Community</h2>
+        
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-6xl mx-auto">
+            <div class="bg-background-light/60 backdrop-blur-xl rounded-2xl p-8 text-center border border-white/10 shadow-lg transition-all duration-300 hover:-translate-y-2 hover:shadow-xl hover:shadow-primary/20 hover:border-white/15 relative overflow-hidden group">
+                <div class="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"></div>
+                <i class="fas fa-code-branch text-5xl mb-5 text-primary filter drop-shadow-lg transition-all duration-300 group-hover:scale-110 group-hover:filter-none"></i>
+                <p class="mt-5 text-lg">Open Source Project</p>
             </div>
-            <div class="feature-card">
-                <i class="fas fa-users fa-3x" style="color: #6366f1;"></i>
-                <p style="margin-top: 20px;">Built by Developers, for Developers</p>
+            
+            <div class="bg-background-light/60 backdrop-blur-xl rounded-2xl p-8 text-center border border-white/10 shadow-lg transition-all duration-300 hover:-translate-y-2 hover:shadow-xl hover:shadow-primary/20 hover:border-white/15 relative overflow-hidden group">
+                <div class="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"></div>
+                <i class="fas fa-users text-5xl mb-5 text-primary filter drop-shadow-lg transition-all duration-300 group-hover:scale-110 group-hover:filter-none"></i>
+                <p class="mt-5 text-lg">Built by Developers, for Developers</p>
             </div>
-            <div class="feature-card">
-                <i class="fas fa-heart fa-3x" style="color: #6366f1;"></i>
-                <p style="margin-top: 20px;">Join Us on GitHub</p>
+            
+            <div class="bg-background-light/60 backdrop-blur-xl rounded-2xl p-8 text-center border border-white/10 shadow-lg transition-all duration-300 hover:-translate-y-2 hover:shadow-xl hover:shadow-primary/20 hover:border-white/15 relative overflow-hidden group">
+                <div class="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"></div>
+                <i class="fas fa-heart text-5xl mb-5 text-primary filter drop-shadow-lg transition-all duration-300 group-hover:scale-110 group-hover:filter-none"></i>
+                <p class="mt-5 text-lg">Join Us on GitHub</p>
             </div>
         </div>
     </section>
 
-    <section id="features" class="features-section" style="background-color: #111111;">
-        <h2>The Core</h2>
-        <div class="core-grid">
-            <div class="core-card div1" data-feature="autocomplete">
-                <i class="fas fa-code"></i>
-                <h3>Intelligent Autocomplete</h3>
-                <p>Advanced code suggestions that understand your project context and coding patterns, helping you write code faster and with fewer errors.</p>
+    <section id="features" class="relative py-20 px-8 bg-background-light">
+        <!-- Background effects -->
+        <div class="absolute inset-0 bg-[radial-gradient(circle_at_75%_25%,rgba(99,102,241,0.08),transparent_25%),radial-gradient(circle_at_25%_75%,rgba(106,17,203,0.08),transparent_25%)] pointer-events-none parallax" data-speed="-0.04"></div>
+        <div class="absolute right-[-10%] top-[20%] w-[500px] h-[500px] rounded-full bg-tertiary/5 blur-3xl parallax" data-speed="0.05"></div>
+        
+        <h2 class="text-4xl md:text-5xl font-bold text-center mb-16">The Core</h2>
+        
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-7xl mx-auto">
+            <div class="md:col-span-2 bg-background-light/60 backdrop-blur-xl rounded-2xl p-8 border border-white/10 shadow-lg transition-all duration-300 hover:-translate-y-2 hover:scale-[1.02] hover:shadow-xl hover:shadow-primary/20 hover:border-white/15 flex flex-col items-start relative overflow-hidden group">
+                <div class="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"></div>
+                <i class="fas fa-code text-4xl mb-4 bg-primary-gradient bg-clip-text text-transparent"></i>
+                <h3 class="text-xl font-semibold mb-3">Intelligent Autocomplete</h3>
+                <p class="text-white/70">Advanced code suggestions that understand your project context and coding patterns, helping you write code faster and with fewer errors.</p>
             </div>
-            <div class="core-card div2" data-feature="pair-programming">
-                <i class="fas fa-robot"></i>
-                <h3>AI Pair Programming</h3>
-                <p>Work alongside an AI assistant that understands your coding style and project needs, offering suggestions and improvements as you code.</p>
+            
+            <div class="md:col-span-2 md:row-span-2 bg-background-light/60 backdrop-blur-xl rounded-2xl p-8 border border-white/10 shadow-lg transition-all duration-300 hover:-translate-y-2 hover:scale-[1.02] hover:shadow-xl hover:shadow-primary/20 hover:border-white/15 flex flex-col items-start relative overflow-hidden group">
+                <div class="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"></div>
+                <i class="fas fa-robot text-4xl mb-4 bg-secondary-gradient bg-clip-text text-transparent"></i>
+                <h3 class="text-xl font-semibold mb-3">AI Pair Programming</h3>
+                <p class="text-white/70">Work alongside an AI assistant that understands your coding style and project needs, offering suggestions and improvements as you code.</p>
             </div>
-            <div class="core-card div3" data-feature="explanations">
-                <i class="fas fa-comment-alt"></i>
-                <h3>Code Explanations</h3>
-                <p>Get instant, clear explanations of complex code snippets, functions, or entire files, making it easier to understand unfamiliar codebases.</p>
+            
+            <div class="md:col-span-2 bg-background-light/60 backdrop-blur-xl rounded-2xl p-8 border border-white/10 shadow-lg transition-all duration-300 hover:-translate-y-2 hover:scale-[1.02] hover:shadow-xl hover:shadow-primary/20 hover:border-white/15 flex flex-col items-start relative overflow-hidden group">
+                <div class="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"></div>
+                <i class="fas fa-comment-alt text-4xl mb-4 bg-tertiary-gradient bg-clip-text text-transparent"></i>
+                <h3 class="text-xl font-semibold mb-3">Code Explanations</h3>
+                <p class="text-white/70">Get instant, clear explanations of complex code snippets, functions, or entire files, making it easier to understand unfamiliar codebases.</p>
             </div>
-            <div class="core-card div4" data-feature="debugging">
-                <i class="fas fa-bug"></i>
-                <h3>Smart Debugging</h3>
-                <p>Identify and fix bugs faster with AI-powered debugging suggestions that pinpoint issues and propose solutions based on best practices.</p>
+            
+            <div class="md:col-span-2 bg-background-light/60 backdrop-blur-xl rounded-2xl p-8 border border-white/10 shadow-lg transition-all duration-300 hover:-translate-y-2 hover:scale-[1.02] hover:shadow-xl hover:shadow-primary/20 hover:border-white/15 flex flex-col items-start relative overflow-hidden group">
+                <div class="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"></div>
+                <i class="fas fa-bug text-4xl mb-4 bg-gradient-to-r from-[#ff5e62] to-[#ff9966] bg-clip-text text-transparent"></i>
+                <h3 class="text-xl font-semibold mb-3">Smart Debugging</h3>
+                <p class="text-white/70">Identify and fix bugs faster with AI-powered debugging suggestions that pinpoint issues and propose solutions based on best practices.</p>
             </div>
-            <div class="core-card div6" data-feature="refactoring">
-                <i class="fas fa-sync"></i>
-                <h3>Refactoring Assistant</h3>
-                <p>Transform your code structure with intelligent refactoring suggestions that improve readability, performance, and maintainability.</p>
-            </div>
-        </div>
-
-        <!-- Feature Preview Modals -->
-        <div class="modal-container" id="modal-autocomplete">
-            <div class="modal-overlay"></div>
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h3><i class="fas fa-code"></i> Intelligent Autocomplete</h3>
-                    <button class="modal-close">&times;</button>
-                </div>
-                <div class="modal-body">
-                    <div class="feature-preview">
-                        <div class="preview-image">
-                            <div class="code-editor-preview">
-                                <div class="code-line">function <span class="highlight">calculateTotal</span>(items) {</div>
-                                <div class="code-line">  let total = 0;</div>
-                                <div class="code-line">  for (const item of items) {</div>
-                                <div class="code-line typing-animation">    total += item.pr<span class="cursor">|</span></div>
-                                <div class="code-line suggestion">    total += item.price * item.quantity; <span class="ai-badge">AI</span></div>
-                                <div class="code-line">  }</div>
-                                <div class="code-line">  return total;</div>
-                                <div class="code-line">}</div>
-                            </div>
-                        </div>
-                        <div class="feature-description">
-                            <h4>Code Faster with Context-Aware Suggestions</h4>
-                            <p>Pointer's Intelligent Autocomplete understands your codebase at a deeper level:</p>
-                            <ul>
-                                <li>Predicts entire lines and code blocks, not just individual tokens</li>
-                                <li>Adapts to your coding style and preferences over time</li>
-                                <li>Incorporates project-specific patterns and naming conventions</li>
-                                <li>Suggests optimized implementations based on best practices</li>
-                                <li>Works completely offline with zero latency</li>
-                            </ul>
-                            <p class="feature-highlight">Our local LLM understands variable relationships, function purposes, and data structures to provide truly intelligent suggestions that feel like a senior developer looking over your shoulder.</p>
-                        </div>
-                    </div>
-                </div>
+            
+            <div class="md:col-span-2 bg-background-light/60 backdrop-blur-xl rounded-2xl p-8 border border-white/10 shadow-lg transition-all duration-300 hover:-translate-y-2 hover:scale-[1.02] hover:shadow-xl hover:shadow-primary/20 hover:border-white/15 flex flex-col items-start relative overflow-hidden group">
+                <div class="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"></div>
+                <i class="fas fa-sync text-4xl mb-4 bg-gradient-to-r from-[#4facfe] to-[#00f2fe] bg-clip-text text-transparent"></i>
+                <h3 class="text-xl font-semibold mb-3">Refactoring Assistant</h3>
+                <p class="text-white/70">Transform your code structure with intelligent refactoring suggestions that improve readability, performance, and maintainability.</p>
             </div>
         </div>
-
-        <div class="modal-container" id="modal-pair-programming">
-            <div class="modal-overlay"></div>
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h3><i class="fas fa-robot"></i> AI Pair Programming</h3>
-                    <button class="modal-close">&times;</button>
-                </div>
-                <div class="modal-body">
-                    <div class="feature-preview">
-                        <div class="preview-image">
-                            <div class="chat-preview">
-                                <div class="chat-message user-message">
-                                    <span class="message-icon">👤</span>
-                                    <div class="message-content">
-                                        <p>I need a function to parse CSV data and transform it into a nested JSON structure.</p>
-                                    </div>
-                                </div>
-                                <div class="chat-message ai-message">
-                                    <span class="message-icon">🤖</span>
-                                    <div class="message-content">
-                                        <p>I'll help you create that function. Here's an implementation that handles proper CSV parsing with considerations for escaping and nested structure:</p>
-                                        <pre><code>function parseCSVToJSON(csvData, options = {}) {
-  const lines = csvData.split('\n');
-  const headers = lines[0].split(',');
-  const result = [];
-
-  for (let i = 1; i < lines.length; i++) {
-    if (!lines[i].trim()) continue;
-    
-    const values = parseCSVLine(lines[i]);
-    const entry = {};
-    
-    headers.forEach((header, index) => {
-      const path = header.split('.');
-      let current = entry;
-      
-      for (let j = 0; j < path.length - 1; j++) {
-        if (!current[path[j]]) 
-          current[path[j]] = {};
-        current = current[path[j]];
-      }
-      
-      current[path[path.length - 1]] = values[index];
-    });
-    
-    result.push(entry);
-  }
-  
-  return result;
-}</code></pre>
-                                        <p>Would you like me to explain how this works or make any adjustments?</p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="feature-description">
-                            <h4>Code with an AI Partner Always Ready to Help</h4>
-                            <p>Having an AI partner means you're never stuck or coding alone:</p>
-                            <ul>
-                                <li>Ask questions in natural language about your code</li>
-                                <li>Get implementation suggestions for complex tasks</li>
-                                <li>Receive regular feedback on your code quality</li>
-                                <li>Get help understanding unfamiliar code or libraries</li>
-                                <li>Explain your requirements and get working code in seconds</li>
-                            </ul>
-                            <p class="feature-highlight">Pointer's AI assistant understands your project context and maintains conversation history, providing consistent and relevant help throughout your coding session.</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="modal-container" id="modal-explanations">
-            <div class="modal-overlay"></div>
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h3><i class="fas fa-comment-alt"></i> Code Explanations</h3>
-                    <button class="modal-close">&times;</button>
-                </div>
-                <div class="modal-body">
-                    <div class="feature-preview">
-                        <div class="preview-image">
-                            <div class="explanation-preview">
-                                <div class="code-snippet">
-                                    <pre><code>const memoize = (fn) => {
-  const cache = new Map();
-  return (...args) => {
-    const key = JSON.stringify(args);
-    if (cache.has(key)) return cache.get(key);
-    const result = fn.apply(this, args);
-    cache.set(key, result);
-    return result;
-  };
-};</code></pre>
-                                </div>
-                                <div class="explanation-content">
-                                    <h4>Code Explanation:</h4>
-                                    <p>This is a <span class="highlight">memoization function</span> that improves performance for expensive calculations:</p>
-                                    <ol>
-                                        <li>It creates a closure that maintains a cache (using Map) of previous function calls</li>
-                                        <li>When called, it converts the arguments to a string to use as a cache key</li>
-                                        <li>If the result is already cached, it returns the cached value</li>
-                                        <li>Otherwise, it calls the original function, stores the result, and returns it</li>
-                                    </ol>
-                                    <p>This technique trades memory for speed, making repeated function calls with the same inputs much faster.</p>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="feature-description">
-                            <h4>Understand Any Code in Seconds</h4>
-                            <p>Code explanations help you quickly grasp unfamiliar code:</p>
-                            <ul>
-                                <li>Get clear, concise explanations of complex code snippets</li>
-                                <li>Understand advanced patterns and techniques</li>
-                                <li>Learn how code works at both high and detailed levels</li>
-                                <li>Identify potential issues and optimization opportunities</li>
-                                <li>Quickly onboard to new projects or codebases</li>
-                            </ul>
-                            <p class="feature-highlight">Never waste time again trying to decipher complex code. Pointer's explanations break down any code into clear, understandable concepts with context-specific insights.</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="modal-container" id="modal-debugging">
-            <div class="modal-overlay"></div>
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h3><i class="fas fa-bug"></i> Smart Debugging</h3>
-                    <button class="modal-close">&times;</button>
-                </div>
-                <div class="modal-body">
-                    <div class="feature-preview">
-                        <div class="preview-image">
-                            <div class="debugging-preview">
-                                <div class="error-message">
-                                    <span class="error-icon">❌</span>
-                                    <div class="error-content">
-                                        <p class="error-title">TypeError: Cannot read property 'map' of undefined</p>
-                                        <p class="error-location">at UserList.js:24:23</p>
-                                    </div>
-                                </div>
-                                <div class="debug-analysis">
-                                    <h4>AI Analysis:</h4>
-                                    <p>The error occurs because <code>users</code> is undefined when you try to call <code>.map()</code> on it. This likely happens because:</p>
-                                    <ol>
-                                        <li>The API request to fetch users has not completed yet</li>
-                                        <li>The response data structure doesn't match what your code expects</li>
-                                        <li>There's an error in the API call that prevents data from being returned</li>
-                                    </ol>
-                                    <div class="solution">
-                                        <h5>Suggested Fix:</h5>
-                                        <pre><code>// Add null check before mapping
-return (
-  &lt;div className="user-list"&gt;
-    {users && users.length > 0 ? (
-      users.map(user => (
-        &lt;UserCard key={user.id} user={user} /&gt;
-      ))
-    ) : (
-      &lt;p&gt;No users found or loading...&lt;/p&gt;
-    )}
-  &lt;/div&gt;
-);</code></pre>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="feature-description">
-                            <h4>Fix Bugs in Record Time</h4>
-                            <p>Smart debugging helps you identify and solve issues quickly:</p>
-                            <ul>
-                                <li>Get instant analysis of runtime errors and exceptions</li>
-                                <li>Identify root causes rather than just symptoms</li>
-                                <li>Receive specific, actionable solutions for each bug</li>
-                                <li>Learn best practices for error prevention</li>
-                                <li>Debug complex issues across multiple files</li>
-                            </ul>
-                            <p class="feature-highlight">Pointer's debugging assistant understands the entire context of your error, including your application architecture, helping you fix bugs significantly faster than traditional debugging methods.</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="modal-container" id="modal-refactoring">
-            <div class="modal-overlay"></div>
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h3><i class="fas fa-sync"></i> Refactoring Assistant</h3>
-                    <button class="modal-close">&times;</button>
-                </div>
-                <div class="modal-body">
-                    <div class="feature-preview">
-                        <div class="preview-image">
-                            <div class="refactoring-preview">
-                                <div class="code-slider-container">
-                                    <div class="code-slider-labels">
-                                        <div class="slider-label-before">Before</div>
-                                        <div class="slider-label-after">After</div>
-                                    </div>
-                                    <div class="code-slider">
-                                        <div class="code-before">
-                                            <pre><code>function processData(data) {
-  let result = [];
-  for (let i = 0; i < data.length; i++) {
-    if (data[i].active === true) {
-      let item = data[i];
-      let processed = {
-        id: item.id,
-        name: item.name,
-        score: item.points * 2
-      };
-      result.push(processed);
-    }
-  }
-  return result;
-}</code></pre>
-                                        </div>
-                                        <div class="code-after">
-                                            <pre><code>function processData(data) {
-  return data
-    .filter(item => item.active)
-    .map(item => ({
-      id: item.id,
-      name: item.name,
-      score: item.points * 2
-    }));
-}</code></pre>
-                                        </div>
-                                        <div class="slider-handle">
-                                            <div class="slider-divider"></div>
-                                            <div class="slider-button">
-                                                <i class="fas fa-grip-lines-vertical"></i>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="refactoring-benefits">
-                                    <h5>Improvements:</h5>
-                                    <ul>
-                                        <li>Reduced code length by 64%</li>
-                                        <li>Used functional programming patterns</li>
-                                        <li>Improved readability and maintainability</li>
-                                        <li>Eliminated temporary variables</li>
-                                        <li>Removed explicit looping constructs</li>
-                                    </ul>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="feature-description">
-                            <h4>Transform Your Code Quality</h4>
-                            <p>Refactoring assistance helps you write cleaner, better code:</p>
-                            <ul>
-                                <li>Get suggestions to improve code structure and readability</li>
-                                <li>Convert between coding styles and patterns</li>
-                                <li>Optimize performance bottlenecks</li>
-                                <li>Modernize legacy code with current best practices</li>
-                                <li>Simplify complex or verbose implementations</li>
-                            </ul>
-                            <p class="feature-highlight">Pointer analyzes your code holistically to suggest meaningful refactorings that improve code quality while maintaining functionality and your coding style preferences.</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <style>
-            .core-section {
-                position: relative;
-                overflow: hidden;
-                background-color: #111;
-                padding: 4rem 2rem;
-            }
-            
-            .diode-1 {
-                top: 32%;
-                left: 80%;
-                width: 10px;
-                height: 6px;
-                clip-path: polygon(0% 50%, 100% 0%, 100% 100%);
-            }
-            
-            .diode-2 {
-                top: 75%;
-                left: 55%;
-                width: 8px;
-                height: 5px;
-                transform: rotate(90deg);
-                clip-path: polygon(0% 50%, 100% 0%, 100% 100%);
-            }
-            
-            .led-1 {
-                top: 25%;
-                left: 20%;
-                width: 6px;
-                height: 6px;
-                border-radius: 50%;
-                background-color: rgba(99, 102, 241, 0.8);
-            }
-            
-            .led-2 {
-                top: 25%;
-                left: 50%;
-                width: 6px;
-                height: 6px;
-                border-radius: 50%;
-                background-color: rgba(99, 102, 241, 0.8);
-            }
-            
-            .led-3 {
-                top: 25%;
-                left: 80%;
-                width: 6px;
-                height: 6px;
-                border-radius: 50%;
-                background-color: rgba(99, 102, 241, 0.8);
-            }
-            
-            /* Connector glow for cards */
-            .connector-glow {
-                display: none;
-                position: absolute;
-                top: -8px;
-                left: 50%;
-                transform: translateX(-50%);
-                width: 16px;
-                height: 16px;
-                background: radial-gradient(circle, rgba(99, 102, 241, 0.6) 0%, rgba(99, 102, 241, 0) 70%);
-                border-radius: 50%;
-                z-index: 2;
-                opacity: 0;
-                transition: opacity 0.3s ease;
-            }
-            
-            .core-card:hover .connector-glow {
-                opacity: 0;
-                animation: none;
-            }
-            
-            /* Animations */
-            @keyframes pulse {
-                0% { transform: scale(1); opacity: 0.7; }
-                50% { transform: scale(1.3); opacity: 1; }
-                100% { transform: scale(1); opacity: 0.7; }
-            }
-            
-            @keyframes pulse-glow {
-                0% { transform: translateX(-50%) scale(1); opacity: 0.7; }
-                50% { transform: translateX(-50%) scale(1.5); opacity: 1; }
-                100% { transform: translateX(-50%) scale(1); opacity: 0.7; }
-            }
-            
-            @keyframes blink {
-                0%, 100% { opacity: 0.3; }
-                50% { opacity: 1; }
-            }
-            
-            @keyframes blink-slow {
-                0%, 100% { opacity: 0.3; }
-                50% { opacity: 1; }
-            }
-            
-            @keyframes blink-fast {
-                0%, 100% { opacity: 0.3; }
-                50% { opacity: 1; }
-            }
-            
-            @keyframes trace-glow {
-                0% { opacity: 0.3; box-shadow: 0 0 5px rgba(99, 102, 241, 0.3); }
-                50% { opacity: 1; box-shadow: 0 0 10px rgba(99, 102, 241, 0.8); }
-                100% { opacity: 0.3; box-shadow: 0 0 5px rgba(99, 102, 241, 0.3); }
-            }
-            
-            @keyframes move-right {
-                0% { left: -5px; }
-                100% { left: 110%; }
-            }
-            
-            @keyframes move-left {
-                0% { right: -5px; }
-                100% { right: 110%; }
-            }
-            
-            @keyframes move-down {
-                0% { top: -5px; }
-                100% { top: 110%; }
-            }
-            
-            @keyframes move-to-card {
-                0% { top: 0%; }
-                100% { top: 110%; }
-            }
-            
-            @keyframes move-horizontal {
-                0% { left: -5px; }
-                100% { left: 105%; }
-            }
-            
-            @keyframes capacitor-charging {
-                0% { transform: translateY(100%); }
-                45% { transform: translateY(0%); }
-                55% { transform: translateY(0%); }
-                100% { transform: translateY(-100%); }
-            }
-            
-            @keyframes processing {
-                0% { left: 15%; }
-                100% { left: 85%; }
-            }
-            
-            .pulse {
-                animation: pulse 3s infinite;
-            }
-            
-            .blink {
-                animation: blink 2s infinite;
-            }
-            
-            .blink-slow {
-                animation: blink-slow 4s infinite;
-            }
-            
-            .blink-fast {
-                animation: blink-fast 1s infinite;
-            }
-            
-            /* Data flow animation */
-            @keyframes data-flow {
-                0% { opacity: 0; transform: translateY(0); }
-                50% { opacity: 1; }
-                100% { opacity: 0; transform: translateY(20px); }
-            }
-            
-            .core-grid {
-                position: relative;
-                z-index: 3;
-                display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-                gap: 2rem;
-                margin-top: 2rem;
-            }
-            
-            .core-card {
-                position: relative;
-                background-color: #1a1a1a;
-                border: 1px solid #333;
-                border-radius: 8px;
-                padding: 1.5rem;
-                transition: all 0.3s ease;
-                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            }
-            
-            .core-card:hover {
-                transform: translateY(-5px);
-                box-shadow: 0 10px 20px rgba(99, 102, 241, 0.2);
-                border-color: #6366f1;
-            }
-            
-            .core-card:hover .card-connector {
-                box-shadow: 0 -4px 10px rgba(99, 102, 241, 0.6);
-                border-color: #6366f1;
-            }
-            
-            .card-connector {
-                position: absolute;
-                top: -10px;
-                left: 50%;
-                transform: translateX(-50%);
-                width: 20px;
-                height: 10px;
-                background-color: #1a1a1a;
-                border-left: 1px solid #6366f1;
-                border-right: 1px solid #6366f1;
-                border-top: 1px solid #6366f1;
-                box-shadow: 0 -4px 6px rgba(99, 102, 241, 0.2);
-                transition: all 0.3s ease;
-            }
-            
-            .core-card i {
-                font-size: 2rem;
-                color: #6366f1 !important;
-                background: none !important;
-                -webkit-text-fill-color: #6366f1 !important;
-                margin-bottom: 1rem;
-                display: inline-block;
-                text-shadow: 0 0 10px rgba(99, 102, 241, 0.5);
-            }
-
-            /* Adding icon animation on hover */
-            .core-card:hover i {
-                transform: scale(1.2);
-                transition: transform 0.3s ease, color 0.3s ease;
-            }
-
-            /* Modal Styles */
-            .modal-container {
-                position: fixed;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-                z-index: 100;
-                display: none;
-                align-items: center;
-                justify-content: center;
-            }
-            
-            .modal-container.active {
-                display: flex;
-                animation: fadeIn 0.3s ease forwards;
-            }
-            
-            .modal-overlay {
-                position: absolute;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-                background-color: rgba(0, 0, 0, 0.7);
-                backdrop-filter: blur(4px);
-            }
-            
-            .modal-content {
-                position: relative;
-                width: 90%;
-                max-width: 1000px;
-                max-height: 90vh;
-                background-color: #121212;
-                border-radius: 10px;
-                border: 1px solid #333;
-                box-shadow: 0 15px 40px rgba(0, 0, 0, 0.5), 0 0 20px rgba(99, 102, 241, 0.3);
-                overflow: hidden;
-                z-index: 101;
-                animation: modalSlideIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-            }
-            
-            .modal-header {
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-                padding: 1rem 1.5rem;
-                background-color: #1a1a1a;
-                border-bottom: 1px solid #333;
-            }
-            
-            .modal-header h3 {
-                display: flex;
-                align-items: center;
-                gap: 0.5rem;
-                margin: 0;
-                color: #6366f1;
-                text-shadow: 0 0 10px rgba(99, 102, 241, 0.3);
-            }
-            
-            .modal-header i {
-                font-size: 1.2rem;
-            }
-            
-            .modal-close {
-                background: none;
-                border: none;
-                color: #aaa;
-                font-size: 1.5rem;
-                cursor: pointer;
-                padding: 0.25rem 0.5rem;
-                line-height: 1;
-                transition: all 0.2s ease;
-                border-radius: 4px;
-            }
-            
-            .modal-close:hover {
-                color: #fff;
-                background-color: rgba(255, 255, 255, 0.1);
-            }
-            
-            .modal-body {
-                padding: 1.5rem;
-                overflow-y: auto;
-                max-height: calc(90vh - 4rem);
-            }
-            
-            .feature-preview {
-                display: grid;
-                grid-template-columns: 1fr 1fr;
-                gap: 2rem;
-            }
-            
-            @media (max-width: 768px) {
-                .feature-preview {
-                    grid-template-columns: 1fr;
-                }
-            }
-            
-            .preview-image {
-                background-color: #1a1a1a;
-                border-radius: 8px;
-                overflow: hidden;
-            }
-            
-            .feature-description {
-                display: flex;
-                flex-direction: column;
-                gap: 1rem;
-            }
-            
-            .feature-description h4 {
-                margin-top: 0;
-                color: #fff;
-                font-size: 1.3rem;
-            }
-            
-            .feature-description ul {
-                margin: 0;
-                padding-left: 1.5rem;
-            }
-            
-            .feature-description li {
-                margin-bottom: 0.5rem;
-                position: relative;
-            }
-            
-            .feature-description li::before {
-                content: '▸';
-                color: #6366f1;
-                position: absolute;
-                left: -1.2rem;
-            }
-            
-            .feature-highlight {
-                background-color: rgba(99, 102, 241, 0.1);
-                border-left: 3px solid #6366f1;
-                padding: 1rem;
-                border-radius: 0 6px 6px 0;
-                margin-top: 1rem;
-            }
-            
-            /* Preview Contents Styling */
-            /* Code Editor Preview */
-            .code-editor-preview {
-                width: 100%;
-                padding: 1rem;
-                background-color: #1e1e1e;
-                font-family: 'Fira Code', monospace;
-                color: #d4d4d4;
-                line-height: 1.5;
-                border-radius: 4px;
-            }
-            
-            .code-line {
-                margin-bottom: 0.25rem;
-                white-space: pre;
-            }
-            
-            .highlight {
-                color: #569cd6;
-            }
-            
-            .cursor {
-                display: inline-block;
-                width: 2px;
-                height: 1.2em;
-                background-color: #6366f1;
-                animation: blink 1s infinite;
-                vertical-align: middle;
-            }
-            
-            .typing-animation {
-                position: relative;
-            }
-            
-            .suggestion {
-                color: rgba(255, 255, 255, 0.6);
-                background-color: rgba(99, 102, 241, 0.05);
-                padding: 0.15rem 0.5rem;
-                border-radius: 4px;
-                border-left: 2px solid #6366f1;
-                margin-left: 0.5rem;
-                display: inline-block;
-            }
-            
-            .ai-badge {
-                background-color: #6366f1;
-                color: #121212;
-                font-size: 0.7rem;
-                padding: 0.1rem 0.3rem;
-                border-radius: 4px;
-                margin-left: 0.5rem;
-                font-weight: bold;
-                vertical-align: middle;
-            }
-            
-            /* Chat Preview */
-            .chat-preview {
-                display: flex;
-                flex-direction: column;
-                gap: 1rem;
-                width: 100%;
-                padding: 1rem;
-            }
-            
-            .chat-message {
-                display: flex;
-                gap: 0.5rem;
-                max-width: 100%;
-            }
-            
-            .user-message {
-                align-self: flex-end;
-            }
-            
-            .ai-message {
-                align-self: flex-start;
-            }
-            
-            .message-icon {
-                font-size: 1.5rem;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                min-width: 2.5rem;
-                height: 2.5rem;
-                background-color: #2a2a2a;
-                border-radius: 50%;
-            }
-            
-            .user-message .message-icon {
-                background-color: #333;
-            }
-            
-            .ai-message .message-icon {
-                background-color: rgba(99, 102, 241, 0.2);
-            }
-            
-            .message-content {
-                background-color: #2a2a2a;
-                padding: 0.75rem 1rem;
-                border-radius: 8px;
-                max-width: calc(100% - 3rem);
-            }
-            
-            .user-message .message-content {
-                background-color: #333;
-            }
-            
-            .ai-message .message-content {
-                background-color: rgba(99, 102, 241, 0.1);
-                border: 1px solid rgba(99, 102, 241, 0.2);
-            }
-            
-            .message-content p {
-                margin: 0 0 0.5rem 0;
-            }
-            
-            .message-content p:last-child {
-                margin-bottom: 0;
-            }
-            
-            .message-content pre {
-                background-color: #1e1e1e;
-                padding: 0.5rem;
-                border-radius: 4px;
-                overflow-x: auto;
-                font-size: 0.9rem;
-                margin: 0.5rem 0;
-            }
-            
-            /* Explanation Preview */
-            .explanation-preview {
-                width: 100%;
-                padding: 1rem;
-            }
-            
-            .code-snippet {
-                background-color: #1e1e1e;
-                padding: 1rem;
-                border-radius: 6px;
-                margin-bottom: 1rem;
-                overflow-x: auto;
-            }
-            
-            .code-snippet pre {
-                margin: 0;
-                font-family: 'Fira Code', monospace;
-                font-size: 0.9rem;
-            }
-            
-            .explanation-content {
-                background-color: rgba(99, 102, 241, 0.05);
-                border-radius: 6px;
-                padding: 1rem;
-                border: 1px solid rgba(99, 102, 241, 0.2);
-            }
-            
-            .explanation-content h4 {
-                margin-top: 0;
-                color: #6366f1;
-            }
-            
-            .explanation-content p {
-                margin-top: 0;
-            }
-            
-            .explanation-content ol {
-                padding-left: 1.2rem;
-            }
-            
-            .explanation-content li {
-                margin-bottom: 0.5rem;
-            }
-            
-            /* Debugging Preview */
-            .debugging-preview {
-                width: 100%;
-                padding: 1rem;
-            }
-            
-            .error-message {
-                background-color: rgba(255, 70, 70, 0.2);
-                border: 1px solid rgba(255, 70, 70, 0.3);
-                padding: 0.75rem;
-                border-radius: 6px;
-                margin-bottom: 1rem;
-                display: flex;
-                align-items: flex-start;
-                gap: 0.5rem;
-            }
-            
-            .error-icon {
-                background-color: rgba(255, 70, 70, 0.3);
-                width: 1.5rem;
-                height: 1.5rem;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                border-radius: 50%;
-                font-size: 0.8rem;
-            }
-            
-            .error-content {
-                flex: 1;
-            }
-            
-            .error-title {
-                color: #ff6b6b;
-                margin: 0 0 0.25rem 0;
-                font-family: 'Fira Code', monospace;
-                font-weight: 600;
-            }
-            
-            .error-location {
-                color: #aaa;
-                font-size: 0.9rem;
-                margin: 0;
-                font-family: 'Fira Code', monospace;
-            }
-            
-            .debug-analysis {
-                background-color: rgba(99, 102, 241, 0.05);
-                border: 1px solid rgba(99, 102, 241, 0.2);
-                border-radius: 6px;
-                padding: 1rem;
-            }
-            
-            .debug-analysis h4 {
-                margin-top: 0;
-                color: #6366f1;
-            }
-            
-            .debug-analysis p {
-                margin-top: 0;
-            }
-            
-            .debug-analysis code {
-                background-color: rgba(0, 0, 0, 0.2);
-                padding: 0.1rem 0.3rem;
-                border-radius: 3px;
-                font-family: 'Fira Code', monospace;
-                font-size: 0.9em;
-            }
-            
-            .solution {
-                background-color: rgba(0, 0, 0, 0.2);
-                padding: 1rem;
-                border-radius: 6px;
-                margin-top: 1rem;
-            }
-            
-            .solution h5 {
-                margin-top: 0;
-                color: #6366f1;
-            }
-            
-            .solution pre {
-                margin: 0.5rem 0 0 0;
-                background-color: #1e1e1e;
-                padding: 0.75rem;
-                border-radius: 4px;
-                overflow-x: auto;
-                font-size: 0.9rem;
-            }
-            
-            /* Refactoring Preview */
-            .refactoring-preview {
-                width: 100%;
-                padding: 1rem;
-            }
-            
-            .code-comparison {
-                display: none; /* Hide the original comparison */
-            }
-            
-            .code-slider-container {
-                position: relative;
-                margin-bottom: 1.5rem;
-                border-radius: 6px;
-                overflow: hidden;
-                box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-            }
-            
-            .code-slider-labels {
-                display: flex;
-                justify-content: space-between;
-                padding: 8px 12px;
-                background-color: #252525;
-                font-size: 0.9rem;
-                border-bottom: 1px solid #333;
-            }
-            
-            .slider-label-before, .slider-label-after {
-                font-weight: bold;
-                padding: 4px 8px;
-                border-radius: 4px;
-            }
-            
-            .slider-label-before {
-                background-color: rgba(170, 170, 170, 0.2);
-                color: #aaa;
-            }
-            
-            .slider-label-after {
-                background-color: rgba(99, 102, 241, 0.2);
-                color: #6366f1;
-            }
-            
-            .code-slider {
-                position: relative;
-                height: 275px;
-                overflow: hidden;
-                background-color: #1e1e1e;
-            }
-            
-            .code-before,
-            .code-after {
-                position: absolute;
-                top: 0;
-                height: 100%;
-                width: 100%;
-                overflow: auto;
-                padding: 16px;
-                box-sizing: border-box;
-                border-left: none;
-                background-color: #1e1e1e;
-            }
-            
-            .code-before {
-                left: 0;
-                z-index: 1;
-                border-right: none;
-                background-color: #1e1e1e;
-            }
-            
-            .code-after {
-                left: 0;
-                z-index: 2;
-                background-color: #1e1e1e;
-                clip-path: polygon(50% 0, 100% 0, 100% 100%, 50% 100%);
-            }
-            
-            .slider-handle {
-                position: absolute;
-                top: 0;
-                bottom: 0;
-                left: 50%;
-                z-index: 3;
-                width: 2px;
-                transform: translateX(-50%);
-                cursor: ew-resize;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-            }
-            
-            .slider-divider {
-                position: absolute;
-                width: 2px;
-                height: 100%;
-                background-color: #6366f1;
-                box-shadow: 0 0 10px rgba(99, 102, 241, 0.8);
-            }
-            
-            .slider-button {
-                position: absolute;
-                width: 30px;
-                height: 30px;
-                background-color: #6366f1;
-                border-radius: 50%;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                color: #121212;
-                box-shadow: 0 0 10px rgba(99, 102, 241, 0.8);
-                font-size: 14px;
-            }
-            
-            .slider-button i {
-                margin-top: 1px;
-            }
-            
-            /* Make sure the code blocks have the same styling */
-            .code-before pre, .code-after pre {
-                margin: 0;
-                font-family: 'Fira Code', monospace;
-                font-size: 0.85rem;
-                width: 100%;
-                height: 100%;
-            }
-            
-            .refactoring-benefits {
-                background-color: rgba(99, 102, 241, 0.05);
-                border: 1px solid rgba(99, 102, 241, 0.2);
-                border-radius: 6px;
-                padding: 1rem;
-            }
-            
-            .refactoring-benefits h5 {
-                margin-top: 0;
-                color: #6366f1;
-                margin-bottom: 0.5rem;
-            }
-            
-            .refactoring-benefits ul {
-                margin: 0;
-                padding-left: 1.5rem;
-            }
-            
-            .refactoring-benefits li {
-                margin-bottom: 0.25rem;
-            }
-            
-            /* Animations */
-            @keyframes fadeIn {
-                from { opacity: 0; }
-                to { opacity: 1; }
-            }
-            
-            @keyframes modalSlideIn {
-                from { transform: translateY(30px); opacity: 0; }
-                to { transform: translateY(0); opacity: 1; }
-            }
-            
-            @keyframes blink {
-                0%, 49% { opacity: 1; }
-                50%, 100% { opacity: 0; }
-            }
-            
-            /* Core cards hover enhancements */
-            .core-card {
-                cursor: pointer;
-            }
-            
-            .core-card:hover::after {
-                content: 'Click for details';
-                position: absolute;
-                bottom: 10px;
-                right: 10px;
-                background-color: rgba(0, 0, 0, 0.6);
-                color: #6366f1;
-                padding: 0.2rem 0.5rem;
-                border-radius: 4px;
-                font-size: 0.8rem;
-                opacity: 0.7;
-            }
-        </style>
-        <script>
-            document.addEventListener('DOMContentLoaded', function() {
-                // Get all core cards and modals
-                const coreCards = document.querySelectorAll('.core-card');
-                const modals = document.querySelectorAll('.modal-container');
-                const closeButtons = document.querySelectorAll('.modal-close');
-                const overlays = document.querySelectorAll('.modal-overlay');
-                
-                // Add click event to each core card
-                coreCards.forEach(card => {
-                    card.addEventListener('click', function() {
-                        const feature = this.getAttribute('data-feature');
-                        const modal = document.getElementById(`modal-${feature}`);
-                        if (modal) {
-                            modal.classList.add('active');
-                            document.body.style.overflow = 'hidden'; // Prevent scrolling when modal is open
-                        }
-                    });
-                });
-                
-                // Function to close modal
-                function closeModal(modal) {
-                    modal.classList.remove('active');
-                    document.body.style.overflow = ''; // Restore scrolling
-                }
-                
-                // Add click event to close buttons
-                closeButtons.forEach(button => {
-                    button.addEventListener('click', function() {
-                        const modal = this.closest('.modal-container');
-                        closeModal(modal);
-                    });
-                });
-                
-                // Add click event to overlays (close when clicking outside modal)
-                overlays.forEach(overlay => {
-                    overlay.addEventListener('click', function() {
-                        const modal = this.closest('.modal-container');
-                        closeModal(modal);
-                    });
-                });
-                
-                // Close modal with Escape key
-                document.addEventListener('keydown', function(event) {
-                    if (event.key === 'Escape') {
-                        const activeModal = document.querySelector('.modal-container.active');
-                        if (activeModal) {
-                            closeModal(activeModal);
-                        }
-                    }
-                });
-
-                // Code Slider functionality
-                initCodeSlider();
-            });
-
-            function initCodeSlider() {
-                const slider = document.querySelector('.code-slider');
-                const sliderHandle = document.querySelector('.slider-handle');
-                const codeAfter = document.querySelector('.code-after');
-                
-                if (!slider || !sliderHandle || !codeAfter) return;
-                
-                let isDragging = false;
-                
-                // Set initial position
-                let position = 50; // Percentage
-                updateSliderPosition(position);
-                
-                // Mouse events
-                sliderHandle.addEventListener('mousedown', startDrag);
-                document.addEventListener('mousemove', drag);
-                document.addEventListener('mouseup', stopDrag);
-                
-                // Touch events for mobile
-                sliderHandle.addEventListener('touchstart', startDrag);
-                document.addEventListener('touchmove', drag);
-                document.addEventListener('touchend', stopDrag);
-                
-                function startDrag(e) {
-                    e.preventDefault();
-                    isDragging = true;
-                }
-                
-                function drag(e) {
-                    if (!isDragging) return;
-                    e.preventDefault();
-                    
-                    const sliderRect = slider.getBoundingClientRect();
-                    const x = (e.clientX || (e.touches && e.touches[0].clientX)) - sliderRect.left;
-                    
-                    // Calculate percentage position
-                    position = Math.min(Math.max((x / sliderRect.width) * 100, 0), 100);
-                    updateSliderPosition(position);
-                }
-                
-                function stopDrag() {
-                    isDragging = false;
-                }
-                
-                function updateSliderPosition(position) {
-                    sliderHandle.style.left = `${position}%`;
-                    codeAfter.style.clipPath = `polygon(${position}% 0, 100% 0, 100% 100%, ${position}% 100%)`;
-                }
-            }
-        </script>
     </section>
 
     <!-- Scrolling reviews section -->
-    <section class="reviews-section">
-        <div class="container">
-            <h2 class="reviews-title">What Our Users Say</h2>
-            <div class="review-container">
-                <div class="review-track review-track-top">
-                    <!-- Top row review cards -->
-                    <div class="review-card">
-                        <div class="review-content">
-                            <p class="review-text"><span class="quote">"</span>Pointer has completely transformed my coding workflow. The AI assistance is incredibly accurate and the privacy features give me peace of mind.<span class="quote">"</span></p>
-                            <div class="reviewer">
-                                <div class="reviewer-name">Alex Johnson</div>
-                                <div class="reviewer-title">Senior Developer</div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="review-card">
-                        <div class="review-content">
-                            <p class="review-text"><span class="quote">"</span>I'm impressed by how fast Pointer runs on my machine. No more waiting for cloud-based LLMs to respond - it's all instant and local!<span class="quote">"</span></p>
-                            <div class="reviewer">
-                                <div class="reviewer-name">Maria Garcia</div>
-                                <div class="reviewer-title">Full Stack Engineer</div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="review-card">
-                        <div class="review-content">
-                            <p class="review-text"><span class="quote">"</span>The code suggestions are remarkably accurate. It's like having a senior developer looking over my shoulder, but without the awkwardness.<span class="quote">"</span></p>
-                            <div class="reviewer">
-                                <div class="reviewer-name">David Kim</div>
-                                <div class="reviewer-title">Software Architect</div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="review-card">
-                        <div class="review-content">
-                            <p class="review-text"><span class="quote">"</span>I was skeptical at first, but after trying Pointer for a week, I can't imagine coding without it. The local LLM performance is impressive.<span class="quote">"</span></p>
-                            <div class="reviewer">
-                                <div class="reviewer-name">Lisa Thompson</div>
-                                <div class="reviewer-title">Frontend Developer</div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="review-card">
-                        <div class="review-content">
-                            <p class="review-text"><span class="quote">"</span>As someone who values privacy, I appreciate that Pointer keeps all my code local. Plus, the performance is better than any cloud solution I've tried.<span class="quote">"</span></p>
-                            <div class="reviewer">
-                                <div class="reviewer-name">James Wilson</div>
-                                <div class="reviewer-title">Security Engineer</div>
-                            </div>
-                        </div>
-                    </div>
-                    <!-- Duplicate cards for continuous scrolling effect -->
-                    <div class="review-card">
-                        <div class="review-content">
-                            <p class="review-text"><span class="quote">"</span>Pointer has completely transformed my coding workflow. The AI assistance is incredibly accurate and the privacy features give me peace of mind.<span class="quote">"</span></p>
-                            <div class="reviewer">
-                                <div class="reviewer-name">Alex Johnson</div>
-                                <div class="reviewer-title">Senior Developer</div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="review-card">
-                        <div class="review-content">
-                            <p class="review-text"><span class="quote">"</span>I'm impressed by how fast Pointer runs on my machine. No more waiting for cloud-based LLMs to respond - it's all instant and local!<span class="quote">"</span></p>
-                            <div class="reviewer">
-                                <div class="reviewer-name">Maria Garcia</div>
-                                <div class="reviewer-title">Full Stack Engineer</div>
-                            </div>
-                        </div>
+    <section class="relative py-24 px-8 bg-background overflow-hidden">
+        <!-- Background effects -->
+        <div class="absolute inset-0 bg-[radial-gradient(circle_at_50%_25%,rgba(99,102,241,0.06),transparent_40%)] pointer-events-none parallax" data-speed="-0.02"></div>
+        
+        <h2 class="text-4xl md:text-5xl font-bold text-center mb-16">What Our Users Say</h2>
+        
+        <div class="relative max-w-7xl mx-auto overflow-hidden">
+            <!-- Top row of reviews -->
+            <div class="flex gap-6 animate-[scrollRight_30s_linear_infinite] hover:pause">
+                <!-- First set of reviews -->
+                <div class="flex-shrink-0 w-[300px] bg-background-light/60 backdrop-blur-xl rounded-xl p-6 border border-white/10 shadow-lg">
+                    <p class="text-white/80 mb-4"><span class="text-primary/80 text-xl">"</span>Pointer has completely transformed my coding workflow. The AI assistance is incredibly accurate and the privacy features give me peace of mind.<span class="text-primary/80 text-xl">"</span></p>
+                    <div>
+                        <div class="font-semibold">Alex Johnson</div>
+                        <div class="text-sm text-white/60">Senior Developer</div>
                     </div>
                 </div>
                 
-                <div class="review-track review-track-bottom">
-                    <!-- Bottom row review cards -->
-                    <div class="review-card">
-                        <div class="review-content">
-                            <p class="review-text"><span class="quote">"</span>The autocomplete suggestions save me so much time. Pointer seems to understand my coding style and anticipates what I'm going to write next.<span class="quote">"</span></p>
-                            <div class="reviewer">
-                                <div class="reviewer-name">Michael Chen</div>
-                                <div class="reviewer-title">Backend Developer</div>
-                            </div>
-                        </div>
+                <div class="flex-shrink-0 w-[300px] bg-background-light/60 backdrop-blur-xl rounded-xl p-6 border border-white/10 shadow-lg">
+                    <p class="text-white/80 mb-4"><span class="text-primary/80 text-xl">"</span>I'm impressed by how fast Pointer runs on my machine. No more waiting for cloud-based LLMs to respond - it's all instant and local!<span class="text-primary/80 text-xl">"</span></p>
+                    <div>
+                        <div class="font-semibold">Maria Garcia</div>
+                        <div class="text-sm text-white/60">Full Stack Engineer</div>
                     </div>
-                    <div class="review-card">
-                        <div class="review-content">
-                            <p class="review-text"><span class="quote">"</span>Having my code stay on my machine instead of being sent to the cloud gives me confidence when working with sensitive projects.<span class="quote">"</span></p>
-                            <div class="reviewer">
-                                <div class="reviewer-name">Sarah Miller</div>
-                                <div class="reviewer-title">Security Specialist</div>
-                            </div>
-                        </div>
+                </div>
+                
+                <div class="flex-shrink-0 w-[300px] bg-background-light/60 backdrop-blur-xl rounded-xl p-6 border border-white/10 shadow-lg">
+                    <p class="text-white/80 mb-4"><span class="text-primary/80 text-xl">"</span>The code suggestions are remarkably accurate. It's like having a senior developer looking over my shoulder, but without the awkwardness.<span class="text-primary/80 text-xl">"</span></p>
+                    <div>
+                        <div class="font-semibold">David Kim</div>
+                        <div class="text-sm text-white/60">Software Architect</div>
                     </div>
-                    <div class="review-card">
-                        <div class="review-content">
-                            <p class="review-text"><span class="quote">"</span>Pointer's documentation generation feature is magical. It saves me hours of tedious work and creates thorough, accurate docs.<span class="quote">"</span></p>
-                            <div class="reviewer">
-                                <div class="reviewer-name">Robert Taylor</div>
-                                <div class="reviewer-title">Technical Lead</div>
-                            </div>
-                        </div>
+                </div>
+                
+                <div class="flex-shrink-0 w-[300px] bg-background-light/60 backdrop-blur-xl rounded-xl p-6 border border-white/10 shadow-lg">
+                    <p class="text-white/80 mb-4"><span class="text-primary/80 text-xl">"</span>I was skeptical at first, but after trying Pointer for a week, I can't imagine coding without it. The local LLM performance is impressive.<span class="text-primary/80 text-xl">"</span></p>
+                    <div>
+                        <div class="font-semibold">Lisa Thompson</div>
+                        <div class="text-sm text-white/60">Frontend Developer</div>
                     </div>
-                    <div class="review-card">
-                        <div class="review-content">
-                            <p class="review-text"><span class="quote">"</span>I love how Pointer integrates seamlessly with my existing development workflow. It feels like a natural extension of my IDE.<span class="quote">"</span></p>
-                            <div class="reviewer">
-                                <div class="reviewer-name">Emma Rodriguez</div>
-                                <div class="reviewer-title">DevOps Engineer</div>
-                            </div>
-                        </div>
+                </div>
+                
+                <div class="flex-shrink-0 w-[300px] bg-background-light/60 backdrop-blur-xl rounded-xl p-6 border border-white/10 shadow-lg">
+                    <p class="text-white/80 mb-4"><span class="text-primary/80 text-xl">"</span>As someone who values privacy, I appreciate that Pointer keeps all my code local. Plus, the performance is better than any cloud solution I've tried.<span class="text-primary/80 text-xl">"</span></p>
+                    <div>
+                        <div class="font-semibold">James Wilson</div>
+                        <div class="text-sm text-white/60">Security Engineer</div>
                     </div>
-                    <div class="review-card">
-                        <div class="review-content">
-                            <p class="review-text"><span class="quote">"</span>The bug-fixing suggestions are incredibly helpful. Pointer often spots issues before I even run the code.<span class="quote">"</span></p>
-                            <div class="reviewer">
-                                <div class="reviewer-name">Thomas Wright</div>
-                                <div class="reviewer-title">QA Engineer</div>
-                            </div>
-                        </div>
+                </div>
+                
+                <!-- Duplicate first set for infinite scroll -->
+                <div class="flex-shrink-0 w-[300px] bg-background-light/60 backdrop-blur-xl rounded-xl p-6 border border-white/10 shadow-lg">
+                    <p class="text-white/80 mb-4"><span class="text-primary/80 text-xl">"</span>Pointer has completely transformed my coding workflow. The AI assistance is incredibly accurate and the privacy features give me peace of mind.<span class="text-primary/80 text-xl">"</span></p>
+                    <div>
+                        <div class="font-semibold">Alex Johnson</div>
+                        <div class="text-sm text-white/60">Senior Developer</div>
                     </div>
-                    <!-- Duplicate cards for continuous scrolling effect -->
-                    <div class="review-card">
-                        <div class="review-content">
-                            <p class="review-text"><span class="quote">"</span>The autocomplete suggestions save me so much time. Pointer seems to understand my coding style and anticipates what I'm going to write next.<span class="quote">"</span></p>
-                            <div class="reviewer">
-                                <div class="reviewer-name">Michael Chen</div>
-                                <div class="reviewer-title">Backend Developer</div>
-                            </div>
-                        </div>
+                </div>
+            </div>
+            
+            <!-- Bottom row of reviews (scrolling in opposite direction) -->
+            <div class="flex gap-6 mt-10 animate-[scrollLeft_30s_linear_infinite] hover:pause">
+                <div class="flex-shrink-0 w-[300px] bg-background-light/60 backdrop-blur-xl rounded-xl p-6 border border-white/10 shadow-lg">
+                    <p class="text-white/80 mb-4"><span class="text-primary/80 text-xl">"</span>The autocomplete suggestions save me so much time. Pointer seems to understand my coding style and anticipates what I'm going to write next.<span class="text-primary/80 text-xl">"</span></p>
+                    <div>
+                        <div class="font-semibold">Michael Chen</div>
+                        <div class="text-sm text-white/60">Backend Developer</div>
                     </div>
-                    <div class="review-card">
-                        <div class="review-content">
-                            <p class="review-text"><span class="quote">"</span>Having my code stay on my machine instead of being sent to the cloud gives me confidence when working with sensitive projects.<span class="quote">"</span></p>
-                            <div class="reviewer">
-                                <div class="reviewer-name">Sarah Miller</div>
-                                <div class="reviewer-title">Security Specialist</div>
-                            </div>
-                        </div>
+                </div>
+                
+                <div class="flex-shrink-0 w-[300px] bg-background-light/60 backdrop-blur-xl rounded-xl p-6 border border-white/10 shadow-lg">
+                    <p class="text-white/80 mb-4"><span class="text-primary/80 text-xl">"</span>Having my code stay on my machine instead of being sent to the cloud gives me confidence when working with sensitive projects.<span class="text-primary/80 text-xl">"</span></p>
+                    <div>
+                        <div class="font-semibold">Sarah Miller</div>
+                        <div class="text-sm text-white/60">Security Specialist</div>
+                    </div>
+                </div>
+                
+                <div class="flex-shrink-0 w-[300px] bg-background-light/60 backdrop-blur-xl rounded-xl p-6 border border-white/10 shadow-lg">
+                    <p class="text-white/80 mb-4"><span class="text-primary/80 text-xl">"</span>Pointer's documentation generation feature is magical. It saves me hours of tedious work and creates thorough, accurate docs.<span class="text-primary/80 text-xl">"</span></p>
+                    <div>
+                        <div class="font-semibold">Robert Taylor</div>
+                        <div class="text-sm text-white/60">Technical Lead</div>
+                    </div>
+                </div>
+                
+                <div class="flex-shrink-0 w-[300px] bg-background-light/60 backdrop-blur-xl rounded-xl p-6 border border-white/10 shadow-lg">
+                    <p class="text-white/80 mb-4"><span class="text-primary/80 text-xl">"</span>I love how Pointer integrates seamlessly with my existing development workflow. It feels like a natural extension of my IDE.<span class="text-primary/80 text-xl">"</span></p>
+                    <div>
+                        <div class="font-semibold">Emma Rodriguez</div>
+                        <div class="text-sm text-white/60">DevOps Engineer</div>
+                    </div>
+                </div>
+                
+                <div class="flex-shrink-0 w-[300px] bg-background-light/60 backdrop-blur-xl rounded-xl p-6 border border-white/10 shadow-lg">
+                    <p class="text-white/80 mb-4"><span class="text-primary/80 text-xl">"</span>The bug-fixing suggestions are incredibly helpful. Pointer often spots issues before I even run the code.<span class="text-primary/80 text-xl">"</span></p>
+                    <div>
+                        <div class="font-semibold">Thomas Wright</div>
+                        <div class="text-sm text-white/60">QA Engineer</div>
+                    </div>
+                </div>
+                
+                <!-- Duplicate for infinite scroll -->
+                <div class="flex-shrink-0 w-[300px] bg-background-light/60 backdrop-blur-xl rounded-xl p-6 border border-white/10 shadow-lg">
+                    <p class="text-white/80 mb-4"><span class="text-primary/80 text-xl">"</span>The autocomplete suggestions save me so much time. Pointer seems to understand my coding style and anticipates what I'm going to write next.<span class="text-primary/80 text-xl">"</span></p>
+                    <div>
+                        <div class="font-semibold">Michael Chen</div>
+                        <div class="text-sm text-white/60">Backend Developer</div>
                     </div>
                 </div>
             </div>
         </div>
     </section>
 
-    <footer class="site-footer">
-        <div class="footer-content">
-            <div class="footer-section">
-                <h4>Pointer</h4>
-                <p>Making AI-assisted coding accessible, private, and lightning-fast.</p>
+    <footer class="relative py-16 px-8 bg-background/95 backdrop-blur-md border-t border-white/10 mt-16">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-12 max-w-6xl mx-auto mb-12">
+            <div>
+                <h4 class="text-xl font-semibold mb-6">Pointer</h4>
+                <p class="text-white/70 leading-relaxed">Making AI-assisted coding accessible, private, and lightning-fast.</p>
             </div>
-            <div class="footer-section">
-                <h4>Links</h4>
-                <ul>
-                    <li><a href="#features">Features</a></li>
-                    <li><a href="#pricing">Pricing</a></li>
-                    <li><a href="https://github.com/f1shyondrugs/Pointer" target="_blank">GitHub</a></li>
+            <div>
+                <h4 class="text-xl font-semibold mb-6">Links</h4>
+                <ul class="space-y-3">
+                    <li><a href="#features" class="text-white/70 hover:text-white transition-colors duration-300">Features</a></li>
+                    <li><a href="#" onclick="alert('Bruv its free')" class="text-white/70 hover:text-white transition-colors duration-300">Pricing</a></li>
+                    <li><a href="https://github.com/f1shyondrugs/Pointer" target="_blank" class="text-white/70 hover:text-white transition-colors duration-300">GitHub</a></li>
                 </ul>
             </div>
-            <div class="footer-section">
-                <h4>Connect</h4>
-                <div class="social-links">
-                    <a href="mailto:info@f1shy312.com" target="_blank"><i class="fas fa-envelope"></i></a>
-                    <a href="https://github.com/f1shyondrugs" target="_blank"><i class="fab fa-github"></i></a>
-                    <a href="#" onclick="copyDiscordUsername(); return false;"><i class="fab fa-discord"></i></a>
+            <div>
+                <h4 class="text-xl font-semibold mb-6">Connect</h4>
+                <div class="flex gap-4">
+                    <a href="mailto:info@f1shy312.com" target="_blank" class="text-white/70 text-2xl hover:text-white hover:-translate-y-1 transition-all duration-300"><i class="fas fa-envelope"></i></a>
+                    <a href="https://github.com/f1shyondrugs" target="_blank" class="text-white/70 text-2xl hover:text-white hover:-translate-y-1 transition-all duration-300"><i class="fab fa-github"></i></a>
+                    <a href="#" onclick="copyDiscordUsername(); return false;" class="text-white/70 text-2xl hover:text-white hover:-translate-y-1 transition-all duration-300"><i class="fab fa-discord"></i></a>
                 </div>
             </div>
         </div>
-        <div class="footer-bottom">
-            <p class="copyright-text">
-                <span class="copyright-default">&copy; 2025 Das_F1sHy312. All rights reserved.</span>
-                <a href="https://f1shy312.com" class="copyright-hover">Made with ❤️ by Das_F1sHy312 (and AI)</a>
+        <div class="text-center pt-8 border-t border-white/10">
+            <p class="text-white/50 text-sm relative group">
+                <span class="block transition-opacity duration-300 group-hover:opacity-0">&copy; 2025 Das_F1sHy312. All rights reserved.</span>
+                <a href="https://f1shy312.com" class="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">Made with ❤️ by Das_F1sHy312 (and AI)</a>
             </p>
         </div>
     </footer>

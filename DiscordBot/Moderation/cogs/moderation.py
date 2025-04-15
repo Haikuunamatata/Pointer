@@ -1009,10 +1009,10 @@ class Moderation(commands.Cog):
         await interaction.channel.send(embed=embed)
         logger.info(f"{interaction.user.name} made the bot send a message in {interaction.channel.name}")
 
-    @app_commands.command(name="profile", description="View detailed information about a user")
+    @app_commands.command(name="modprofile", description="View detailed information about a user")
     @app_commands.describe(user="The user to view information about")
     @app_commands.default_permissions(kick_members=True)
-    async def profile(self, interaction: discord.Interaction, user: discord.Member = None):
+    async def modprofile(self, interaction: discord.Interaction, user: discord.Member = None):
         """View detailed profile information about a user."""
         # If no user specified, show the command user's profile
         if not user:
