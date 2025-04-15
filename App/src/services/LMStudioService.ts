@@ -302,6 +302,9 @@ class LMStudioService {
             accumulatedContent += formattedToolCall;
             console.log("Flushing complete tool call to client:", formattedToolCall);
             onUpdate(accumulatedContent);
+            
+            // Reset the partial tool call
+            partialToolCall = null;
           };
           
           // Set up a periodic check for tool calls that may be stuck
@@ -387,36 +390,35 @@ class LMStudioService {
                     const isComplete = partialToolCall.id && 
                                       partialToolCall.function.name && 
                                       partialToolCall.function.arguments;
-                                      
+                    
                     if (isComplete) {
-                      // Try to validate the arguments as proper JSON
+                      // Try to parse the arguments to verify they're valid JSON
                       try {
-                        // Clean and validate arguments
-                        const args = partialToolCall.function.arguments;
-                        // If it looks like JSON, try to parse it
-                        if (args.trim().startsWith('{') && args.trim().endsWith('}')) {
-                          JSON.parse(args); // Just to validate
-                        }
-                        
-                        console.log("Complete tool call assembled:", partialToolCall);
+                        JSON.parse(partialToolCall.function.arguments);
                         flushToolCall(partialToolCall);
-                        partialToolCall = null;
                       } catch (e) {
-                        // Arguments aren't valid JSON yet, continue accumulating
-                        console.log("Arguments not yet valid JSON:", partialToolCall.function.arguments);
+                        // If arguments are not valid JSON, wait for more data
+                        console.log("Waiting for complete tool call arguments");
                       }
-                    } else {
-                      console.log("Still accumulating tool call:", partialToolCall);
                     }
                   }
                 } catch (error) {
-                  console.error('Error parsing SSE message:', error, line);
+                  console.error('Error processing line:', error);
+                  // If we have a partial tool call and hit an error, flush it
+                  if (partialToolCall) {
+                    console.log("Error encountered - flushing incomplete tool call:", partialToolCall);
+                    flushToolCall(partialToolCall);
+                  }
                 }
               }
             }
           } finally {
             clearInterval(toolCallInterval);
-            reader.releaseLock();
+            // Ensure any remaining partial tool call is flushed
+            if (partialToolCall) {
+              console.log("Stream ended - flushing final tool call:", partialToolCall);
+              flushToolCall(partialToolCall);
+            }
           }
           
           // If we get here, the request succeeded, so we can return

@@ -16,6 +16,12 @@ import ToolService from '../services/ToolService';
 // Extend the Message interface to include attachments
 interface ExtendedMessage extends Message {
   attachments?: AttachedFile[];
+  tool_call_id?: string;
+  tool_calls?: Array<{
+    id: string;
+    name: string;
+    arguments: string | object;
+  }>;
 }
 
 interface ChatSession {
@@ -1272,6 +1278,20 @@ const AUTO_INSERT_STYLES = `
   }
 `;
 
+interface FunctionCall {
+  id: string;
+  name: string;
+  arguments: string | Record<string, any>;
+}
+
+interface ToolArgs {
+  directory_path?: string;
+  file_path?: string;
+  query?: string;
+  url?: string;
+  [key: string]: any;
+}
+
 export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectChat }: LLMChatProps) {
   // Add mode state
   const [mode, setMode] = useState<'chat' | 'agent'>('agent'); // Change to agent by default for testing
@@ -2523,271 +2543,113 @@ Return ONLY the final merged code without any explanations. The code should be r
   }, []);
 
   // Add a helper function to process tool calls
+  const addMessage = (message: ExtendedMessage) => {
+    setMessages(prev => [...prev, message]);
+  };
+
   const processToolCalls = async (content: string) => {
-    if (mode !== 'agent') return;
+    // First try to find function calls using regex
+    const functionCallRegex = /function_call:\s*({[\s\S]*?})\s*(?=function_call:|$)/g;
+    const matches = content.matchAll(functionCallRegex);
+    let processedAnyCalls = false;
     
-    try {
-      console.log("Processing content for tool calls:", content.length, "characters");
-      
-      // Use a more reliable regex to catch all function calls
-      const functionCallMatches = content.match(/function_call:\s*({[\s\S]*?})(?:,"result":{[\s\S]*?})?/g) || [];
-      
-      console.log("Found function calls:", functionCallMatches.length, functionCallMatches);
-      
-      // Track processed calls
-      let processedAnyCall = false;
-      
-      for (const fullMatch of functionCallMatches) {
+    for (const match of matches) {
+      try {
+        const functionCallStr = match[1];
+        if (!functionCallStr) continue;
+        
+        // Try to parse the function call JSON
+        let functionCall: FunctionCall;
         try {
-          // Skip if this already has a result
-          if (fullMatch.includes('"result":')) {
-            console.log("Skipping function call that already has a result");
-            continue;
-          }
+          functionCall = JSON.parse(functionCallStr);
+        } catch (e) {
+          // If JSON parsing fails, try to extract components manually
+          console.log("Attempting to parse function call manually:", functionCallStr);
           
-          // Extract the JSON part
-          const jsonMatch = fullMatch.match(/function_call:\s*({[\s\S]*?})/);
-          if (!jsonMatch || !jsonMatch[1]) {
-            console.log("No valid JSON found in function call:", fullMatch);
-            continue;
-          }
+          // Extract ID
+          const idMatch = functionCallStr.match(/"id"\s*:\s*"([^"]+)"/);
+          const id = idMatch ? idMatch[1] : `tool-call-${Date.now()}`;
           
-          const functionCallText = jsonMatch[1].trim();
-          console.log("Attempting to parse function call:", functionCallText);
+          // Extract name
+          const nameMatch = functionCallStr.match(/"name"\s*:\s*"([^"]+)"/);
+          const name = nameMatch ? nameMatch[1] : '';
           
-          // Handle special case for second format
-          const isSecondFormat = functionCallText.includes('"arguments":"directory_path"');
+          // Extract arguments
+          const argsMatch = functionCallStr.match(/"arguments"\s*:\s*"([^"]+)"/);
+          let args = argsMatch ? argsMatch[1] : '{}';
           
-          let functionCall;
-          let toolArgs;
-          
-          if (isSecondFormat) {
-            // Handle second format directly
-            const idMatch = functionCallText.match(/"id"\s*:\s*"([^"]+)"/);
-            const directoryPathMatch = functionCallText.match(/directory_path["\s:]+([^}]+?)(?=\s*[},]|$)/);
-            
-            if (!idMatch) {
-              console.log("Missing ID in second format");
-              continue;
-            }
-            
-            if (!directoryPathMatch) {
-              console.log("Missing directory path in second format");
-              continue;
-            }
-            
-            const id = idMatch[1];
-            const path = directoryPathMatch[1].replace(/[\\"{]+/g, '').trim();
-            
-            functionCall = {
-              id: id,
-              name: 'list_directory',
-              arguments: { directory_path: path }
-            };
-            
-            toolArgs = { directory_path: path };
-            console.log("Parsed second format:", functionCall);
-          } else {
-            // Standard format parsing
-            try {
-              functionCall = JSON.parse(functionCallText);
-            } catch (parseError) {
-              // If parsing fails, try to extract individual components
-              const idMatch = functionCallText.match(/"id"\s*:\s*"([^"]+)"/);
-              const nameMatch = functionCallText.match(/"name"\s*:\s*"([^"]+)"/);
-              const argsMatch = functionCallText.match(/"arguments"\s*:\s*"([^"]+)"/);
-              
-              if (!idMatch) {
-                console.log("Could not extract ID field from function call");
-                continue;
-              }
-              
-              // Handle the special case where name is empty but we have directory_path in arguments
-              let name = nameMatch && nameMatch[1] ? nameMatch[1] : '';
-              let args = argsMatch ? argsMatch[1] : "{}";
-              
-              // If name is empty but arguments contains directory_path, it's a list_directory call
-              if (!name && args.includes('directory_path')) {
-                name = 'list_directory';
-              }
-              
-              functionCall = {
-                id: idMatch[1],
-                name: name,
-                arguments: args
-              };
-            }
-            
-            // Skip if no id
-            if (!functionCall || !functionCall.id) {
-              console.log("Skipping function call - missing id");
-              continue;
-            }
-            
-            // If name is empty but we have an id, try to infer the name from arguments
-            if (!functionCall.name && typeof functionCall.arguments === 'string') {
-              if (functionCall.arguments.includes('directory_path')) {
-                functionCall.name = 'list_directory';
-              } else if (functionCall.arguments.includes('file_path')) {
-                functionCall.name = 'read_file';
-              } else if (functionCall.arguments.includes('query')) {
-                functionCall.name = 'web_search';
-              } else if (functionCall.arguments.includes('url')) {
-                functionCall.name = 'fetch_webpage';
-              }
-            }
-            
-            // Skip if still no name
-            if (!functionCall.name) {
-              console.log("Skipping function call - could not determine name");
-              continue;
-            }
-            
-            // Parse arguments
-            toolArgs = functionCall.arguments;
-            if (typeof toolArgs === 'string') {
-              // Check for empty or malformed arguments
-              if (toolArgs.trim() === '{}' || toolArgs.trim() === '{' || toolArgs.trim() === '') {
-                console.log("Skipping function call - empty or malformed arguments");
-                continue;
-              }
-              
-              // Check for Windows path pattern
-              const windowsPathMatch = toolArgs.match(/directory_path["\s:]+([^}]+?)(?=\s*[},]|$)/);
-              if (windowsPathMatch) {
-                const path = windowsPathMatch[1].replace(/[\\"{]+/g, '').trim();
-                toolArgs = { directory_path: path };
-              } else {
-                try {
-                  // Try to parse as JSON
-                  if (toolArgs.trim().startsWith('{') && toolArgs.trim().endsWith('}')) {
-                    toolArgs = JSON.parse(toolArgs);
-                  } else {
-                    // Simple string arguments (fallback)
-                    toolArgs = { 
-                      [functionCall.name === 'read_file' ? 'file_path' : 
-                       functionCall.name === 'list_directory' ? 'directory_path' : 
-                       functionCall.name === 'web_search' ? 'query' : 'url']: toolArgs 
-                    };
-                  }
-                } catch (e) {
-                  console.warn("Could not parse arguments as JSON, using as is");
-                  toolArgs = { directory_path: toolArgs };
-                }
-              }
-            }
-          }
-          
-          // Validate required arguments based on tool name
-          if (functionCall.name === 'list_directory' && (!toolArgs.directory_path || typeof toolArgs.directory_path !== 'string')) {
-            console.log("Skipping function call - missing or invalid directory_path");
-            continue;
-          }
-          
-          // Check if already processed
-          const alreadyProcessed = toolResults.some(result => result.id === functionCall.id);
-          if (alreadyProcessed) {
-            console.log("Skipping already processed tool call", functionCall.id);
-            continue;
-          }
-          
-          // Mark that we processed at least one call
-          processedAnyCall = true;
-          
-          // Execute the tool
-          console.log("Executing tool:", functionCall.name, "with args:", toolArgs);
-          setIsExecutingTool(true);
-          
-          try {
-            const toolResult = await handleToolCall({
-              id: functionCall.id,
-              name: functionCall.name,
-              arguments: toolArgs
-            });
-            
-            const resultWithId = {
-              ...toolResult,
-              id: functionCall.id
-            };
-            
-            console.log("Tool execution successful:", resultWithId);
-            
-            // Update the AI's message to include the tool result
-            setMessages(prev => {
-              const updatedMessages = prev.map(msg => {
-                if (msg.role === 'assistant' && msg.content.includes(functionCall.id)) {
-                  // Find the function call in the message and add the result
-                  const updatedContent = msg.content.replace(
-                    new RegExp(`function_call:\\s*{[^}]*"id":"${functionCall.id}"[^}]*}(?!,"result")`),
-                    `function_call: {"id":"${functionCall.id}","name":"${functionCall.name}","arguments":${JSON.stringify(toolArgs)},"result":${JSON.stringify(resultWithId)}}`
-                  );
-                  return { ...msg, content: updatedContent };
-                }
-                return msg;
-              });
-              console.log("Updated messages with tool result");
-              return updatedMessages;
-            });
-            
-            setToolResults(prev => [...prev, resultWithId]);
-            
-          } catch (toolError: any) {
-            console.error("Error executing tool:", toolError);
-            const errorResult = {
-              error: `Error executing tool: ${toolError.message}`,
-              id: functionCall.id
-            };
-            
-            // Update the AI's message to include the error
-            setMessages(prev => prev.map(msg => {
-              if (msg.role === 'assistant' && msg.content.includes(functionCall.id)) {
-                const updatedContent = msg.content.replace(
-                  new RegExp(`function_call:\\s*{[^}]*"id":"${functionCall.id}"[^}]*}(?!,"result")`),
-                  `function_call: {"id":"${functionCall.id}","name":"${functionCall.name}","arguments":${JSON.stringify(toolArgs)},"result":${JSON.stringify(errorResult)}}`
-                );
-                return { ...msg, content: updatedContent };
-              }
-              return msg;
-            }));
-            
-            setToolResults(prev => [...prev, errorResult]);
-          } finally {
-            setIsExecutingTool(false);
-          }
-        } catch (error) {
-          console.error("Error processing function call:", error);
-        }
-      }
-      
-      // After processing all function calls in this batch, check for remaining unprocessed calls
-      if (processedAnyCall) {
-        // Use setTimeout to allow state updates to complete
-        setTimeout(async () => {
-          const lastMessage = messages[messages.length - 1];
-          if (lastMessage && lastMessage.role === 'assistant') {
-            // Check if there are remaining function calls without results
-            const content = lastMessage.content;
-            const remainingCalls = content.match(/function_call:\s*({[\s\S]*?})(?!,"result")/g);
-            
-            if (remainingCalls && remainingCalls.length > 0) {
-              console.log("Found remaining tool calls:", remainingCalls.length, "Processing again");
-              await processToolCalls(content);
+          // If arguments are not valid JSON, try to clean them up
+          if (!args.startsWith('{') || !args.endsWith('}')) {
+            // Try to find the last complete JSON object
+            const lastBrace = args.lastIndexOf('}');
+            if (lastBrace !== -1) {
+              args = args.substring(0, lastBrace + 1);
             } else {
-              console.log("No remaining tool calls, continuing conversation with AI");
-              if (isInToolExecutionChain) {
-                continueLLMConversation();
+              // If no complete object found, try to complete it
+              if (!args.endsWith('}')) {
+                args += '}';
+              }
+              if (!args.startsWith('{')) {
+                args = '{' + args;
               }
             }
-          } else {
-            console.log("No assistant message found, skipping further processing");
           }
-        }, 300);
-      } else {
-        console.log("No tool calls were processed in this run");
+          
+          // Create the function call object
+          functionCall = {
+            id,
+            name,
+            arguments: args
+          };
+        }
+        
+        // If name is empty but we have arguments, try to infer the tool name
+        if (!functionCall.name && functionCall.arguments) {
+          try {
+            const args = typeof functionCall.arguments === 'string' 
+              ? JSON.parse(functionCall.arguments)
+              : functionCall.arguments;
+            if (args.directory_path) {
+              functionCall.name = 'list_directory';
+            } else if (args.file_path) {
+              functionCall.name = 'read_file';
+            } else if (args.query) {
+              functionCall.name = 'codebase_search';
+            } else if (args.url) {
+              functionCall.name = 'browse_web';
+            }
+          } catch (e) {
+            console.log("Could not parse arguments to infer tool name:", e);
+          }
+        }
+        
+        // If we have a valid function call, process it
+        if (functionCall.id && functionCall.name) {
+          console.log("Processing function call:", functionCall);
+          const result = await handleToolCall(functionCall);
+          if (result) {
+            processedAnyCalls = true;
+            // Add the result to the conversation
+            setMessages(prev => [...prev, {
+              role: 'assistant',
+              content: result.content,
+              tool_calls: result.tool_calls,
+              tool_call_id: result.tool_call_id
+            }]);
+          }
+        }
+      } catch (error) {
+        console.error("Error processing function call:", error);
       }
-    } catch (error) {
-      console.error('Error handling tool calls:', error);
     }
+    
+    // Always continue the conversation after processing tool calls
+    if (processedAnyCalls) {
+      setIsInToolExecutionChain(true);
+    } else {
+      setIsInToolExecutionChain(false);
+    }
+    continueLLMConversation();
   };
   
   // Add a function to continue the conversation after tool execution
