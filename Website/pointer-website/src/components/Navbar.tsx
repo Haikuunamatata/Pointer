@@ -66,22 +66,6 @@ export default function Navbar({
             >
               Features
             </Link>
-            {showPricingLink && (
-              <Link
-                href="#pricing"
-                className="text-white/70 hover:text-white transition-colors duration-300"
-              >
-                Pricing
-              </Link>
-            )}
-            {showDownloadsLink && (
-              <Link
-                href="#downloads"
-                className="text-white/70 hover:text-white transition-colors duration-300"
-              >
-                Downloads
-              </Link>
-            )}
             <Link
               href="https://github.com/f1shyondrugs/Pointer"
               target="_blank"
