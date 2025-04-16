@@ -1,80 +1,62 @@
-from flask import Flask, render_template, request, send_from_directory
-from user_agents import parse
+import http.server
+import socketserver
 import os
+import subprocess
+import sys
+from pathlib import Path
 
-app = Flask(__name__)
+def build_next_app():
+    """Build the Next.js application"""
+    print("Building Next.js application...")
+    try:
+        subprocess.run(["npm", "run", "build"], check=True, cwd="pointer-website")
+        print("Build completed successfully!")
+    except subprocess.CalledProcessError as e:
+        print(f"Build failed: {e}")
+        sys.exit(1)
 
-DOWNLOADS = {
-    'windows': {
-        'filename': 'pointer-windows.exe',
-        'display_name': 'Pointer for Windows',
-        'icon': 'fa-windows'
-    },
-    'macos': {
-        'filename': 'pointer-macos.dmg',
-        'display_name': 'Pointer for macOS',
-        'icon': 'fa-apple'
-    },
-    'linux': {
-        'filename': 'pointer-linux.AppImage',
-        'display_name': 'Pointer for Linux',
-        'icon': 'fa-linux'
-    }
-}
+def serve_static_files():
+    """Serve the static files using Python's built-in HTTP server"""
+    PORT = 8000
+    STATIC_DIR = Path("pointer-website/out")
 
-def detect_os(user_agent_string):
-    user_agent = parse(user_agent_string)
-    os_family = user_agent.os.family.lower()
+    if not STATIC_DIR.exists():
+        print(f"Error: Static directory {STATIC_DIR} not found!")
+        print("Please make sure you've built the Next.js application first.")
+        sys.exit(1)
+
+    os.chdir(STATIC_DIR)
     
-    if 'ios' in os_family or 'iphone' in os_family or 'ipad' in os_family:
-        return 'macos'
-    elif 'windows' in os_family:
-        return 'windows'
-    elif 'mac os' in os_family or 'macos' in os_family or 'darwin' in os_family:
-        return 'macos'
-    elif 'android' in os_family:
-        return 'linux'
-    elif 'linux' in os_family or 'ubuntu' in os_family or 'debian' in os_family or 'fedora' in os_family:
-        return 'linux'
+    Handler = http.server.SimpleHTTPRequestHandler
+    Handler.extensions_map.update({
+        '.js': 'application/javascript',
+        '.mjs': 'application/javascript',
+        '.css': 'text/css',
+        '.html': 'text/html',
+        '.json': 'application/json',
+        '.svg': 'image/svg+xml',
+        '.ico': 'image/x-icon',
+        '.png': 'image/png',
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.gif': 'image/gif',
+        '.woff': 'font/woff',
+        '.woff2': 'font/woff2',
+        '.ttf': 'font/ttf',
+        '.eot': 'application/vnd.ms-fontobject',
+    })
+
+    with socketserver.TCPServer(("", PORT), Handler) as httpd:
+        print(f"Serving at http://localhost:{PORT}")
+        print("Press Ctrl+C to stop the server")
+        try:
+            httpd.serve_forever()
+        except KeyboardInterrupt:
+            print("\nServer stopped.")
+
+if __name__ == "__main__":
+    # Check if we need to build first
+    if not Path("pointer-website/out").exists():
+        build_next_app()
     
-    if user_agent.is_pc:
-        if user_agent.os.family == 'Mac OS X':
-            return 'macos'
-        elif user_agent.os.family == 'Linux':
-            return 'linux'
-        else:
-            return 'windows'
-    elif user_agent.is_mobile:
-        if user_agent.device.brand == 'Apple':
-            return 'macos'
-        else:
-            return 'linux'
-            
-    return 'windows'
-
-@app.route('/downloads')
-def downloads():
-    user_agent = request.headers.get('User-Agent')
-    user_os = detect_os(user_agent)
-    return render_template('downloads.html',
-                         detected_os=user_os,
-                         downloads=DOWNLOADS)
-
-@app.route('/download/<platform>')
-def download_file(platform):
-    if platform not in DOWNLOADS:
-        return "Invalid platform", 404
-    
-    filename = DOWNLOADS[platform]['filename']
-    return send_from_directory('downloads', filename)
-
-@app.route('/')
-def index():
-    return render_template('index.html')
-
-@app.route('/robots.txt')
-def robots():
-    return send_from_directory('.', 'robots.txt')
-
-if __name__ == '__main__':
-    app.run(debug=True, host="0.0.0.0", port=5000)
+    serve_static_files() 
