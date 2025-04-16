@@ -9,7 +9,7 @@ import datetime
 from typing import Optional
 
 from utils.db import Database
-from utils.helpers import get_coin_emoji, create_embed, chance, random_amount, send_dm, create_progress_bar
+from utils.helpers import get_coin_emoji, get_xp_emoji, create_embed, chance, random_amount, send_dm, create_progress_bar, calculate_xp_for_level
 
 
 class Economy(commands.Cog):
@@ -18,71 +18,126 @@ class Economy(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.coin_emoji = get_coin_emoji()
-        self.last_daily = {}  # {user_id: timestamp}
-        self.last_work = {}   # {user_id: timestamp}
-        self.last_beg = {}    # {user_id: timestamp}
-        self.last_rob = {}    # {user_id: timestamp}
+        self.xp = get_xp_emoji()
+        self.last_daily = {}    # {user_id: timestamp}
+        self.last_work = {}     # {user_id: timestamp}
+        self.last_beg = {}      # {user_id: timestamp}
+        self.last_rob = {}      # {user_id: timestamp}
+        self.last_fish = {}     # {user_id: timestamp}
+        self.last_mine = {}     # {user_id: timestamp}
         
-    async def get_profile_embed(self, user_id):
-        """Get a user's profile embed"""
+        # Fishing items
+        self.fishing_items = [
+            {"name": "Small Fish", "chance": 0.5, "value": 20},
+            {"name": "Medium Fish", "chance": 0.3, "value": 40},
+            {"name": "Large Fish", "chance": 0.15, "value": 80},
+            {"name": "Golden Fish", "chance": 0.05, "value": 200}
+        ]
+        
+        # Mining items
+        self.mining_items = [
+            {"name": "Coal", "chance": 0.5, "value": 15},
+            {"name": "Iron", "chance": 0.3, "value": 30},
+            {"name": "Gold", "chance": 0.15, "value": 60},
+            {"name": "Diamond", "chance": 0.05, "value": 150}
+        ]
+        
+    async def get_profile_embed(self, user_id: int) -> discord.Embed:
         # Get user object
-        user = self.bot.get_user(int(user_id))
+        user = self.bot.get_user(user_id)
         if not user:
-            try:
-                user = await self.bot.fetch_user(int(user_id))
-            except discord.NotFound:
-                return create_embed("Profile Not Found", "User not found.", color=discord.Color.red())
+            user = await self.bot.fetch_user(user_id)
         
         # Get user data
         balance = Database.get_user_balance(user_id)
         level_data = Database.get_user_level_data(user_id)
-        level = level_data["level"]
-        xp = level_data["xp"]
-        next_level_xp = (level + 1) * 100
-        current_level_xp = level * 100
-        xp_progress = xp - current_level_xp
-        xp_needed = next_level_xp - current_level_xp
+        current_level = level_data["level"]
+        current_xp = level_data["xp"]
         
-        # Get job data
+        # Calculate XP for next level
+        xp_needed_for_current = calculate_xp_for_level(current_level)
+        xp_needed_for_next = calculate_xp_for_level(current_level + 1)
+        level_progress = current_xp - xp_needed_for_current
+        level_total = xp_needed_for_next - xp_needed_for_current
+        
+        # Create progress bar
+        progress_bar = create_progress_bar(level_progress, level_total)
+        
+        # Get user's job if any
         job_data = Database.get_user_job(user_id)
-        job_text = "Unemployed"
         if job_data:
-            job_id = job_data["job_id"]
-            for job in Database.get_all_jobs():
-                if job["id"] == job_id:
-                    job_text = f"{job['name']} (Pays {job['pay_rate']} {self.coin_emoji} every {job['pay_interval']} minutes)"
-                    break
+            # Get job info from all jobs
+            all_jobs = Database.get_all_jobs()
+            job_info = next((job for job in all_jobs if job["id"] == job_data["job_id"]), None)
+            job_name = job_info["name"] if job_info else "Unknown Job"
+            job_salary = job_info["pay_rate"] if job_info else 0
+        else:
+            job_name = "Unemployed"
+            job_salary = 0
         
-        # Create progress bar for XP
-        progress_bar = create_progress_bar(xp_progress, xp_needed)
-        
-        # Create profile embed
+        # Create embed
         embed = create_embed(
-            title=f"{user.name}'s Profile",
-            color=discord.Color.blurple(),
+            title=f"👤 {user.display_name}'s Profile",
+            color=user.accent_color or discord.Color.blue(),
             thumbnail=user.display_avatar.url
         )
         
-        # Add balance field
+        # Add user info section
+        user_info = [
+            f"**Username:** {user.name}",
+            f"**ID:** {user.id}",
+            f"**Account Created:** <t:{int(user.created_at.timestamp())}:R>"
+        ]
+        
+        # Try to get member info if in a guild
+        if self.bot.guilds:
+            for guild in self.bot.guilds:
+                member = guild.get_member(user_id)
+                if member:
+                    user_info.append(f"**Joined Server:** <t:{int(member.joined_at.timestamp())}:R>")
+                    if member.activity:
+                        activity_type = str(member.activity.type).split(".")[1].title()
+                        activity_name = member.activity.name
+                        user_info.append(f"**Activity:** {activity_type} {activity_name}")
+                    break
+        
         embed.add_field(
-            name="Balance",
-            value=f"{balance} {self.coin_emoji}",
+            name="📝 User Info",
+            value="\n".join(user_info),
             inline=False
         )
         
-        # Add level field
+        # Add economy section
         embed.add_field(
-            name=f"Level {level}",
-            value=f"{progress_bar} {xp_progress}/{xp_needed} XP",
+            name="💰 Economy",
+            value=(
+                f"**Balance:** {balance} {self.coin_emoji}\n"
+                f"**Job:** {job_name}\n"
+                f"**Salary:** {job_salary} {self.coin_emoji}/hour"
+            ),
+            inline=True
+        )
+        
+        # Add leveling section
+        embed.add_field(
+            name="📈 Leveling",
+            value=(
+                f"**Level:** {current_level}\n"
+                f"**XP:** {current_xp}\n"
+                f"**Progress:** {progress_bar} {level_progress}/{level_total} XP"
+            ),
+            inline=True
+        )
+        
+        # Add badges section (placeholder for future features)
+        embed.add_field(
+            name="🏆 Badges",
+            value="Coming soon!",
             inline=False
         )
         
-        # Add job field
-        embed.add_field(
-            name="Job",
-            value=job_text,
-            inline=False
-        )
+        # Add footer with timestamp
+        embed.set_footer(text=f"Profile last updated • {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         
         return embed
     
@@ -168,6 +223,26 @@ class Economy(commands.Cog):
             f"You've claimed your daily reward of {amount} {self.coin_emoji}!\n{streak_text}"
         )
     
+    def check_active_effect(self, user_id: int, effect: str) -> bool:
+        """Check if a user has an active effect"""
+        # Get shop cog
+        shop_cog = self.bot.get_cog("Shop")
+        if not shop_cog:
+            return False
+            
+        # Get active effects
+        effects = shop_cog.get_active_effects(user_id)
+        if effect not in effects:
+            return False
+            
+        expires_at = effects[effect]
+        if time.time() > expires_at:
+            # Effect has expired, remove it
+            shop_cog.remove_effect(user_id, effect)
+            return False
+            
+        return True
+
     @app_commands.command(name="work", description="Work to earn Pointer Coins")
     async def work(self, interaction: discord.Interaction):
         """Work for coins"""
@@ -179,9 +254,10 @@ class Economy(commands.Cog):
             last_work_time = self.last_work[user_id]
             time_since_last_work = current_time - last_work_time
             
-            # Check if 30 minutes have passed
-            if time_since_last_work < 1800:  # 30 minutes in seconds
-                time_remaining = 1800 - time_since_last_work
+            # Check if 30 minutes have passed (or 15 minutes with work boost)
+            cooldown = 900 if self.check_active_effect(user_id, "work_boost") else 1800
+            if time_since_last_work < cooldown:
+                time_remaining = cooldown - time_since_last_work
                 minutes = int(time_remaining // 60)
                 seconds = int(time_remaining % 60)
                 
@@ -229,7 +305,7 @@ class Economy(commands.Cog):
             time_since_last_beg = current_time - last_beg_time
             
             # Check if 5 minutes have passed
-            if time_since_last_beg < 300:  # 5 minutes in seconds
+            if time_since_last_beg < 300:
                 time_remaining = 300 - time_since_last_beg
                 minutes = int(time_remaining // 60)
                 seconds = int(time_remaining % 60)
@@ -240,8 +316,11 @@ class Economy(commands.Cog):
                 )
                 return
         
-        # 75% chance of success
-        if chance(75):
+        # Check for luck boost
+        success_chance = 85 if self.check_active_effect(user_id, "luck_boost") else 75
+        
+        # Check if begging is successful
+        if chance(success_chance):
             # Generate a random amount
             amount = random_amount(10, 50)
             
@@ -297,7 +376,7 @@ class Economy(commands.Cog):
             time_since_last_rob = current_time - last_rob_time
             
             # Check if 1 hour has passed
-            if time_since_last_rob < 3600:  # 1 hour in seconds
+            if time_since_last_rob < 3600:
                 time_remaining = 3600 - time_since_last_rob
                 minutes = int(time_remaining // 60)
                 
@@ -330,8 +409,11 @@ class Economy(commands.Cog):
         # Update cooldown
         self.last_rob[robber_id] = current_time
         
-        # 35% chance of success
-        if chance(35):
+        # Check for luck boost
+        success_chance = 50 if self.check_active_effect(robber_id, "luck_boost") else 35
+        
+        # Check if robbery is successful
+        if chance(success_chance):
             # Calculate amount to steal (10-20% of victim's balance)
             steal_percentage = random.uniform(0.1, 0.2)
             amount = int(victim_balance * steal_percentage)
@@ -367,117 +449,133 @@ class Economy(commands.Cog):
                 f"You were caught attempting to rob {user.name} and had to pay a fine of {fine} {self.coin_emoji}!"
             )
     
-    @app_commands.command(name="slots", description="Play the slot machine with Pointer Coins")
-    async def slots(self, interaction: discord.Interaction, amount: int):
-        """Play the slot machine"""
+    @app_commands.command(name="fish", description="Go fishing to earn coins")
+    async def fish(self, interaction: discord.Interaction):
+        """Go fishing to earn coins"""
         user_id = interaction.user.id
+        current_time = time.time()
         
-        # Check if amount is valid
-        if amount <= 0:
-            await interaction.response.send_message("Bet amount must be positive.", ephemeral=True)
-            return
+        # Check cooldown
+        if user_id in self.last_fish:
+            last_fish_time = self.last_fish[user_id]
+            time_since_last_fish = current_time - last_fish_time
+            
+            # Check if 3 minutes have passed
+            if time_since_last_fish < 180:
+                time_remaining = 180 - time_since_last_fish
+                minutes = int(time_remaining // 60)
+                seconds = int(time_remaining % 60)
+                
+                await interaction.response.send_message(
+                    f"You need to wait before fishing again. Try again in {minutes}m {seconds}s.",
+                    ephemeral=True
+                )
+                return
         
-        # Check if user has enough balance
-        balance = Database.get_user_balance(user_id)
-        if balance < amount:
-            await interaction.response.send_message(
-                f"You don't have enough coins. Your balance: {balance} {self.coin_emoji}",
-                ephemeral=True
+        # Go fishing
+        caught_item = None
+        roll = random.random()
+        cumulative_chance = 0
+        
+        # Check for fishing boost
+        has_fishing_boost = self.check_active_effect(user_id, "fishing_boost")
+        
+        for item in self.fishing_items:
+            # Adjust chances if user has fishing boost
+            chance = item["chance"] * (1.2 if has_fishing_boost else 1.0)
+            cumulative_chance += chance
+            if roll <= cumulative_chance:
+                caught_item = item
+                break
+        
+        if caught_item:
+            # Add coins
+            Database.update_user_balance(user_id, caught_item["value"], "add")
+            
+            # Create embed
+            embed = create_embed(
+                title="🎣 Fishing",
+                description=f"You caught a {caught_item['name']} and earned {caught_item['value']} {self.coin_emoji}!",
+                color=discord.Color.blue()
             )
-            return
-        
-        # Deduct bet amount
-        Database.update_user_balance(user_id, amount, "subtract")
-        
-        # Slot machine symbols
-        symbols = ["🍎", "🍊", "🍋", "🍒", "🍇", "7️⃣", "💰", "💎"]
-        weights = [20, 20, 20, 15, 10, 8, 5, 2]  # Higher weight = more common
-        
-        # Spin the slots
-        result = random.choices(symbols, weights=weights, k=3)
-        
-        # Calculate winnings
-        winnings = 0
-        result_message = ""
-        
-        # Check for wins
-        if result[0] == result[1] == result[2]:
-            # All three match - big win
-            if result[0] == "💎":
-                # Jackpot
-                winnings = amount * 10
-                result_message = "🎉 JACKPOT! 🎉"
-            elif result[0] == "💰":
-                winnings = amount * 7
-                result_message = "🎉 Big Win! 🎉"
-            elif result[0] == "7️⃣":
-                winnings = amount * 5
-                result_message = "🎉 Lucky Sevens! 🎉"
-            else:
-                winnings = amount * 3
-                result_message = "🎉 Triple Match! 🎉"
-        elif result[0] == result[1] or result[1] == result[2] or result[0] == result[2]:
-            # Two match - small win
-            winnings = amount * 1.5
-            result_message = "🎉 Double Match! 🎉"
         else:
-            # No match - loss
-            result_message = "❌ No Match. Try again! ❌"
+            embed = create_embed(
+                title="🎣 Fishing",
+                description="You didn't catch anything this time. Try again later!",
+                color=discord.Color.red()
+            )
         
-        # Round winnings to int
-        winnings = int(winnings)
-        
-        # Add winnings if any
-        if winnings > 0:
-            Database.update_user_balance(user_id, winnings, "add")
-        
-        # Calculate net change
-        net_change = winnings - amount
-        net_text = f"(+{net_change} {self.coin_emoji})" if net_change > 0 else f"({net_change} {self.coin_emoji})"
-        
-        # Create and send embed
-        embed = create_embed(
-            title="🎰 Slot Machine 🎰",
-            description=f"[ {result[0]} | {result[1]} | {result[2]} ]\n\n{result_message}",
-            color=discord.Color.gold()
-        )
-        
-        embed.add_field(name="Bet", value=f"{amount} {self.coin_emoji}", inline=True)
-        embed.add_field(name="Winnings", value=f"{winnings} {self.coin_emoji}", inline=True)
-        embed.add_field(name="Net Change", value=net_text, inline=True)
-        
-        new_balance = Database.get_user_balance(user_id)
-        embed.set_footer(text=f"Your new balance: {new_balance} {self.coin_emoji}")
-        
+        # Send response
         await interaction.response.send_message(embed=embed)
+        
+        # Update cooldown
+        self.last_fish[user_id] = current_time
     
-    @app_commands.command(name="gamble", description="Gamble your Pointer Coins (50/50 chance to double)")
-    async def gamble(self, interaction: discord.Interaction, amount: int):
-        """Gamble coins"""
-        # Check if amount is valid
-        if amount <= 0:
-            await interaction.response.send_message("Amount must be positive.", ephemeral=True)
-            return
+    @app_commands.command(name="mine", description="Go mining to earn coins")
+    async def mine(self, interaction: discord.Interaction):
+        """Go mining to earn coins"""
+        user_id = interaction.user.id
+        current_time = time.time()
         
-        # Check if user has enough balance
-        balance = Database.get_user_balance(interaction.user.id)
-        if balance < amount:
-            await interaction.response.send_message(f"You don't have enough Pointer Coins. Your balance: {balance} {self.coin_emoji}", ephemeral=True)
-            return
+        # Check cooldown
+        if user_id in self.last_mine:
+            last_mine_time = self.last_mine[user_id]
+            time_since_last_mine = current_time - last_mine_time
+            
+            # Check if 3 minutes have passed
+            if time_since_last_mine < 180:
+                time_remaining = 180 - time_since_last_mine
+                minutes = int(time_remaining // 60)
+                seconds = int(time_remaining % 60)
+                
+                await interaction.response.send_message(
+                    f"You need to wait before mining again. Try again in {minutes}m {seconds}s.",
+                    ephemeral=True
+                )
+                return
         
-        # 50/50 chance to win
-        if random.random() < 0.5:
-            # Win
-            Database.update_user_balance(interaction.user.id, amount, "add")
-            await interaction.response.send_message(f"🎉 You won {amount} {self.coin_emoji}! Your new balance: {balance + amount} {self.coin_emoji}")
+        # Go mining
+        mined_item = None
+        roll = random.random()
+        cumulative_chance = 0
+        
+        # Check for mining boost
+        has_mining_boost = self.check_active_effect(user_id, "mining_boost")
+        
+        for item in self.mining_items:
+            # Adjust chances if user has mining boost
+            chance = item["chance"] * (1.2 if has_mining_boost else 1.0)
+            cumulative_chance += chance
+            if roll <= cumulative_chance:
+                mined_item = item
+                break
+        
+        if mined_item:
+            # Add coins
+            Database.update_user_balance(user_id, mined_item["value"], "add")
+            
+            # Create embed
+            embed = create_embed(
+                title="⛏️ Mining",
+                description=f"You mined {mined_item['name']} and earned {mined_item['value']} {self.coin_emoji}!",
+                color=discord.Color.blue()
+            )
         else:
-            # Lose
-            Database.update_user_balance(interaction.user.id, amount, "subtract")
-            await interaction.response.send_message(f"💔 You lost {amount} {self.coin_emoji}. Your new balance: {balance - amount} {self.coin_emoji}")
-    
+            embed = create_embed(
+                title="⛏️ Mining",
+                description="You didn't find anything this time. Try again later!",
+                color=discord.Color.red()
+            )
+        
+        # Send response
+        await interaction.response.send_message(embed=embed)
+        
+        # Update cooldown
+        self.last_mine[user_id] = current_time
+
     @app_commands.command(name="profile", description="View your or another user's profile")
     async def profile(self, interaction: discord.Interaction, user: Optional[discord.User] = None):
-        """View a user's profile"""
+        """Display a user's profile with economy, leveling, and other stats"""
         target_user = user or interaction.user
         embed = await self.get_profile_embed(target_user.id)
         await interaction.response.send_message(embed=embed)

@@ -16,6 +16,13 @@ def get_coin_emoji():
         return f"{emoji_id}"
     return "🪙"  # Fallback emoji
 
+def get_xp_emoji():
+    """Get the XP emoji"""
+    emoji_id = os.getenv('XP_ICON_ID')
+    if emoji_id:
+        return f"{emoji_id}"
+    return "💰"  # Fallback emoji
+
 # Format timestamp
 def format_timestamp(timestamp, format_str="%Y-%m-%d %H:%M:%S"):
     """Format a timestamp"""

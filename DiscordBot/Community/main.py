@@ -38,6 +38,8 @@ class PointerBot(commands.Bot):
             'cogs.leveling',
             'cogs.jobs',
             'cogs.admin',
+            'cogs.help',
+            'cogs.shop',
         ]
         
     async def setup_hook(self):
