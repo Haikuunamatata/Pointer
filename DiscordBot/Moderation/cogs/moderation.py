@@ -19,11 +19,21 @@ class Moderation(commands.Cog):
         self.db = Database()
         self.check_expired_punishments.start()
         self.start_time = datetime.datetime.now(datetime.timezone.utc)
+        
+        # Anti-spam tracking
+        self.message_timestamps = {}  # {user_id: [timestamp1, timestamp2, ...]}
+        self.spam_warnings = {}  # {user_id: warning_count}
+        self.mute_durations = {}  # {user_id: current_mute_duration}
+        self.last_warning_time = {}  # {user_id: timestamp}
     
     def cog_unload(self):
         """Called when the cog is unloaded."""
         self.check_expired_punishments.cancel()
         self.db.close()
+        self.message_timestamps.clear()
+        self.spam_warnings.clear()
+        self.mute_durations.clear()
+        self.last_warning_time.clear()
     
     async def send_dm(self, user: discord.User, action: str, guild_name: str, 
                      reason: Optional[str] = None, duration: Optional[str] = None):
@@ -781,25 +791,70 @@ class Moderation(commands.Cog):
         await interaction.response.send_message(embed=embed, ephemeral=True)
     
     @app_commands.command(name="clear", description="Clear messages in the current channel")
-    @app_commands.describe(amount="The number of messages to clear (1-100)")
+    @app_commands.describe(amount="The number of messages to clear (1-100) or 'all' to clear all messages")
     @app_commands.default_permissions(manage_messages=True)
-    async def clear(self, interaction: discord.Interaction, amount: int):
+    async def clear(self, interaction: discord.Interaction, amount: str):
         """Clear messages in the current channel."""
         # Check if the bot can manage messages
         if not interaction.guild.me.guild_permissions.manage_messages:
             await interaction.response.send_message("❌ I don't have permission to manage messages.", ephemeral=True)
             return
         
+        # Defer response since this might take a while
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        
+        # Handle "all" parameter
+        if amount.lower() == "all":
+            total_deleted = 0
+            while True:
+                try:
+                    # Delete messages in batches of 100
+                    deleted = await interaction.channel.purge(limit=100)
+                    if not deleted:
+                        break
+                    total_deleted += len(deleted)
+                    # Small delay to avoid rate limits
+                    await asyncio.sleep(1)
+                except discord.Forbidden:
+                    await interaction.followup.send("❌ I don't have permission to delete messages.")
+                    return
+                except discord.HTTPException as e:
+                    await interaction.followup.send(f"❌ An error occurred: {e}")
+                    return
+            
+            # Create log embed
+            embed = discord.Embed(
+                title=f"🧹 Messages Cleared",
+                description=f"{interaction.user.mention} cleared **all** messages in {interaction.channel.mention}",
+                color=discord.Color.blue(),
+                timestamp=datetime.datetime.now()
+            )
+            embed.add_field(name="Channel", value=f"{interaction.channel.name} (`{interaction.channel.id}`)", inline=True)
+            embed.add_field(name="Amount", value=f"{total_deleted} messages", inline=True)
+            embed.set_footer(text=f"Moderator: {interaction.user.name} | Pointer Moderation", icon_url=interaction.user.display_avatar.url)
+            
+            # Log to the log channel
+            await log_to_channel(self.bot, embed)
+            
+            # Respond to the interaction
+            await interaction.followup.send(f"✅ **Cleared all messages ({total_deleted} total)**", ephemeral=True)
+            logger.info(f"{interaction.user.name} cleared all messages in {interaction.channel.name}")
+            return
+        
+        # Handle numeric amount
+        try:
+            amount = int(amount)
+        except ValueError:
+            await interaction.followup.send("❌ Amount must be a number between 1 and 100, or 'all'.", ephemeral=True)
+            return
+        
         # Validate amount
         if amount < 1 or amount > 100:
-            await interaction.response.send_message("❌ Amount must be between 1 and 100.", ephemeral=True)
+            await interaction.followup.send("❌ Amount must be between 1 and 100, or 'all'.", ephemeral=True)
             return
         
         # Delete messages
         try:
-            # Defer response
-            await interaction.response.defer(ephemeral=True, thinking=True)
-            
             # Delete messages
             deleted = await interaction.channel.purge(limit=amount)
             
@@ -812,7 +867,7 @@ class Moderation(commands.Cog):
             )
             embed.add_field(name="Channel", value=f"{interaction.channel.name} (`{interaction.channel.id}`)", inline=True)
             embed.add_field(name="Amount", value=f"{len(deleted)} message{'s' if len(deleted) != 1 else ''}", inline=True)
-            embed.set_footer(text=f"Moderator: {interaction.user.name} | Pointer Moderation", icon_url="https://pointer.f1shy312.com/static/logo.png")
+            embed.set_footer(text=f"Moderator: {interaction.user.name} | Pointer Moderation", icon_url=interaction.user.display_avatar.url)
             
             # Log to the log channel
             await log_to_channel(self.bot, embed)
@@ -1576,6 +1631,121 @@ class Moderation(commands.Cog):
         embed.set_footer(text="Pointer Discord Bot", icon_url="https://pointer.f1shy312.com/static/logo.png")
         
         await interaction.response.send_message(embed=embed)
+
+    @commands.Cog.listener()
+    async def on_message(self, message):
+        """Handle message events for anti-spam."""
+        # Ignore messages from bots
+        if message.author.bot:
+            return
+            
+        # Ignore messages from users with manage_messages permission
+        if message.author.guild_permissions.manage_messages:
+            return
+            
+        user_id = message.author.id
+        current_time = datetime.datetime.now().timestamp()
+        
+        # Initialize user tracking if needed
+        if user_id not in self.message_timestamps:
+            self.message_timestamps[user_id] = []
+            self.spam_warnings[user_id] = 0
+            self.mute_durations[user_id] = "5m"  # Start with 5 minutes
+            self.last_warning_time[user_id] = 0
+            
+        # Add current message timestamp
+        self.message_timestamps[user_id].append(current_time)
+        
+        # Remove timestamps older than 7 seconds
+        self.message_timestamps[user_id] = [
+            ts for ts in self.message_timestamps[user_id] 
+            if current_time - ts <= 7
+        ]
+        
+        # Check if user sent more than 5 messages in 7 seconds
+        if len(self.message_timestamps[user_id]) > 5:
+            # Check if user is already muted
+            muted_role = discord.utils.get(message.guild.roles, name="Muted")
+            if muted_role and muted_role in message.author.roles:
+                return
+                
+            # Check warning cooldown (5-10 seconds)
+            if current_time - self.last_warning_time[user_id] < 5:
+                return
+                
+            # Increment warning count
+            self.spam_warnings[user_id] += 1
+            
+            # Update last warning time
+            self.last_warning_time[user_id] = current_time
+            
+            # Get current warning count
+            warning_count = self.spam_warnings[user_id]
+            
+            if warning_count <= 3:
+                # Send warning message
+                warning_msg = f"⚠️ {message.author.mention}, please slow down! (Warning {warning_count}/3)"
+                await message.channel.send(warning_msg, delete_after=5)
+                    
+            else:
+                # Mute the user with increasing duration
+                current_duration = self.mute_durations[user_id]
+                
+                # Parse current duration
+                time_delta, human_readable_duration = parse_time_string(current_duration)
+                if not time_delta:
+                    time_delta = datetime.timedelta(minutes=5)
+                    human_readable_duration = "5m"
+                
+                # Double the duration for next time
+                next_duration = f"{time_delta.total_seconds() * 2}s"
+                self.mute_durations[user_id] = next_duration
+                
+                # Ensure muted role exists
+                muted_role = await self.ensure_mute_role(message.guild)
+                if not muted_role:
+                    return
+                
+                # Mute the user
+                try:
+                    await message.author.add_roles(muted_role, reason="Anti-spam mute")
+                    
+                    # Add to database
+                    end_time = get_future_timestamp(time_delta)
+                    self.db.add_temp_mute(message.author.id, message.guild.id, end_time)
+                    
+                    # Create log embed
+                    embed = await self.create_log_embed(
+                        "Mute", 
+                        message.author, 
+                        self.bot.user,  # Bot as moderator
+                        "Anti-spam protection", 
+                        human_readable_duration
+                    )
+                    
+                    # Log to the log channel
+                    await log_to_channel(self.bot, embed)
+                    
+                    # Send mute message
+                    mute_msg = f"🔇 {message.author.mention} has been muted for {human_readable_duration} due to spam."
+                    await message.channel.send(mute_msg)
+                    
+                    # Try to DM the user
+                    await self.send_dm(
+                        message.author,
+                        "muted",
+                        message.guild.name,
+                        "Anti-spam protection",
+                        human_readable_duration
+                    )
+                    
+                    # Reset warning count
+                    self.spam_warnings[user_id] = 0
+                    
+                except discord.Forbidden:
+                    pass
+                except discord.HTTPException as e:
+                    logger.error(f"Error muting user for spam: {e}")
 
 async def setup(bot):
     await bot.add_cog(Moderation(bot)) 
