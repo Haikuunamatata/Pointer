@@ -71,15 +71,16 @@ export default function Hero() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8, ease: "easeOut", delay: 0.4 }}
           >
-            <button
-              onClick={() => alert('Coming soon!')}
+            <a
+              href="https://discord.gg/vhgc8THmNk"
+              target="_blank"
               className="inline-flex items-center gap-2 px-8 py-4 rounded-lg bg-white/5 backdrop-blur-md border border-white/10 text-white font-semibold shadow-lg transition-all duration-300 hover:translate-y-[-3px] hover:shadow-xl hover:bg-white/10 hover:border-white/20"
             >
               <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
                 <path d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" />
               </svg>
               <span>COMING SOON</span>
-            </button>
+            </a>
           </motion.div>
 
           <motion.div
