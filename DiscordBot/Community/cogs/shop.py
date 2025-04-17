@@ -20,6 +20,76 @@ class ShopItem:
         self.useable = useable
         self.effect = effect
 
+class ShopView(discord.ui.View):
+    def __init__(self, cog):
+        super().__init__(timeout=None)
+        self.cog = cog
+        
+        # Create select menu for categories
+        select = discord.ui.Select(
+            placeholder="Select a category...",
+            options=[
+                discord.SelectOption(label="All Items", value="All", emoji="📦"),
+                discord.SelectOption(label="Boosters", value="Boosters", emoji="🎯"),
+                discord.SelectOption(label="Utilities", value="Utilities", emoji="⚙️"),
+                discord.SelectOption(label="Cosmetics", value="Cosmetics", emoji="💅")
+            ]
+        )
+        select.callback = self.select_callback
+        self.add_item(select)
+    
+    async def select_callback(self, interaction: discord.Interaction):
+        # Defer the response
+        await interaction.response.defer()
+        
+        # Get selected category
+        selected_category = interaction.data["values"][0]
+        
+        # Create new embed
+        new_embed = create_embed(
+            title="🏪 Shop",
+            description="Use `/buy <item_id>` to purchase items\n\n**Categories:**\n🎯 Boosters - Items that enhance your activities\n⚙️ Utilities - Useful tools and items\n💅 Cosmetics - Customization options",
+            color=discord.Color.gold()
+        )
+        
+        # Get items for the selected category
+        if selected_category == "All":
+            items_to_show = self.cog.items.values()
+        else:
+            items_to_show = [item for item in self.cog.items.values() if item.category == selected_category]
+        
+        # Group items by category
+        items_by_category = {}
+        for item in items_to_show:
+            if item.category not in items_by_category:
+                items_by_category[item.category] = []
+            items_by_category[item.category].append(item)
+        
+        # Add items to embed by category
+        for category, items in items_by_category.items():
+            value = ""
+            for item in items:
+                useable_text = "🔹" if item.useable else ""
+                value += f"{useable_text} **{item.name}** ({item.id})\n"
+                value += f"Price: {item.price} {self.cog.coin_emoji}\n"
+                value += f"{item.description}\n\n"
+            
+            # Add category emoji based on category
+            category_emoji = {
+                "Boosters": "🎯",
+                "Utilities": "⚙️",
+                "Cosmetics": "💅"
+            }.get(category, "📦")
+            
+            new_embed.add_field(
+                name=f"{category_emoji} {category}",
+                value=value,
+                inline=False
+            )
+        
+        # Update the message
+        await interaction.message.edit(embed=new_embed)
+
 class Shop(commands.Cog):
     """Shop system for buying and using items"""
 
@@ -60,13 +130,13 @@ class Shop(commands.Cog):
         
         # Define shop items
         self.items = {
-            # Tools
+            # Boosters
             "fishing_rod": ShopItem(
                 id="fishing_rod",
                 name="Fishing Rod",
                 description="A basic fishing rod. Increases fishing rewards by 20%",
                 price=500,
-                category="Tools",
+                category="Boosters",
                 useable=True,
                 effect="fishing_boost"
             ),
@@ -75,18 +145,16 @@ class Shop(commands.Cog):
                 name="Pickaxe",
                 description="A sturdy pickaxe. Increases mining rewards by 20%",
                 price=500,
-                category="Tools",
+                category="Boosters",
                 useable=True,
                 effect="mining_boost"
             ),
-            
-            # Consumables
             "lucky_charm": ShopItem(
                 id="lucky_charm",
                 name="Lucky Charm",
                 description="A charm that increases your chances of success for 1 hour",
                 price=1000,
-                category="Consumables",
+                category="Boosters",
                 useable=True,
                 effect="luck_boost"
             ),
@@ -95,34 +163,29 @@ class Shop(commands.Cog):
                 name="Energy Drink",
                 description="Reduces work cooldown by 50% for 1 hour",
                 price=800,
-                category="Consumables",
+                category="Boosters",
                 useable=True,
                 effect="work_boost"
             ),
             
-            # Collectibles
-            "golden_fish": ShopItem(
-                id="golden_fish",
-                name="Golden Fish",
-                description="A rare collectible fish",
+            # Utilities
+            "time_warp": ShopItem(
+                id="time_warp",
+                name="Time Warp",
+                description="Resets all cooldowns",
                 price=2000,
-                category="Collectibles"
-            ),
-            "diamond": ShopItem(
-                id="diamond",
-                name="Diamond",
-                description="A precious gemstone",
-                price=3000,
-                category="Collectibles"
+                category="Utilities",
+                useable=True,
+                effect="reset_cooldowns"
             ),
             
-            # Special
+            # Cosmetics
             "name_color": ShopItem(
                 id="name_color",
                 name="Name Color",
                 description="Unlock a random color for your name",
                 price=5000,
-                category="Special",
+                category="Cosmetics",
                 useable=True,
                 effect="name_color"
             ),
@@ -131,7 +194,7 @@ class Shop(commands.Cog):
                 name="Custom Role",
                 description="Get a custom role in the server",
                 price=10000,
-                category="Special",
+                category="Cosmetics",
                 useable=True,
                 effect="custom_role"
             )
@@ -316,17 +379,25 @@ class Shop(commands.Cog):
         
         return embed
 
-    async def get_shop_embed(self) -> discord.Embed:
-        """Create an embed showing the shop items"""
+    @app_commands.command(name="shop", description="View the shop")
+    async def shop(self, interaction: discord.Interaction):
+        """View the shop"""
+        # Defer the response to prevent timeout
+        await interaction.response.defer()
+        
+        # Create embed
         embed = create_embed(
             title="🏪 Shop",
-            description="Use `/buy <item_id>` to purchase items",
+            description="Use `/buy <item_id>` to purchase items\n\n**Categories:**\n🎯 Boosters - Items that enhance your activities\n⚙️ Utilities - Useful tools and items\n💅 Cosmetics - Customization options",
             color=discord.Color.gold()
         )
         
+        # Get all items
+        items_to_show = self.items.values()
+        
         # Group items by category
         items_by_category = {}
-        for item in self.items.values():
+        for item in items_to_show:
             if item.category not in items_by_category:
                 items_by_category[item.category] = []
             items_by_category[item.category].append(item)
@@ -339,15 +410,23 @@ class Shop(commands.Cog):
                 value += f"{useable_text} **{item.name}** ({item.id})\n"
                 value += f"Price: {item.price} {self.coin_emoji}\n"
                 value += f"{item.description}\n\n"
-            embed.add_field(name=category, value=value, inline=False)
+            
+            # Add category emoji based on category
+            category_emoji = {
+                "Boosters": "🎯",
+                "Utilities": "⚙️",
+                "Cosmetics": "💅"
+            }.get(category, "📦")
+            
+            embed.add_field(
+                name=f"{category_emoji} {category}",
+                value=value,
+                inline=False
+            )
         
-        return embed
-
-    @app_commands.command(name="shop", description="View the shop")
-    async def shop(self, interaction: discord.Interaction):
-        """View the shop"""
-        embed = await self.get_shop_embed()
-        await interaction.response.send_message(embed=embed)
+        # Create and send the view
+        view = self.ShopView(self)
+        await interaction.followup.send(embed=embed, view=view)
 
     @app_commands.command(name="inventory", description="View your or another user's inventory")
     async def inventory(self, interaction: discord.Interaction, user: Optional[discord.User] = None):
@@ -508,6 +587,22 @@ class Shop(commands.Cog):
                 ephemeral=True
             )
             return
+        
+        elif item.effect == "reset_cooldowns":
+            # Reset all cooldowns
+            economy_cog = self.bot.get_cog("Economy")
+            if economy_cog:
+                # Reset all cooldown timestamps
+                economy_cog.last_work[interaction.user.id] = 0
+                economy_cog.last_beg[interaction.user.id] = 0
+                economy_cog.last_rob[interaction.user.id] = 0
+                economy_cog.last_fish[interaction.user.id] = 0
+                economy_cog.last_mine[interaction.user.id] = 0
+                economy_cog.last_daily[interaction.user.id] = 0
+                
+            await interaction.response.send_message(
+                f"You used {item.name}! All your cooldowns have been reset."
+            )
         
         # Remove one item from inventory
         current_quantity = inventory[item.id]
