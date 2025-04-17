@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { motion, AnimatePresence, useScroll, useTransform } from 'framer-motion';
 import Link from 'next/link';
 import { Bars3Icon, XMarkIcon } from '@heroicons/react/24/outline';
@@ -10,14 +10,12 @@ interface NavbarProps {
   showPricingLink?: boolean;
   showDownloadsLink?: boolean;
   showTextLogo?: boolean;
-  featuresPath?: string;
 }
 
 export default function Navbar({
   showPricingLink = true,
   showDownloadsLink = false,
   showTextLogo = false,
-  featuresPath = '#features',
 }: NavbarProps) {
   const [isOpen, setIsOpen] = useState(false);
   const { scrollY } = useScroll();
