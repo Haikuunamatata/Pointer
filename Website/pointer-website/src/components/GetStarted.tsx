@@ -4,7 +4,11 @@ import { motion } from 'framer-motion';
 import { useInView } from 'framer-motion';
 import { useRef } from 'react';
 
-export default function GetStarted() {
+interface GetStartedProps {
+  id?: string;
+}
+
+export default function GetStarted({ id }: GetStartedProps) {
   const ref = useRef(null);
   const isInView = useInView(ref, { once: true, margin: "-100px" });
 
@@ -43,6 +47,7 @@ export default function GetStarted() {
 
   return (
     <section 
+      id={id}
       ref={ref}
       className="relative py-24 overflow-hidden"
     >

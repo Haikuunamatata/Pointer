@@ -11,10 +11,10 @@ export default function Home() {
     <div className="min-h-screen bg-background text-white">
       <Hero />
       <Features />
-      <Showcase />
-      <Community />
+      <Showcase id="future" />
+      <Community id="community" />
       <Testimonials />
-      <GetStarted />
+      <GetStarted id="get-started" />
       <Footer />
     </div>
   );

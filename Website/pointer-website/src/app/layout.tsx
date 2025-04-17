@@ -34,10 +34,7 @@ export const metadata: Metadata = {
       'max-image-preview': 'large',
       'max-snippet': -1,
     },
-  },
-  verification: {
-    google: "your-google-site-verification", // Add your Google Search Console verification code
-  },
+  }
 };
 
 export default function RootLayout({

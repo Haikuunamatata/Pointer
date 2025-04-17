@@ -4,7 +4,11 @@ import { motion } from 'framer-motion';
 import { useInView } from 'framer-motion';
 import { useRef } from 'react';
 
-export default function Showcase() {
+interface ShowcaseProps {
+  id?: string;
+}
+
+export default function Showcase({ id }: ShowcaseProps) {
   const ref = useRef(null);
   const isInView = useInView(ref, { once: true, margin: "-100px" });
 
@@ -25,6 +29,7 @@ export default function Showcase() {
 
   return (
     <section 
+      id={id}
       ref={ref}
       className="relative py-24 overflow-hidden"
     >
