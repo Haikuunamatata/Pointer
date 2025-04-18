@@ -287,7 +287,7 @@ class LMStudioService {
           let lastToolCallUpdateTime = Date.now();
           let partialToolCall: any = null; // To accumulate partial tool calls
           
-          // Function to flush a complete tool call to the output
+          // Restore the flushToolCall function to format tool calls for the client
           const flushToolCall = (toolCall: any) => {
             if (!toolCall || !toolCall.id || !toolCall.function) return;
             
@@ -300,7 +300,7 @@ class LMStudioService {
             
             // Add to accumulated content and notify client
             accumulatedContent += formattedToolCall;
-            console.log("Flushing complete tool call to client:", formattedToolCall);
+            console.log("Flushing tool call to client:", formattedToolCall);
             onUpdate(accumulatedContent);
             
             // Reset the partial tool call
@@ -317,7 +317,7 @@ class LMStudioService {
               partialToolCall = null;
             }
           }, 500);
-
+          
           try {
             while (true) {
               const { done, value } = await reader.read();
@@ -344,6 +344,15 @@ class LMStudioService {
                   const jsonData = line.replace(/^data: /, '');
                   const data = JSON.parse(jsonData);
                   
+                  // Log the data structure to debug the response format
+                  console.debug('Parsed data from streaming response:', data);
+                  
+                  // Check if data and choices exist
+                  if (!data || !data.choices || !data.choices.length) {
+                    console.debug('Response has no choices:', data);
+                    continue;
+                  }
+                  
                   // Check for tool call in the response
                   const content = data.choices[0]?.delta?.content || '';
                   if (content) {
@@ -353,7 +362,20 @@ class LMStudioService {
                   }
                   
                   // Check if there's a tool_call in the choices object directly
-                  const toolCallDelta = data.choices[0]?.delta?.tool_calls?.[0];
+                  // Add additional safety checks
+                  const deltaObj = data.choices[0]?.delta;
+                  if (!deltaObj) {
+                    console.debug('No delta object in response');
+                    continue;
+                  }
+                  
+                  const toolCalls = deltaObj.tool_calls;
+                  if (!toolCalls || !toolCalls.length) {
+                    // No tool calls in this delta, continue
+                    continue;
+                  }
+                  
+                  const toolCallDelta = toolCalls[0];
                   if (toolCallDelta) {
                     lastToolCallUpdateTime = Date.now();
                     
@@ -367,6 +389,12 @@ class LMStudioService {
                           arguments: ''
                         }
                       };
+                    }
+                    
+                    // Make sure the function property exists
+                    if (!toolCallDelta.function) {
+                      console.debug('Tool call delta has no function property:', toolCallDelta);
+                      continue;
                     }
                     
                     // Update the ID if it's now available

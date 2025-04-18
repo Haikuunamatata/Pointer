@@ -7,13 +7,11 @@ import { Bars3Icon, XMarkIcon } from '@heroicons/react/24/outline';
 import Image from 'next/image';
 
 interface NavbarProps {
-  showPricingLink?: boolean;
   showDownloadsLink?: boolean;
   showTextLogo?: boolean;
 }
 
 export default function Navbar({
-  showPricingLink = true,
   showDownloadsLink = false,
   showTextLogo = false,
 }: NavbarProps) {
@@ -164,15 +162,6 @@ export default function Navbar({
               >
                 Be Part of the Future
               </Link>
-              {showPricingLink && (
-                <Link
-                  href="#pricing"
-                  className="block text-white/70 hover:text-white transition-colors duration-300"
-                  onClick={() => setIsOpen(false)}
-                >
-                  Pricing
-                </Link>
-              )}
               {showDownloadsLink && (
                 <Link
                   href="#downloads"

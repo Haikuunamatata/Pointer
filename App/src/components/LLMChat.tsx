@@ -1278,6 +1278,7 @@ const AUTO_INSERT_STYLES = `
   }
 `;
 
+// First, restore the interface for FunctionCall and ToolArgs
 interface FunctionCall {
   id: string;
   name: string;
@@ -1292,6 +1293,17 @@ interface ToolArgs {
   [key: string]: any;
 }
 
+// Add a utility function to generate valid tool call IDs
+const generateValidToolCallId = (): string => {
+  // Generate a random 9-character alphanumeric string
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  let result = '';
+  for (let i = 0; i < 9; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
+};
+
 export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectChat }: LLMChatProps) {
   // Add mode state
   const [mode, setMode] = useState<'chat' | 'agent'>('agent'); // Change to agent by default for testing
@@ -1300,7 +1312,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   const [messages, setMessages] = useState<ExtendedMessage[]>([INITIAL_SYSTEM_MESSAGE]);
   const [input, setInput] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
-  const [width, setWidth] = useState(400);
+  const [width, setWidth] = useState(700);
   const [isResizing, setIsResizing] = useState(false);
   const [chats, setChats] = useState<ChatSession[]>([]);
   const [isChatListVisible, setIsChatListVisible] = useState(false);
@@ -1325,14 +1337,12 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   const abortControllerRef = useRef<AbortController | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   
-  // Add agent-specific state
-  const [toolResults, setToolResults] = useState<{[key: string]: any}[]>([]);
-  const [isExecutingTool, setIsExecutingTool] = useState(false);
-  
   // Add a state variable to track streaming completion
   const [isStreamingComplete, setIsStreamingComplete] = useState(false);
   
-  // Add state to track if the agent is in a tool execution chain
+  // Restore tool-related state
+  const [toolResults, setToolResults] = useState<{[key: string]: any}[]>([]);
+  const [isExecutingTool, setIsExecutingTool] = useState(false);
   const [isInToolExecutionChain, setIsInToolExecutionChain] = useState(false);
   
   // Preload the insert model only when needed
@@ -1994,7 +2004,16 @@ Return ONLY the final merged code without any explanations. The code should be r
           });
           return { role: msg.role, content: contentWithAttachments };
         }
-        return { role: msg.role, content: msg.content };
+        return { 
+          role: msg.role, 
+          content: msg.content,
+          // Ensure any tool_call_id is properly formatted
+          ...(msg.tool_call_id && {
+            tool_call_id: msg.tool_call_id.length === 9 && /^[a-z0-9]+$/.test(msg.tool_call_id)
+              ? msg.tool_call_id
+              : generateValidToolCallId()
+          }) 
+        };
       });
 
       // Add tools configuration if in agent mode
@@ -2092,9 +2111,14 @@ Return ONLY the final merged code without any explanations. The code should be r
       };
 
       // Debug log to check if tools are present
-      console.log(`Mode: ${mode}, Tools included: ${apiConfig.tools ? 'yes' : 'no'}`);
+      console.log(`Mode: ${mode}, Tools included: ${mode === 'agent' ? 'yes' : 'no'}`);
       if (mode === 'agent') {
-        console.log('API Config in agent mode:', JSON.stringify(apiConfig, null, 2));
+        console.log('API Config in agent mode:', JSON.stringify({
+          ...apiConfig,
+          messages: '[Messages included]',
+          tools: apiConfig.tools ? `[${apiConfig.tools.length} tools included]` : 'No tools',
+          tool_choice: apiConfig.tool_choice || 'No tool_choice'
+        }, null, 2));
       }
 
       let currentContent = '';
@@ -2114,6 +2138,8 @@ Return ONLY the final merged code without any explanations. The code should be r
         purpose: mode === 'agent' ? 'agent' : 'chat',
         onUpdate: async (content: string) => {
           currentContent = content;
+          console.log("Received content update in handleSubmit:", content.substring(0, 50) + "...");
+          
           setMessages(prev => {
             const newMessages = [...prev];
             newMessages[newMessages.length - 1] = {
@@ -2125,6 +2151,8 @@ Return ONLY the final merged code without any explanations. The code should be r
 
           // In agent mode, debounce the tool call processing
           if (mode === 'agent' && content.includes('function_call:')) {
+            console.log("Detected tool call in initial response");
+            
             // Clear any existing timeout
             if (toolCallTimeoutRef) {
               clearTimeout(toolCallTimeoutRef);
@@ -2132,12 +2160,11 @@ Return ONLY the final merged code without any explanations. The code should be r
             
             // Set a new timeout to process tool calls after 200ms of no updates
             toolCallTimeoutRef = setTimeout(() => {
+              console.log("Processing tool calls after debounce");
+              setIsInToolExecutionChain(true); // Make sure we're in tool execution chain
               processToolCalls(content);
               toolCallTimeoutRef = null;
             }, 200);
-          } else if (mode !== 'agent') {
-            // For regular chat mode, process immediately
-            await processToolCalls(content);
           }
         }
       });
@@ -2152,6 +2179,7 @@ Return ONLY the final merged code without any explanations. The code should be r
           toolCallTimeoutRef = null;
         }
         // Process immediately
+        setIsInToolExecutionChain(true); // Make sure we're in tool execution chain
         await processToolCalls(currentContent);
       }
 
@@ -2179,31 +2207,6 @@ Return ONLY the final merged code without any explanations. The code should be r
       ]);
     } finally {
       setIsProcessing(false);
-    }
-  };
-
-  // Add tool handling function
-  const handleToolCall = async (functionCall: any) => {
-    const { name, arguments: args } = functionCall;
-    
-    try {
-      // Use the ToolService to call the tool
-      const result = await ToolService.callTool(name, args);
-      
-      // If the backend tool returned an error, format it properly
-      if (result && result.success === false) {
-        console.warn(`Tool call failed for ${name}:`, result.error);
-        return { 
-          error: result.error || `Failed to call tool: ${name}`,
-          details: result.message || "No additional details available"
-        };
-      }
-      
-      return result;
-    } catch (err) {
-      const error = err as Error;
-      console.error(`Exception calling tool ${name}:`, error);
-      return { error: `Failed to call tool: ${error.message}` };
     }
   };
 
@@ -2547,53 +2550,84 @@ Return ONLY the final merged code without any explanations. The code should be r
     setMessages(prev => [...prev, message]);
   };
 
+  // Updated handleToolCall function with proper ID formatting
+  const handleToolCall = async (functionCall: any) => {
+    const { name, arguments: args } = functionCall;
+    
+    try {
+      console.log(`Processing tool call: ${name}`, args);
+      setIsExecutingTool(true);
+      
+      // Parse arguments if they're a string
+      const parsedArgs = typeof args === 'string' ? JSON.parse(args) : args;
+      
+      // Ensure ID is in the correct format (9-character alphanumeric)
+      const toolCallId = functionCall.id && functionCall.id.length === 9 && /^[a-z0-9]+$/.test(functionCall.id)
+        ? functionCall.id
+        : generateValidToolCallId();
+      
+      // Call the ToolService to get real results
+      const result = await ToolService.callTool(name, parsedArgs);
+      
+      // Add result to toolResults with proper ID format
+      setToolResults(prev => [...prev, { id: toolCallId, result }]);
+      
+      return {
+        ...result,
+        toolCallId // Add the toolCallId to the result for reference
+      };
+    } catch (err) {
+      const error = err as Error;
+      console.error(`Exception calling tool ${name}:`, error);
+      return { 
+        success: false,
+        error: `Failed to call tool: ${error.message}`,
+        toolCallId: functionCall.id || generateValidToolCallId()
+      };
+    } finally {
+      setIsExecutingTool(false);
+    }
+  };
+
+  // Update the processToolCalls function for proper ID handling
   const processToolCalls = async (content: string) => {
     // First try to find function calls using regex
     const functionCallRegex = /function_call:\s*({[\s\S]*?})\s*(?=function_call:|$)/g;
     const matches = content.matchAll(functionCallRegex);
     let processedAnyCalls = false;
     
+    console.log("Checking for tool calls in:", content.substring(0, 100) + "...");
+    
     for (const match of matches) {
       try {
         const functionCallStr = match[1];
         if (!functionCallStr) continue;
         
+        console.log("Found function call:", functionCallStr);
+        
         // Try to parse the function call JSON
         let functionCall: FunctionCall;
         try {
           functionCall = JSON.parse(functionCallStr);
-        } catch (e) {
+        } catch (error) {
           // If JSON parsing fails, try to extract components manually
           console.log("Attempting to parse function call manually:", functionCallStr);
           
-          // Extract ID
+          // Extract ID - ensure it's valid or generate a new one
           const idMatch = functionCallStr.match(/"id"\s*:\s*"([^"]+)"/);
-          const id = idMatch ? idMatch[1] : `tool-call-${Date.now()}`;
+          const rawId = idMatch ? idMatch[1] : '';
+          // Validate the ID format or generate a new one
+          const id = (rawId && rawId.length === 9 && /^[a-z0-9]+$/.test(rawId))
+            ? rawId
+            : generateValidToolCallId();
           
           // Extract name
           const nameMatch = functionCallStr.match(/"name"\s*:\s*"([^"]+)"/);
           const name = nameMatch ? nameMatch[1] : '';
           
           // Extract arguments
-          const argsMatch = functionCallStr.match(/"arguments"\s*:\s*"([^"]+)"/);
+          const argsMatch = functionCallStr.match(/"arguments"\s*:\s*({[^}]+}|"[^"]+")/);
           let args = argsMatch ? argsMatch[1] : '{}';
-          
-          // If arguments are not valid JSON, try to clean them up
-          if (!args.startsWith('{') || !args.endsWith('}')) {
-            // Try to find the last complete JSON object
-            const lastBrace = args.lastIndexOf('}');
-            if (lastBrace !== -1) {
-              args = args.substring(0, lastBrace + 1);
-            } else {
-              // If no complete object found, try to complete it
-              if (!args.endsWith('}')) {
-                args += '}';
-              }
-              if (!args.startsWith('{')) {
-                args = '{' + args;
-              }
-            }
-          }
           
           // Create the function call object
           functionCall = {
@@ -2603,39 +2637,26 @@ Return ONLY the final merged code without any explanations. The code should be r
           };
         }
         
-        // If name is empty but we have arguments, try to infer the tool name
-        if (!functionCall.name && functionCall.arguments) {
-          try {
-            const args = typeof functionCall.arguments === 'string' 
-              ? JSON.parse(functionCall.arguments)
-              : functionCall.arguments;
-            if (args.directory_path) {
-              functionCall.name = 'list_directory';
-            } else if (args.file_path) {
-              functionCall.name = 'read_file';
-            } else if (args.query) {
-              functionCall.name = 'codebase_search';
-            } else if (args.url) {
-              functionCall.name = 'browse_web';
-            }
-          } catch (e) {
-            console.log("Could not parse arguments to infer tool name:", e);
-          }
-        }
-        
         // If we have a valid function call, process it
-        if (functionCall.id && functionCall.name) {
-          console.log("Processing function call:", functionCall);
+        if (functionCall.name) {
+          // Ensure ID is in the correct format
+          if (!functionCall.id || functionCall.id.length !== 9 || !/^[a-z0-9]+$/.test(functionCall.id)) {
+            functionCall.id = generateValidToolCallId();
+          }
+          
+          console.log("Processing tool call:", functionCall.name, "with ID:", functionCall.id);
           const result = await handleToolCall(functionCall);
           if (result) {
             processedAnyCalls = true;
-            // Add the result to the conversation
+            
+            // Add the tool result to messages for display
             setMessages(prev => [...prev, {
-              role: 'assistant',
-              content: result.content,
-              tool_calls: result.tool_calls,
-              tool_call_id: result.tool_call_id
+              role: 'tool',
+              content: JSON.stringify(result, null, 2),
+              tool_call_id: functionCall.id
             }]);
+            
+            console.log("Added tool result to messages with ID:", functionCall.id);
           }
         }
       } catch (error) {
@@ -2643,84 +2664,356 @@ Return ONLY the final merged code without any explanations. The code should be r
       }
     }
     
-    // Always continue the conversation after processing tool calls
+    // Continue the conversation if we processed any tool calls
     if (processedAnyCalls) {
+      console.log("Tool calls processed, continuing conversation...");
       setIsInToolExecutionChain(true);
+      
+      // Use setTimeout to ensure state updates have completed
+      setTimeout(() => {
+        continueLLMConversation();
+      }, 100);
     } else {
+      console.log("No tool calls processed or processed successfully");
       setIsInToolExecutionChain(false);
     }
-    continueLLMConversation();
   };
   
-  // Add a function to continue the conversation after tool execution
+  // Update continueLLMConversation to use a simpler approach that matches handleSubmit
   const continueLLMConversation = async () => {
-    if (!isInToolExecutionChain) return;
+    console.log("Continuing conversation. Tool execution chain:", isInToolExecutionChain);
+    
+    if (!isInToolExecutionChain) {
+      console.log("Not in tool execution chain, skipping continuation");
+      return;
+    }
     
     try {
       setIsProcessing(true);
+      console.log("Starting to process conversation continuation");
       
-      // Get the last user message and all tool results
-      const lastUserMessage = messages[messages.length - 1];
-      if (!lastUserMessage || lastUserMessage.role !== 'user') return;
+      // Get the last messages to provide context
+      const lastUserMessageIndex = [...messages].reverse().findIndex(msg => msg.role === 'user');
+      if (lastUserMessageIndex === -1) {
+        console.log('No user message found, cannot continue conversation');
+        setIsInToolExecutionChain(false);
+        return;
+      }
       
-      // Create a new conversation context with the original user message and tool results
-      const conversationContext = [
-        lastUserMessage,
-        ...toolResults.map(result => ({
-          role: 'tool' as const,
-          content: JSON.stringify(result),
-          tool_call_id: result.id
-        }))
-      ];
+      // Include the user message and all subsequent messages
+      const actualIndex = messages.length - 1 - lastUserMessageIndex;
+      const recentMessages = messages.slice(actualIndex);
+      
+      // Verify we have valid context
+      if (!recentMessages.length) {
+        console.log('Empty conversation context, cannot continue');
+        setIsInToolExecutionChain(false);
+        return;
+      }
+      
+      // Format a simpler context - avoid tool_call_id altogether
+      let formattedContext: Message[] = [];
+      
+      // Add the user's original query
+      formattedContext.push({
+        role: 'user' as const,
+        content: recentMessages[0].content || '',
+      });
+      
+      // Collect all tool results into a single assistant response
+      let toolResults = '';
+      for (let i = 1; i < recentMessages.length; i++) {
+        const msg = recentMessages[i];
+        if (msg.role === 'tool') {
+          let resultData;
+          try {
+            resultData = JSON.parse(msg.content);
+          } catch (e) {
+            resultData = { content: msg.content };
+          }
+          
+          toolResults += `\n\nTool Result:\n${JSON.stringify(resultData, null, 2)}`;
+        }
+      }
+      
+      // If we have tool results, add them as an assistant message
+      if (toolResults) {
+        formattedContext.push({
+          role: 'assistant' as const, 
+          content: `I've retrieved the following information:${toolResults}\n\nLet me analyze this information and provide you with a comprehensive answer.`
+        });
+      }
+      
+      console.log('Simplified context:', formattedContext.map(m => ({ 
+        role: m.role, 
+        content: m.content?.substring(0, 50) 
+      })));
       
       // Get model configuration
       const modelConfig = await AIFileService.getModelConfigForPurpose('agent');
       const modelId = modelConfig.modelId;
       
-      // Make a new call to the AI with the updated context
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          messages: conversationContext,
-          mode: 'agent',
-          model: modelId,
-          temperature: modelConfig.temperature || 0.7,
-          maxTokens: modelConfig.maxTokens || -1,
-          systemPrompt: '',
-          isContinuation: true
-        }),
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to get response from AI');
+      if (!modelId) {
+        throw new Error('No model ID configured for agent purpose');
       }
       
-      const data = await response.json();
+      // Log what we're sending to the model
+      console.log('Continuing conversation with simplified format. Model:', modelId);
       
-      // Create a new message for the AI's response
-      const newMessage: ExtendedMessage = {
-        role: 'assistant',
-        content: data.content,
-        tool_call_id: undefined
+      // Format the API config with the conversation context
+      const apiConfig = {
+        model: modelId,
+        messages: [
+          {
+            role: 'system' as const,
+            content: 'You are a helpful AI assistant. You have access to various tools to help answer the user\'s questions. Respond based on the information you have gathered.',
+          },
+          ...formattedContext
+        ],
+        temperature: modelConfig.temperature || 0.7,
+        max_tokens: modelConfig.maxTokens || -1,
+        top_p: modelConfig.topP,
+        frequency_penalty: modelConfig.frequencyPenalty,
+        presence_penalty: modelConfig.presencePenalty,
+        // Add tools configuration for agent mode
+        tools: [
+          {
+            type: "function",
+            function: {
+              name: "read_file",
+              description: "Read the contents of a file",
+              parameters: {
+                type: "object",
+                properties: {
+                  file_path: {
+                    type: "string",
+                    description: "The path to the file to read"
+                  }
+                },
+                required: ["file_path"]
+              }
+            }
+          },
+          {
+            type: "function",
+            function: {
+              name: "list_directory",
+              description: "List the contents of a directory",
+              parameters: {
+                type: "object",
+                properties: {
+                  directory_path: {
+                    type: "string",
+                    description: "The path to the directory to list"
+                  }
+                },
+                required: ["directory_path"]
+              }
+            }
+          },
+          {
+            type: "function",
+            function: {
+              name: "web_search",
+              description: "Search the web for information",
+              parameters: {
+                type: "object",
+                properties: {
+                  query: {
+                    type: "string",
+                    description: "The search query"
+                  },
+                  num_results: {
+                    type: "integer",
+                    description: "Number of results to return (default: 3)"
+                  }
+                },
+                required: ["query"]
+              }
+            }
+          },
+          {
+            type: "function",
+            function: {
+              name: "fetch_webpage",
+              description: "Fetch and extract content from a webpage",
+              parameters: {
+                type: "object",
+                properties: {
+                  url: {
+                    type: "string",
+                    description: "The URL of the webpage to fetch"
+                  }
+                },
+                required: ["url"]
+              }
+            }
+          }
+        ],
+        tool_choice: "auto"
       };
       
-      // Add the new message to the conversation
-      setMessages(prev => [...prev, newMessage]);
+      // Debug log to check if tools are present
+      console.log('Continuation - API Config:', JSON.stringify({
+        ...apiConfig,
+        messages: '[Messages included]',
+        tools: apiConfig.tools ? `[${apiConfig.tools.length} tools included]` : 'No tools',
+        tool_choice: apiConfig.tool_choice || 'No tool_choice'
+      }, null, 2));
       
-      // Process any tool calls in the new response
-      await processToolCalls(data.content);
+      let finalContent = '';
+      
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: 'Thinking...'
+      }]);
+      
+      console.log("Calling AI with simplified context");
+      
+      // Add timeout mechanism
+      let timeoutId: number | null = null;
+      const requestTimeout = 30000; // 30 seconds timeout
+      
+      // Create a promise that will reject after the timeout
+      const timeoutPromise = new Promise((_, reject) => {
+        timeoutId = setTimeout(() => {
+          reject(new Error("AI response timeout after " + requestTimeout / 1000 + " seconds"));
+        }, requestTimeout) as unknown as number;
+      });
+      
+      try {
+        // Race the API call against the timeout
+        await Promise.race([
+          lmStudio.createStreamingChatCompletion({
+            model: modelId,
+            messages: apiConfig.messages,
+            temperature: apiConfig.temperature || 0.7,
+            max_tokens: apiConfig.max_tokens || -1,
+            top_p: apiConfig.top_p,
+            frequency_penalty: apiConfig.frequency_penalty,
+            presence_penalty: apiConfig.presence_penalty,
+            tools: apiConfig.tools,
+            tool_choice: apiConfig.tool_choice,
+            purpose: 'agent',
+            onUpdate: async (content: string) => {
+              if (!content) return;
+              
+              // Clear timeout on first response
+              if (timeoutId) {
+                clearTimeout(timeoutId);
+                timeoutId = null;
+              }
+              
+              finalContent = content;
+              
+              console.log("Received content update:", content.substring(0, 50) + "...");
+              
+              // Update the last message with the new content
+              setMessages((prev: ExtendedMessage[]): ExtendedMessage[] => {
+                const newMessages = [...prev];
+                if (newMessages.length > 0) {
+                  const lastIndex = newMessages.length - 1;
+                  if (newMessages[lastIndex].role === 'assistant') {
+                    newMessages[lastIndex] = {
+                      role: 'assistant',
+                      content: content
+                    };
+                  }
+                }
+                return newMessages;
+              });
+              
+              // Only process tool calls if we have valid content
+              if (content && content.includes('function_call:')) {
+                console.log("Detected new tool calls in response");
+                try {
+                  // We want to avoid an infinite loop, so we'll set isInToolExecutionChain to false
+                  // before processing the new tool calls
+                  setIsInToolExecutionChain(false);
+                  
+                  // Then process the new tool calls
+                  setTimeout(() => {
+                    processToolCalls(content);
+                  }, 100);
+                } catch (toolError) {
+                  console.error('Error processing tool calls:', toolError);
+                }
+              }
+            }
+          }),
+          timeoutPromise
+        ]);
+      } catch (error) {
+        // Handle timeout or other errors
+        console.error("Error during AI call:", error);
+        setMessages((prev: ExtendedMessage[]): ExtendedMessage[] => {
+          const newMessages = [...prev];
+          if (newMessages.length > 0) {
+            const lastIndex = newMessages.length - 1;
+            if (newMessages[lastIndex].role === 'assistant') {
+              newMessages[lastIndex] = {
+                role: 'assistant',
+                content: `Sorry, there was an error generating a response: ${(error as Error).message}`
+              };
+            }
+          }
+          return newMessages;
+        });
+        
+        // Ensure we clear the timeout if it's still active
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+          timeoutId = null;
+        }
+      }
+      
+      // Check if we actually received a response
+      if (!finalContent || finalContent.trim() === '') {
+        console.error("AI response completed but no content was returned");
+        setMessages((prev: ExtendedMessage[]): ExtendedMessage[] => {
+          // Find the last message and update it
+          const newMessages = [...prev];
+          if (newMessages.length > 0) {
+            const lastIndex = newMessages.length - 1;
+            if (newMessages[lastIndex].role === 'assistant' && 
+                (newMessages[lastIndex].content === '' || newMessages[lastIndex].content === 'Thinking...')) {
+              newMessages[lastIndex] = {
+                role: 'assistant',
+                content: 'Sorry, I was unable to generate a response. Please try again.'
+              };
+            }
+          }
+          return newMessages;
+        });
+      } else {
+        console.log("AI response completed with content:", finalContent.substring(0, 50) + "...");
+      }
+      
+      setIsInToolExecutionChain(false);
+
+      // Extract and queue code blocks for auto-insert, similar to handleSubmit
+      const codeBlocks = extractCodeBlocks(finalContent);
+      if (codeBlocks.length > 0) {
+        setPendingInserts(prev => [
+          ...prev,
+          ...codeBlocks.map(block => ({ filename: block.filename, content: block.content }))
+        ]);
+        
+        setTimeout(() => {
+          preloadInsertModel();
+        }, 3000);
+      }
       
     } catch (error) {
       console.error('Error continuing conversation:', error);
+      setIsInToolExecutionChain(false);
+      
+      // Add a helpful error message
       setMessages(prev => [
         ...prev,
         {
           role: 'assistant',
-          content: 'Sorry, I encountered an error while processing your request.',
-          tool_call_id: undefined
+          content: `Sorry, I encountered an error while processing the tool results: ${(error as Error).message || 'Unknown error'}`
         }
       ]);
     } finally {

@@ -6,23 +6,23 @@ import Navbar from "../components/Navbar";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Pointer - Local AI-Powered Code Editor",
-  description: "A modern code editor with built-in AI assistance that runs entirely on your machine. Experience the power of local AI coding with complete privacy and zero latency.",
+  title: "Pointer - Your Local AI Code Editor",
+  description: "A modern code editor with built-in AI assistance that runs entirely on your machine. Experience local AI coding with privacy and zero latency.",
   keywords: "code editor, AI coding, local AI, privacy-first, code completion, local development, AI assistant, programming, development tools",
   authors: [{ name: "Das_F1sHy312" }],
   creator: "Das_F1sHy312",
   publisher: "Das_F1sHy312",
   openGraph: {
-    title: "Pointer - Local AI-Powered Code Editor",
-    description: "A modern code editor with built-in AI assistance that runs entirely on your machine. Experience the power of local AI coding with complete privacy and zero latency.",
+    title: "Pointer - Your Local AI Code Editor",
+    description: "A modern code editor with built-in AI assistance that runs entirely on your machine. Experience local AI coding with privacy and zero latency.",
     type: "website",
     locale: "en_US",
     siteName: "Pointer",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Pointer - Local AI-Powered Code Editor",
-    description: "A modern code editor with built-in AI assistance that runs entirely on your machine. Experience the power of local AI coding with complete privacy and zero latency.",
+    title: "Pointer - Your Local AI Code Editor",
+    description: "A modern code editor with built-in AI assistance that runs entirely on your machine. Experience local AI coding with privacy and zero latency.",
   },
   robots: {
     index: true,

@@ -53,7 +53,7 @@ class ToolCallRequest(BaseModel):
 @app.post("/api/tools/call")
 async def call_tool(request: ToolCallRequest):
     """
-    Call a tool with specified parameters.
+    Call a tool with specified parameters and return mock results.
     """
     print(f"Tool call request: {request.tool_name}, params: {request.params}")
     result = await handle_tool_call(request.tool_name, request.params)
