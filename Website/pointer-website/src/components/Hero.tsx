@@ -60,9 +60,9 @@ export default function Hero() {
           transition={{ duration: 0.8, ease: "easeOut", delay: 0.2 }}
           className="text-lg md:text-xl mb-8 font-mono"
         >
-          Powered by local LLMs for lightning-fast responses,<br />
-          Pointer brings AI-assisted coding right to your editor,<br />
-          with zero latency and complete privacy.
+          The first fully open-source AI coding assistant that runs entirely on your machine.<br />
+          Experience lightning-fast responses with complete privacy - your code never leaves your device.<br />
+          No subscriptions, no cloud dependencies, just pure coding freedom.
         </motion.p>
         
         <div className="flex flex-col md:flex-row gap-4 justify-center">

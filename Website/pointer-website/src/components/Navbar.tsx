@@ -73,7 +73,7 @@ export default function Navbar({
               <Link href="#features" className="text-gray-300 hover:text-primary transition-colors duration-300 text-sm">
                 Features
               </Link>
-              <Link href="#future" className="text-gray-300 hover:text-primary transition-colors duration-300 text-sm">
+              <Link href="#comparison" className="text-gray-300 hover:text-primary transition-colors duration-300 text-sm">
                 Keys
               </Link>
               <Link href="#community" className="text-gray-300 hover:text-primary transition-colors duration-300 text-sm">
