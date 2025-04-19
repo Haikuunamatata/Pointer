@@ -2550,7 +2550,7 @@ Return ONLY the final merged code without any explanations. The code should be r
     setMessages(prev => [...prev, message]);
   };
 
-  // Updated handleToolCall function with proper ID formatting
+  // Updated handleToolCall function with user prompt reincorporation
   const handleToolCall = async (functionCall: any) => {
     const { name, arguments: args } = functionCall;
     
@@ -2566,11 +2566,32 @@ Return ONLY the final merged code without any explanations. The code should be r
         ? functionCall.id
         : generateValidToolCallId();
       
+      // Get the last user message to reincorporate
+      const lastUserMessage = messages.slice().reverse().find(msg => msg.role === 'user');
+      
       // Call the ToolService to get real results
       const result = await ToolService.callTool(name, parsedArgs);
       
       // Add result to toolResults with proper ID format
       setToolResults(prev => [...prev, { id: toolCallId, result }]);
+      
+      // If the result includes a continuation prompt, add it to the conversation
+      if (result.continuation) {
+        // Add a special formatting marker in the result to force continued generation
+        result.content = result.content.replace(/"success":\s*true/, '"success": true, "_continue": true');
+        
+        // Add the original user query to help the model continue
+        if (lastUserMessage) {
+          result.content = result.content.replace(
+            /}$/,
+            `, "_original_user_query": ${JSON.stringify(lastUserMessage.content)}}`
+          );
+          
+          // Update the continuation prompt to reference the user's original query
+          result.continuation = `Based on the tool result above AND the user's original question: "${lastUserMessage.content}", 
+            continue generating your response. You must address the user's original query directly.`;
+        }
+      }
       
       return {
         ...result,
@@ -2579,10 +2600,23 @@ Return ONLY the final merged code without any explanations. The code should be r
     } catch (err) {
       const error = err as Error;
       console.error(`Exception calling tool ${name}:`, error);
+      
+      // Get the last user message to reincorporate even on error
+      const lastUserMessage = messages.slice().reverse().find(msg => msg.role === 'user');
+      
       return { 
+        role: 'system',
         success: false,
         error: `Failed to call tool: ${error.message}`,
-        toolCallId: functionCall.id || generateValidToolCallId()
+        toolCallId: functionCall.id || generateValidToolCallId(),
+        content: JSON.stringify({
+          success: false,
+          error: `Failed to call tool: ${error.message}`,
+          _original_user_query: lastUserMessage?.content || ""
+        }),
+        continuation: lastUserMessage ? 
+          `Despite this error, please address the user's original question: "${lastUserMessage.content}"` : 
+          "Despite this error, please continue generating a helpful response."
       };
     } finally {
       setIsExecutingTool(false);
@@ -2679,14 +2713,9 @@ Return ONLY the final merged code without any explanations. The code should be r
     }
   };
   
-  // Update continueLLMConversation to use a simpler approach that matches handleSubmit
+  // Add a continuation method to the LLM conversation
   const continueLLMConversation = async () => {
     console.log("Continuing conversation. Tool execution chain:", isInToolExecutionChain);
-    
-    if (!isInToolExecutionChain) {
-      console.log("Not in tool execution chain, skipping continuation");
-      return;
-    }
     
     try {
       setIsProcessing(true);
@@ -2703,13 +2732,12 @@ Return ONLY the final merged code without any explanations. The code should be r
       // Include the user message and all subsequent messages
       const actualIndex = messages.length - 1 - lastUserMessageIndex;
       const recentMessages = messages.slice(actualIndex);
-      
-      // Verify we have valid context
-      if (!recentMessages.length) {
-        console.log('Empty conversation context, cannot continue');
-        setIsInToolExecutionChain(false);
-        return;
-      }
+
+      // Add a special system message to ensure continuation
+      const continuationPrompt: ExtendedMessage = {
+        role: 'system',
+        content: `You must continue your response to the user's query. Do not repeat what you've already said, but continue with new information or complete your previous thoughts. Be thorough and complete in your continuation. Reference the user's original question explicitly to maintain context.`
+      };
       
       // Format a simpler context - avoid tool_call_id altogether
       let formattedContext: Message[] = [];
@@ -2719,6 +2747,9 @@ Return ONLY the final merged code without any explanations. The code should be r
         role: 'user' as const,
         content: recentMessages[0].content || '',
       });
+      
+      // Add the continuation prompt
+      formattedContext.push(continuationPrompt);
       
       // Collect all tool results into a single assistant response
       let toolResults = '';
@@ -2766,7 +2797,7 @@ Return ONLY the final merged code without any explanations. The code should be r
         messages: [
           {
             role: 'system' as const,
-            content: 'You are a helpful AI assistant. You have access to various tools to help answer the user\'s questions. Respond based on the information you have gathered.',
+            content: 'You are a helpful AI assistant. You have access to various tools to help answer the user\'s questions. Based on the tool results, you MUST continue generating a complete response that directly addresses the user\'s original question.',
           },
           ...formattedContext
         ],
@@ -3003,7 +3034,7 @@ Return ONLY the final merged code without any explanations. The code should be r
           preloadInsertModel();
         }, 3000);
       }
-      
+
     } catch (error) {
       console.error('Error continuing conversation:', error);
       setIsInToolExecutionChain(false);
