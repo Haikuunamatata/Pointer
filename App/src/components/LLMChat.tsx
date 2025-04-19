@@ -1324,6 +1324,22 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   // Add state to track if insert model has been preloaded
   const [insertModelPreloaded, setInsertModelPreloaded] = useState(false);
 
+  // Add state for tracking expanded tool calls
+  const [expandedToolCalls, setExpandedToolCalls] = useState<Set<string>>(new Set());
+  
+  // Toggle expansion state of a tool call
+  const toggleToolCallExpansion = useCallback((toolCallId: string) => {
+    setExpandedToolCalls(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(toolCallId)) {
+        newSet.delete(toolCallId);
+      } else {
+        newSet.add(toolCallId);
+      }
+      return newSet;
+    });
+  }, []);
+
   // Add state for attached files
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [showFileSuggestions, setShowFileSuggestions] = useState(false);
@@ -1954,9 +1970,34 @@ Return ONLY the final merged code without any explanations. The code should be r
     };
   }, []);
 
+  // Add state for current working directory
+  const [currentWorkingDirectory, setCurrentWorkingDirectory] = useState<string>('');
+
+  // Fetch current working directory on component mount
+  useEffect(() => {
+    const fetchCwd = async () => {
+      try {
+        const response = await fetch('http://localhost:23816/get-workspace-directory');
+        if (response.ok) {
+          const data = await response.json();
+          setCurrentWorkingDirectory(data.workspace_directory || data.effective_directory || '');
+        }
+      } catch (error) {
+        console.error('Failed to fetch workspace directory:', error);
+      }
+    };
+    
+    fetchCwd();
+  }, []);
+
   // System messages for different modes
-  const chatSystemMessage = 'You are a helpful coding assistant.';
+  const chatSystemMessage = `You are a helpful coding assistant.
+  
+Current working directory: ${currentWorkingDirectory || 'Unknown'}`;
+
   const agentSystemMessage = `You are a helpful coding assistant with access to tools. 
+  
+Current working directory: ${currentWorkingDirectory || 'Unknown'}
   
 When using tools, first explain your intention clearly before making the function call. For example:
 
@@ -2594,8 +2635,7 @@ Then follow with your function call. This helps the user understand your reasoni
           );
           
           // Update the continuation prompt to reference the user's original query
-          result.continuation = `Based on the tool result above AND the user's original question: "${lastUserMessage.content}", 
-            continue generating your response. You must address the user's original query directly.`;
+          result.continuation = ``; // : ${lastUserMessage.content} || Based on the tool result above AND the user's original question, continue generating your response. You must address the user's original query directly.
         }
       }
       
@@ -2621,7 +2661,7 @@ Then follow with your function call. This helps the user understand your reasoni
           _original_user_query: lastUserMessage?.content || ""
         }),
         continuation: lastUserMessage ? 
-          `Despite this error, please address the user's original question: "${lastUserMessage.content}"` : 
+          `Despite this error, please address the user's original question: ${lastUserMessage.content}` : 
           "Despite this error, please continue generating a helpful response."
       };
     } finally {
@@ -2738,7 +2778,7 @@ Then follow with your function call. This helps the user understand your reasoni
       // Include the user message and all subsequent messages
       const actualIndex = messages.length - 1 - lastUserMessageIndex;
       const recentMessages = messages.slice(actualIndex);
-
+      
       // Add a special system message to ensure continuation
       const continuationPrompt: ExtendedMessage = {
         role: 'system',
@@ -2804,6 +2844,8 @@ Then follow with your function call. This helps the user understand your reasoni
           {
             role: 'system' as const,
             content: `You are a helpful AI assistant. You have access to various tools to help answer the user's questions. Based on the tool results, you MUST continue generating a complete response that directly addresses the user's original question.
+
+Current working directory: ${currentWorkingDirectory || 'Unknown'}
 
 When using tools, first explain your intention clearly before making the function call. For example:
 
@@ -3046,7 +3088,7 @@ Then follow with your function call. This helps the user understand your reasoni
           preloadInsertModel();
         }, 3000);
       }
-
+      
     } catch (error) {
       console.error('Error continuing conversation:', error);
       setIsInToolExecutionChain(false);
@@ -3067,36 +3109,375 @@ Then follow with your function call. This helps the user understand your reasoni
 
   // Update the message rendering to handle the new message structure
   const renderMessage = (message: ExtendedMessage, index: number) => {
-    const isUser = message.role === 'user';
-    const isAssistant = message.role === 'assistant';
-    const isTool = message.role === 'tool';
+    // Skip system messages
+    if (message.role === 'system') return null;
     
+    // Check if message has think blocks
+    const hasThinkBlocks = message.content.includes('<think>');
+    
+    // Calculate if this message should be faded
+    const shouldBeFaded = editingMessageIndex !== null && index + 1 > editingMessageIndex;
+    
+    // If it's a thinking message, render it differently
+    if (hasThinkBlocks) {
     return (
       <div 
         key={index} 
-        className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-4`}
-      >
-        <div 
-          className={`max-w-[80%] rounded-lg p-4 ${
-            isUser 
-              ? 'bg-blue-500 text-white' 
-              : isTool
-                ? 'bg-gray-200 text-gray-800'
-                : 'bg-gray-100 text-gray-800'
-          }`}
+          style={{ 
+            width: '100%',
+            opacity: shouldBeFaded ? 0.33 : 1,
+            transition: 'opacity 0.2s ease',
+          }}
         >
-          {isTool ? (
-            <div className="text-sm">
-              <pre className="whitespace-pre-wrap">{message.content}</pre>
+          <MessageRenderer message={message} />
+        </div>
+      );
+    }
+    
+    // If editing this message
+    if (editingMessageIndex === index + 1) {
+      return (
+        <div
+          key={index}
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            width: '100%',
+          }}
+        >
+          <textarea
+            value={input}
+            onChange={handleInputChange}
+            autoFocus
+            style={{
+              width: '85%',
+              padding: '12px',
+              borderRadius: '8px',
+              border: '1px solid var(--border-primary)',
+              background: 'var(--bg-primary)',
+              color: 'var(--text-primary)',
+              fontFamily: 'inherit',
+              minHeight: '100px',
+              resize: 'vertical',
+            }}
+          />
+          <div style={{ marginTop: '10px', display: 'flex', gap: '10px' }}>
+            <button
+              onClick={handleCancelEdit}
+              style={{
+                padding: '6px 12px',
+                borderRadius: '4px',
+                border: '1px solid var(--border-primary)',
+                background: 'var(--bg-primary)',
+                color: 'var(--text-primary)',
+                cursor: 'pointer',
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSubmitEdit}
+              style={{
+                padding: '6px 12px',
+                borderRadius: '4px',
+                border: '1px solid var(--accent-color)',
+                background: 'var(--accent-color)',
+                color: 'var(--text-on-accent)',
+                cursor: 'pointer',
+              }}
+            >
+              Save
+            </button>
             </div>
-          ) : (
-            <div className="prose prose-sm max-w-none">
-              {message.content.split('\n').map((line, i) => (
-                <p key={i}>{line}</p>
-              ))}
+        </div>
+      );
+    }
+    
+    // Handle tool role messages
+    if (message.role === 'tool') {
+      // Parse tool call content to get details
+      let content = message.content;
+      let toolName = "Tool";
+      const toolCallId = message.tool_call_id || `tool_${index}`;
+      const isExpanded = expandedToolCalls.has(toolCallId);
+      let toolArgs = null;
+      
+      try {
+        // Determine tool type and create appropriate label
+        if (message.tool_call_id) {
+          const toolCall = messages
+            .find(m => m.tool_calls?.some(tc => tc.id === message.tool_call_id))
+            ?.tool_calls?.find(tc => tc.id === message.tool_call_id);
+            
+          if (toolCall) {
+            toolName = toolCall.name;
+            
+            // Store the tool arguments
+            toolArgs = typeof toolCall.arguments === 'string' 
+              ? toolCall.arguments 
+              : JSON.stringify(toolCall.arguments, null, 2);
+              
+            // Try to parse the arguments if they're a string
+            if (typeof toolCall.arguments === 'string') {
+              try {
+                toolArgs = JSON.stringify(JSON.parse(toolCall.arguments), null, 2);
+              } catch (e) {
+                // Keep original string if not valid JSON
+              }
+            }
+          }
+        } else {
+          // Try to extract function call details from the content if tool_call_id is missing
+          try {
+            // Look for various function_call patterns
+            let extractedName = null;
+            
+            // First try to match the "name":"value" pattern
+            const nameMatch = message.content.match(/"name"\s*:\s*"([^"]+)"/);
+            if (nameMatch && nameMatch[1]) {
+              extractedName = nameMatch[1];
+            }
+            
+            // Also try to match function_call: pattern
+            if (!extractedName) {
+              const functionCallMatch = message.content.match(/function_call:\s*\{.*?"name"\s*:\s*"([^"]+)"/s);
+              if (functionCallMatch && functionCallMatch[1]) {
+                extractedName = functionCallMatch[1];
+              }
+            }
+            
+            // Also look for simpler pattern like list_directory
+            if (!extractedName) {
+              const simpleCallMatch = message.content.match(/\b(list_directory|read_file|web_search|grep_search|codebase_search)\b/);
+              if (simpleCallMatch) {
+                extractedName = simpleCallMatch[1];
+              }
+            }
+            
+            if (extractedName) {
+              toolName = extractedName;
+            }
+          } catch (e) {
+            // Ignore extraction errors
+          }
+        }
+      } catch (e) {
+        // Use default if parsing fails
+        console.error("Error parsing tool result:", e);
+      }
+      
+      // Format content for display
+      let shortContent = '';
+      try {
+        // Try to clean up the content by removing function call info
+        let cleanContent = content;
+        const functionCallIndex = content.indexOf('function_call:');
+        if (functionCallIndex >= 0) {
+          cleanContent = content.substring(0, functionCallIndex).trim();
+        }
+        
+        // If nothing is left, extract useful information from the result
+        if (!cleanContent) {
+          try {
+            const resultObj = JSON.parse(content);
+            
+            // Create a simplified preview for collapsed state
+            if (typeof resultObj === 'object') {
+              if (resultObj.success !== undefined) {
+                shortContent = resultObj.success ? 'Operation successful' : 'Operation failed';
+              } else if (resultObj.contents) {
+                const contentStr = resultObj.contents.toString() || '';
+                shortContent = `${contentStr.slice(0, 60)}${contentStr.length > 60 ? '...' : ''}`;
+              } else if (Array.isArray(resultObj)) {
+                shortContent = `${resultObj.length} items found`;
+              } else {
+                // Don't show generic text, the dropdown icon is enough
+                shortContent = '';
+              }
+            } else {
+              // Don't show generic text, the dropdown icon is enough
+              shortContent = '';
+            }
+          } catch (error) {
+            // If not JSON or parsing fails, use the clean content
+            shortContent = cleanContent || '';
+          }
+        } else {
+          // Use the cleaned content
+          shortContent = cleanContent.split('\n')[0].slice(0, 60) + (cleanContent.length > 60 ? '...' : '');
+        }
+      } catch (error) {
+        // If anything fails, take the first line only
+        shortContent = content.split('\n')[0].slice(0, 60) + (content.length > 60 ? '...' : '');
+      }
+      
+      return (
+        <div
+          key={index}
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'flex-start',
+            position: 'relative',
+            width: '100%',
+            opacity: shouldBeFaded ? 0.5 : 1,
+            transition: 'opacity 0.2s ease',
+          }}
+        >
+          <div
+            className={`message tool`}
+            style={{
+              padding: '12px',
+              borderRadius: '8px',
+              border: '1px solid var(--border-secondary)',
+            }}
+          >
+            <div className="tool-header" onClick={() => toggleToolCallExpansion(toolCallId)}>
+              <div className="tool-header-content">
+                <span className="tool-icon">
+                  {toolName === 'read_file' && <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                    <polyline points="14 2 14 8 20 8"></polyline>
+                    <line x1="16" y1="13" x2="8" y2="13"></line>
+                    <line x1="16" y1="17" x2="8" y2="17"></line>
+                    <polyline points="10 9 9 9 8 9"></polyline>
+                  </svg>}
+                  
+                  {toolName === 'list_directory' && <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                  </svg>}
+                  
+                  {toolName === 'web_search' && <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="11" cy="11" r="8"></circle>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                  </svg>}
+                  
+                  {!['read_file', 'list_directory', 'web_search'].includes(toolName) && <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                    <line x1="12" y1="9" x2="12" y2="13"></line>
+                    <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                  </svg>}
+                </span>
+                Used Tool: {toolName.replace(/_/g, ' ')}
+              </div>
+              <svg 
+                className={`tool-toggle-icon ${isExpanded ? 'expanded' : ''}`}
+                width="12" 
+                height="12" 
+                viewBox="0 0 24 24" 
+                fill="none" 
+                stroke="currentColor" 
+                strokeWidth="2"
+              >
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </div>
+
+            {!isExpanded && (
+              <div className="tool-preview">
+                {shortContent}
             </div>
           )}
+            
+            {isExpanded && toolArgs && (
+              <div className="tool-arguments">
+                <span className="tool-arguments-label">Arguments Used:</span>
+                <pre className="tool-arguments-content">{toolArgs}</pre>
         </div>
+            )}
+            
+            {isExpanded && (
+              <span className="tool-result-label">Result:</span>
+            )}
+            
+            <pre className={`tool-result ${isExpanded ? 'expanded' : 'collapsed'}`}>
+              {content}
+            </pre>
+          </div>
+        </div>
+      );
+    }
+
+    // Regular message
+    return (
+      <div
+        key={index}
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: message.role === 'user' ? 'flex-end' : 'flex-start',
+          position: 'relative',
+          width: '100%',
+          opacity: shouldBeFaded ? 0.5 : 1,
+          transition: 'opacity 0.2s ease',
+        }}
+      >
+        <div
+          className={`message ${message.role}`}
+          style={{
+            background: message.role === 'user' ? 'var(--bg-primary)' : 'var(--bg-secondary)',
+            padding: '12px',
+            borderRadius: '8px',
+            maxWidth: '85%',
+            border: message.role === 'user' ? '1px solid var(--border-primary)' : 'none',
+          }}
+        >
+          <MessageRenderer message={message} />
+        </div>
+        {message.role === 'user' && (
+          <div
+            style={{
+              marginTop: '4px',
+              display: 'flex',
+              justifyContent: 'flex-end',
+              paddingRight: '4px',
+            }}
+            className="edit-button-container"
+          >
+            <button
+              className="edit-button"
+              onClick={() => handleEditMessage(index + 1)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '3px',
+                background: 'none',
+                border: 'none',
+                color: 'var(--text-tertiary)',
+                cursor: shouldBeFaded ? 'not-allowed' : 'pointer',
+                padding: '2px 4px',
+                borderRadius: '3px',
+                fontSize: '11px',
+                transition: 'all 0.2s ease',
+                opacity: shouldBeFaded ? 0.3 : 0.7,
+                pointerEvents: shouldBeFaded ? 'none' : 'auto',
+              }}
+              onMouseEnter={(e: React.MouseEvent<HTMLButtonElement>) => {
+                if (!shouldBeFaded) {
+                  e.currentTarget.style.background = 'var(--bg-hover)';
+                  e.currentTarget.style.opacity = '1';
+                  e.currentTarget.style.color = 'var(--text-secondary)';
+                }
+              }}
+              onMouseLeave={(e: React.MouseEvent<HTMLButtonElement>) => {
+                if (!shouldBeFaded) {
+                  e.currentTarget.style.background = 'none';
+                  e.currentTarget.style.opacity = '0.7';
+                  e.currentTarget.style.color = 'var(--text-tertiary)';
+                }
+              }}
+              title={shouldBeFaded ? "Can't edit while another message is being edited" : "Edit message"}
+              disabled={shouldBeFaded}
+            >
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+              </svg>
+              <span>Edit</span>
+            </button>
+          </div>
+        )}
       </div>
     );
   };
@@ -3279,111 +3660,7 @@ Then follow with your function call. This helps the user understand your reasoni
           </div>
         ) : (
           <>
-            {messages.slice(1).map((message, index) => {
-              // Check if message has think blocks
-              const hasThinkBlocks = message.content.includes('<think>');
-              
-              // Calculate if this message should be faded
-              const shouldBeFaded = editingMessageIndex !== null && index + 1 > editingMessageIndex;
-              
-              // If it's a thinking message, render it differently
-              if (hasThinkBlocks) {
-                return (
-                  <div 
-                    key={index} 
-                    style={{ 
-                      width: '100%',
-                      opacity: shouldBeFaded ? 0.33 : 1,
-                      transition: 'opacity 0.2s ease',
-                    }}
-                  >
-                    <MessageRenderer message={message} />
-                  </div>
-                );
-              }
-
-              // Regular message
-              return (
-                <div
-                  key={index}
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: message.role === 'assistant' ? 'flex-start' : 'flex-end',
-                    position: 'relative',
-                    width: '100%',
-                    opacity: shouldBeFaded ? 0.5 : 1,
-                    transition: 'opacity 0.2s ease',
-                  }}
-                >
-                  <div
-                    className={`message ${message.role === 'assistant' ? 'assistant' : 'user'}`}
-                    style={{
-                      background: message.role === 'assistant' ? 'var(--bg-secondary)' : 'var(--bg-primary)',
-                      padding: '12px',
-                      borderRadius: '8px',
-                      maxWidth: '85%',
-                      border: message.role === 'assistant' ? 'none' : '1px solid var(--border-primary)',
-                    }}
-                  >
-                    <MessageRenderer message={message} />
-                  </div>
-                  {message.role === 'user' && (
-                    <div
-                      style={{
-                        marginTop: '4px',
-                        display: 'flex',
-                        justifyContent: 'flex-end',
-                        paddingRight: '4px',
-                      }}
-                      className="edit-button-container"
-                    >
-                      <button
-                        className="edit-button"
-                        onClick={() => handleEditMessage(index + 1)}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '3px',
-                          background: 'none',
-                          border: 'none',
-                          color: 'var(--text-tertiary)',
-                          cursor: shouldBeFaded ? 'not-allowed' : 'pointer',
-                          padding: '2px 4px',
-                          borderRadius: '3px',
-                          fontSize: '11px',
-                          transition: 'all 0.2s ease',
-                          opacity: shouldBeFaded ? 0.3 : 0.7,
-                          pointerEvents: shouldBeFaded ? 'none' : 'auto',
-                        }}
-                        onMouseEnter={(e: React.MouseEvent<HTMLButtonElement>) => {
-                          if (!shouldBeFaded) {
-                            e.currentTarget.style.background = 'var(--bg-hover)';
-                            e.currentTarget.style.opacity = '1';
-                            e.currentTarget.style.color = 'var(--text-secondary)';
-                          }
-                        }}
-                        onMouseLeave={(e: React.MouseEvent<HTMLButtonElement>) => {
-                          if (!shouldBeFaded) {
-                            e.currentTarget.style.background = 'none';
-                            e.currentTarget.style.opacity = '0.7';
-                            e.currentTarget.style.color = 'var(--text-tertiary)';
-                          }
-                        }}
-                        title={shouldBeFaded ? "Can't edit while another message is being edited" : "Edit message"}
-                        disabled={shouldBeFaded}
-                      >
-                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                        </svg>
-                        <span>Edit</span>
-                      </button>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+            {messages.slice(1).map((message, index) => renderMessage(message, index))}
           </>
         )}
         <div ref={messagesEndRef} />

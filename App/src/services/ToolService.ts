@@ -51,10 +51,11 @@ class ToolService {
       // Add context-carrying instructions
       const contextInstructions = `
 <context>
-The information below is from a tool call result. Use it to answer the user's original question.
-You MUST generate a new, complete response that directly answers the user's question.
-Do not just acknowledge the tool result - use it to provide a comprehensive answer.
-</context>`;
+The information below is from a tool call result. 
+</context>`; 
+//Use it to answer the user's original question.
+//You MUST generate a new, complete response that directly answers the user's question.
+//Do not just acknowledge the tool result - use it to provide a comprehensive answer.
       
       // Wrap the result in a system message with continuation prompt
       return {

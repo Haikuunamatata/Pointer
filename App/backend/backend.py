@@ -1298,6 +1298,15 @@ async def get_workspace_directory():
         "base_directory": base_directory
     }
 
+@app.get("/api/cwd")
+async def get_current_working_directory():
+    """Get the current working directory."""
+    try:
+        cwd = os.getcwd()
+        return {"cwd": cwd}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting current working directory: {str(e)}")
+
 @app.post("/read-settings-files")
 async def read_settings_files(request: SettingsRequest):
     """Read all JSON settings files from the specified directory."""

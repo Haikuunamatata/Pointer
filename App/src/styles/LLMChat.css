@@ -329,6 +329,16 @@
   align-self: flex-start;
 }
 
+.message.tool {
+  align-self: flex-start;
+  background-color: var(--bg-tertiary) !important;
+  color: var(--text-primary);
+  opacity: 0.9;
+  max-width: 75% !important;
+  font-size: 0.95em;
+  border: 1px solid var(--border-secondary) !important;
+}
+
 .message-content {
   font-size: 13px;
   line-height: 1.5;
@@ -344,6 +354,111 @@
 
 .message-content pre {
   margin: 0;
+}
+
+.tool-header {
+  display: flex;
+  align-items: center;
+  font-weight: bold;
+  margin-bottom: 8px;
+  color: var(--text-tertiary);
+  font-size: 0.9em;
+  border-bottom: 1px solid var(--border-secondary);
+  padding-bottom: 6px;
+  cursor: pointer;
+  user-select: none;
+  justify-content: space-between;
+}
+
+.tool-header-content {
+  display: flex;
+  align-items: center;
+}
+
+.tool-icon {
+  display: inline-flex;
+  margin-right: 6px;
+}
+
+.tool-result {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background-color: rgba(0, 0, 0, 0.1);
+  padding: 6px;
+  border-radius: 4px;
+  margin-top: 4px;
+  overflow: hidden;
+  transition: max-height 0.3s ease-in-out, opacity 0.3s ease;
+}
+
+.tool-result.collapsed {
+  max-height: 0;
+  padding: 0;
+  margin: 0;
+  opacity: 0;
+}
+
+.tool-result.expanded {
+  max-height: 500px;
+  opacity: 1;
+}
+
+.tool-toggle-icon {
+  transition: transform 0.3s ease;
+  margin-left: 6px;
+}
+
+.tool-toggle-icon.expanded {
+  transform: rotate(180deg);
+}
+
+.tool-preview {
+  color: var(--text-secondary);
+  opacity: 0.8;
+  font-style: italic;
+  font-size: 0.9em;
+  padding: 4px 0;
+  margin: 0 0 0 22px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: calc(100% - 30px);
+}
+
+.tool-arguments {
+  margin-top: 6px;
+  margin-bottom: 10px;
+  padding: 6px 8px;
+  background-color: rgba(0, 0, 0, 0.05);
+  border-radius: 4px;
+  border-left: 2px solid var(--border-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  color: var(--text-secondary);
+}
+
+.tool-arguments-label {
+  display: block;
+  font-size: 0.9em;
+  font-weight: bold;
+  margin-bottom: 4px;
+  color: var(--text-tertiary);
+}
+
+.tool-arguments-content {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.tool-result-label {
+  display: block;
+  font-size: 0.9em;
+  font-weight: bold;
+  margin-top: 12px;
+  margin-bottom: 4px;
+  color: var(--text-tertiary);
 }
 
 /* Hide scrollbar for Chrome, Safari and Opera */
