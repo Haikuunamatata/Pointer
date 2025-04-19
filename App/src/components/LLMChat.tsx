@@ -1956,7 +1956,13 @@ Return ONLY the final merged code without any explanations. The code should be r
 
   // System messages for different modes
   const chatSystemMessage = 'You are a helpful coding assistant.';
-  const agentSystemMessage = 'You are a helpful coding assistant with access to tools.';
+  const agentSystemMessage = `You are a helpful coding assistant with access to tools. 
+  
+When using tools, first explain your intention clearly before making the function call. For example:
+
+"To provide an accurate analysis of the contents within the requested directory, I will list its contents."
+
+Then follow with your function call. This helps the user understand your reasoning process. Always be thorough but concise in your explanations.`;
 
   // Modify handleSubmit to use the correct model based on mode
   const handleSubmit = async (e: React.FormEvent) => {
@@ -2797,7 +2803,13 @@ Return ONLY the final merged code without any explanations. The code should be r
         messages: [
           {
             role: 'system' as const,
-            content: 'You are a helpful AI assistant. You have access to various tools to help answer the user\'s questions. Based on the tool results, you MUST continue generating a complete response that directly addresses the user\'s original question.',
+            content: `You are a helpful AI assistant. You have access to various tools to help answer the user's questions. Based on the tool results, you MUST continue generating a complete response that directly addresses the user's original question.
+
+When using tools, first explain your intention clearly before making the function call. For example:
+
+"To provide an accurate analysis of the contents within the requested directory, I will list its contents."
+
+Then follow with your function call. This helps the user understand your reasoning process. Always be thorough but concise in your explanations.`
           },
           ...formattedContext
         ],
@@ -2896,7 +2908,7 @@ Return ONLY the final merged code without any explanations. The code should be r
       
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: 'Thinking...'
+        content: '...'
       }]);
       
       console.log("Calling AI with simplified context");
