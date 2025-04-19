@@ -2,11 +2,38 @@ import requests
 from typing import Dict, Any, Optional, List
 import json
 import time
+from datetime import datetime, timedelta
+from collections import defaultdict
+import hashlib
+
+# Cache configuration
+CACHE_DURATION = timedelta(hours=1)
+cache = defaultdict(dict)
+
+# Rate limiting configuration
+RATE_LIMIT_WINDOW = 60  # seconds
+RATE_LIMIT_MAX_REQUESTS = 30
+request_timestamps = []
+
+def is_rate_limited() -> bool:
+    """Check if the current request should be rate limited."""
+    current_time = time.time()
+    # Remove old timestamps
+    request_timestamps[:] = [ts for ts in request_timestamps if current_time - ts < RATE_LIMIT_WINDOW]
+    
+    if len(request_timestamps) >= RATE_LIMIT_MAX_REQUESTS:
+        return True
+    
+    request_timestamps.append(current_time)
+    return False
+
+def get_cache_key(query: str) -> str:
+    """Generate a cache key for the query."""
+    return hashlib.md5(query.encode()).hexdigest()
 
 def web_search(query: str, num_results: int = 3) -> Dict[str, Any]:
     """
-    Simulated web search tool.
-    In a production environment, this would connect to a real search API.
+    Perform a web search using DuckDuckGo API.
     
     Args:
         query (str): Search query
@@ -15,46 +42,69 @@ def web_search(query: str, num_results: int = 3) -> Dict[str, Any]:
     Returns:
         Dict[str, Any]: Search results
     """
-    # This is a mock implementation - in production, connect to a real search API
-    mock_results = [
-        {
-            "title": f"Result for {query} - Example 1",
-            "url": f"https://example.com/search?q={query.replace(' ', '+')}",
-            "snippet": f"This is a sample search result for the query '{query}'. It demonstrates how the web search tool works."
-        },
-        {
-            "title": f"Another result for {query}",
-            "url": f"https://example.org/results?query={query.replace(' ', '+')}",
-            "snippet": f"Another example result for '{query}'. In a real implementation, this would contain actual search results."
-        },
-        {
-            "title": f"{query} - Documentation",
-            "url": f"https://docs.example.com/{query.replace(' ', '-').lower()}",
-            "snippet": f"Documentation related to {query}. Contains guides, tutorials and reference materials."
-        },
-        {
-            "title": f"Learn about {query}",
-            "url": f"https://learn.example.edu/topics/{query.replace(' ', '_').lower()}",
-            "snippet": f"Educational resources about {query} with examples and exercises."
+    if is_rate_limited():
+        return {
+            "success": False,
+            "error": "Rate limit exceeded. Please try again later.",
+            "query": query
         }
-    ]
     
-    # Simulate network latency
-    time.sleep(0.5)
+    # Check cache
+    cache_key = get_cache_key(query)
+    cached_result = cache.get(cache_key)
+    if cached_result and (datetime.now() - cached_result['timestamp']) < CACHE_DURATION:
+        return cached_result['data']
     
-    # Return limited results based on num_results
-    limited_results = mock_results[:min(num_results, len(mock_results))]
-    
-    return {
-        "success": True,
-        "query": query,
-        "num_results": len(limited_results),
-        "results": limited_results
-    }
+    try:
+        # DuckDuckGo API endpoint
+        url = "https://api.duckduckgo.com/"
+        params = {
+            "q": query,
+            "format": "json",
+            "no_html": 1,
+            "no_redirect": 1,
+            "skip_disambig": 1
+        }
+        
+        response = requests.get(url, params=params, timeout=10)
+        response.raise_for_status()
+        
+        data = response.json()
+        
+        # Process results
+        results = []
+        if data.get('RelatedTopics'):
+            for topic in data['RelatedTopics']:
+                if 'Text' in topic and 'FirstURL' in topic:
+                    results.append({
+                        "title": topic.get('Text', ''),
+                        "url": topic['FirstURL'],
+                        "snippet": topic.get('Text', '')
+                    })
+        
+        # Cache the results
+        cache[cache_key] = {
+            'timestamp': datetime.now(),
+            'data': {
+                "success": True,
+                "query": query,
+                "num_results": len(results),
+                "results": results[:num_results]
+            }
+        }
+        
+        return cache[cache_key]['data']
+        
+    except requests.RequestException as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "query": query
+        }
 
 def fetch_webpage(url: str) -> Dict[str, Any]:
     """
-    Fetch content from a webpage.
+    Fetch content from a webpage with caching and rate limiting.
     
     Args:
         url (str): URL to fetch
@@ -62,6 +112,19 @@ def fetch_webpage(url: str) -> Dict[str, Any]:
     Returns:
         Dict[str, Any]: Content of the webpage
     """
+    if is_rate_limited():
+        return {
+            "success": False,
+            "error": "Rate limit exceeded. Please try again later.",
+            "url": url
+        }
+    
+    # Check cache
+    cache_key = get_cache_key(url)
+    cached_result = cache.get(cache_key)
+    if cached_result and (datetime.now() - cached_result['timestamp']) < CACHE_DURATION:
+        return cached_result['data']
+    
     try:
         response = requests.get(url, timeout=10)
         response.raise_for_status()
@@ -69,9 +132,11 @@ def fetch_webpage(url: str) -> Dict[str, Any]:
         # Get content type
         content_type = response.headers.get('Content-Type', '')
         
+        result = None
+        
         if 'text/html' in content_type:
             # For HTML, return simplified content
-            return {
+            result = {
                 "success": True,
                 "url": url,
                 "content_type": content_type,
@@ -83,7 +148,7 @@ def fetch_webpage(url: str) -> Dict[str, Any]:
             # For JSON, parse and return the JSON
             try:
                 json_content = response.json()
-                return {
+                result = {
                     "success": True,
                     "url": url,
                     "content_type": content_type,
@@ -91,7 +156,7 @@ def fetch_webpage(url: str) -> Dict[str, Any]:
                     "content": json_content
                 }
             except json.JSONDecodeError:
-                return {
+                result = {
                     "success": False,
                     "url": url,
                     "error": "Invalid JSON response",
@@ -100,7 +165,7 @@ def fetch_webpage(url: str) -> Dict[str, Any]:
                 }
         else:
             # For other content types, return raw text (limited)
-            return {
+            result = {
                 "success": True,
                 "url": url,
                 "content_type": content_type,
@@ -108,6 +173,16 @@ def fetch_webpage(url: str) -> Dict[str, Any]:
                 "content": response.text[:1000] + ("..." if len(response.text) > 1000 else ""),
                 "truncated": len(response.text) > 1000
             }
+        
+        # Cache the result
+        if result:
+            cache[cache_key] = {
+                'timestamp': datetime.now(),
+                'data': result
+            }
+        
+        return result
+        
     except requests.RequestException as e:
         return {
             "success": False,

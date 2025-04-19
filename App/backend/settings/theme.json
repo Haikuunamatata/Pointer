@@ -1,94 +1,94 @@
 {
   "name": "vs-dark",
   "customColors": {
-    "bgPrimary": "#241b2f",
-    "bgSecondary": "#2a2139",
-    "bgTertiary": "#34294f",
-    "bgSelected": "#453976",
-    "bgHover": "#4c3f78",
-    "bgAccent": "#ff7edb",
-    "textPrimary": "#f8f8f2",
-    "textSecondary": "#b6b1cb",
-    "borderColor": "#34294f",
-    "borderPrimary": "#34294f",
-    "accentColor": "#ff7edb",
-    "accentHover": "#ff7edb",
-    "errorColor": "#fe4450",
-    "titlebarBg": "#241b2f",
-    "statusbarBg": "#241b2f",
-    "statusbarFg": "#f8f8f2",
-    "activityBarBg": "#241b2f",
-    "activityBarFg": "#f8f8f2",
-    "inlineCodeColor": "#fe4450",
-    "explorerFolderFg": "#f97e72",
-    "explorerFolderExpandedFg": "#ff7edb",
-    "explorerFileFg": "#f8f8f2",
+    "bgPrimary": "#1a1b26",
+    "bgSecondary": "#16161e",
+    "bgTertiary": "#1a1b26",
+    "bgSelected": "#2f3549",
+    "bgHover": "#2e3c64",
+    "bgAccent": "#7aa2f7",
+    "textPrimary": "#a9b1d6",
+    "textSecondary": "#565f89",
+    "borderColor": "#16161e",
+    "borderPrimary": "#16161e",
+    "accentColor": "#7aa2f7",
+    "accentHover": "#7aa2f7",
+    "errorColor": "#f7768e",
+    "titlebarBg": "#16161e",
+    "statusbarBg": "#16161e",
+    "statusbarFg": "#a9b1d6",
+    "activityBarBg": "#16161e",
+    "activityBarFg": "#a9b1d6",
+    "inlineCodeColor": "#bb9af7",
+    "explorerFolderFg": "#7aa2f7",
+    "explorerFolderExpandedFg": "#7aa2f7",
+    "explorerFileFg": "#a9b1d6",
     "customFileExtensions": {
-      "js": "#fede5d",
-      "jsx": "#fede5d",
-      "ts": "#36f9f6",
-      "tsx": "#36f9f6",
-      "json": "#f97e72",
-      "html": "#fe4450",
-      "htm": "#fe4450",
-      "css": "#36f9f6",
-      "scss": "#36f9f6",
-      "less": "#36f9f6",
-      "md": "#72f1b8",
-      "markdown": "#72f1b8",
-      "yml": "#fede5d",
-      "yaml": "#fede5d",
-      "png": "#ff7edb",
-      "jpg": "#ff7edb",
-      "jpeg": "#ff7edb",
-      "gif": "#ff7edb",
-      "svg": "#ff7edb",
-      "webp": "#ff7edb"
+      "js": "#9ece6a",
+      "jsx": "#9ece6a",
+      "ts": "#7aa2f7",
+      "tsx": "#7aa2f7",
+      "json": "#ff9e64",
+      "html": "#f7768e",
+      "htm": "#f7768e",
+      "css": "#2ac3de",
+      "scss": "#2ac3de",
+      "less": "#2ac3de",
+      "md": "#9ece6a",
+      "markdown": "#9ece6a",
+      "yml": "#ff9e64",
+      "yaml": "#ff9e64",
+      "png": "#bb9af7",
+      "jpg": "#bb9af7",
+      "jpeg": "#bb9af7",
+      "gif": "#bb9af7",
+      "svg": "#bb9af7",
+      "webp": "#bb9af7"
     }
   },
   "editorColors": {
-    "editor.background": "#262335",
-    "editor.foreground": "#f8f8f2",
-    "editorLineNumber.foreground": "#848bbd",
-    "editorLineNumber.activeForeground": "#f8f8f2",
-    "editorCursor.foreground": "#f92aad",
-    "editor.selectionBackground": "#453976",
-    "editor.lineHighlightBackground": "#453976"
+    "editor.background": "#1a1b26",
+    "editor.foreground": "#a9b1d6",
+    "editorLineNumber.foreground": "#565f89",
+    "editorLineNumber.activeForeground": "#a9b1d6",
+    "editorCursor.foreground": "#7aa2f7",
+    "editor.selectionBackground": "#2e3c64",
+    "editor.lineHighlightBackground": "#1e202e"
   },
   "tokenColors": [
     {
       "token": "keyword",
-      "foreground": "#f92aad",
+      "foreground": "#bb9af7",
       "fontStyle": "bold"
     },
     {
       "token": "comment",
-      "foreground": "#848bbd",
+      "foreground": "#565f89",
       "fontStyle": "italic"
     },
     {
       "token": "string",
-      "foreground": "#fede5d"
+      "foreground": "#9ece6a"
     },
     {
       "token": "number",
-      "foreground": "#f97e72"
+      "foreground": "#ff9e64"
     },
     {
       "token": "operator",
-      "foreground": "#36f9f6"
+      "foreground": "#89ddff"
     },
     {
       "token": "type",
-      "foreground": "#ff7edb"
+      "foreground": "#2ac3de"
     },
     {
       "token": "function",
-      "foreground": "#36f9f6"
+      "foreground": "#7aa2f7"
     },
     {
       "token": "variable",
-      "foreground": "#f8f8f2"
+      "foreground": "#c0caf5"
     }
   ]
 }
