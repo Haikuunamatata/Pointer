@@ -47,6 +47,7 @@ export default function Comparison() {
       ref={ref}
       className="relative py-24 overflow-hidden bg-gradient-to-b from-primary/5 to-transparent"
     >
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(106,17,203,0.1),transparent_50%)]"></div>
       <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -63,8 +64,8 @@ export default function Comparison() {
           </p>
         </motion.div>
 
-        <div className="w-full">
-          <table className="w-full border-collapse">
+        <div className="w-full overflow-x-auto">
+          <table className="w-full min-w-[640px] border-collapse">
             <thead>
               <tr className="border-b border-white/10">
                 <th className="py-4 px-6 text-left text-gray-300 font-semibold">Feature</th>

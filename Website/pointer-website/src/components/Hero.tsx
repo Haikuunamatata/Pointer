@@ -106,7 +106,7 @@ export default function Hero() {
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.8, ease: "easeOut", delay: 0.6 }}
-        className="w-[90%] max-w-[1200px] mx-auto mt-12 rounded-xl overflow-hidden relative shadow-2xl border border-white/10 transition-all duration-500 ease-out hover:translate-y-[-5px] hover:shadow-[0_25px_100px_rgba(0,0,0,0.4),0_0_30px_rgba(99,102,241,0.2)] z-10"
+        className="w-[90%] max-w-[1200px] mx-auto mt-12 rounded-xl overflow-hidden relative shadow-2xl border border-white/10 transition-all duration-500 ease-out hover:translate-y-[-5px] hover:shadow-[0_25px_100px_rgba(0,0,0,0.4),0_0_30px_rgba(255,255,255,0.15)] z-10"
       >
         <div className="editor-window">
           <div className="editor-content" style={{ padding: 0, margin: 0 }}>

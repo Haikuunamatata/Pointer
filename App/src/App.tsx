@@ -186,10 +186,10 @@ const App: React.FC = () => {
     largeImageText: "Pointer - Code Editor",
     smallImageKey: "code",
     smallImageText: "{languageId} | Line {line}:{column}",
-    button1Label: "Please Contribute \ud83d\ude4f",
+    button1Label: "Website",
     button1Url: "https://pointer.f1shy312.com",
-    button2Label: "im depressive cuz ts pmo",
-    button2Url: "https://github.com/f1shyondrugs/Pointer"
+    button2Label: "Join the Discord 🚀",
+    button2Url: "https://discord.gg/vhgc8THmNk"
   });
 
   // Load settings, including Discord settings
