@@ -187,7 +187,7 @@ const App: React.FC = () => {
     smallImageKey: "code",
     smallImageText: "{languageId} | Line {line}:{column}",
     button1Label: "Website",
-    button1Url: "https://pointer.f1shy312.com",
+    button1Url: "https://pointr.sh",
     button2Label: "Join the Discord 🚀",
     button2Url: "https://discord.gg/vhgc8THmNk"
   });

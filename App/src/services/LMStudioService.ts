@@ -110,6 +110,7 @@ class LMStudioService {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
+              ...(modelConfig.apiKey && { 'Authorization': `Bearer ${modelConfig.apiKey}` })
             },
             body: JSON.stringify({
               ...requestOptions,
@@ -232,7 +233,7 @@ class LMStudioService {
               content: msg.content
             })),
             temperature,
-            max_tokens,
+            max_tokens: max_tokens > 0 ? max_tokens : undefined, // Only include max_tokens if it's positive
             top_p,
             frequency_penalty,
             presence_penalty,
@@ -264,6 +265,7 @@ class LMStudioService {
             headers: {
               'Content-Type': 'application/json',
               'Accept': 'text/event-stream',
+              ...(modelConfig.apiKey && { 'Authorization': `Bearer ${modelConfig.apiKey}` })
             },
             body: JSON.stringify(requestBody),
           });

@@ -13,6 +13,15 @@ import { FileSystemService } from '../services/FileSystemService';
 import { ChatModeSwitch } from './ChatModeSwitch';
 import ToolService from '../services/ToolService';
 
+// Add TypeScript declarations for window properties
+declare global {
+  interface Window {
+    lastSaveChatTime?: number;
+    chatSaveCounter?: number;
+    lastContentLength?: number;
+  }
+}
+
 // Extend the Message interface to include attachments
 interface ExtendedMessage extends Message {
   attachments?: AttachedFile[];
@@ -49,20 +58,22 @@ interface LLMChatProps {
 // Simplified system message
 const INITIAL_SYSTEM_MESSAGE: ExtendedMessage = {
   role: 'system',
-  content: `You are a helpful AI assistant that can assist with coding tasks.
+  content: `You are a helpful AI coding assistant. Use these tools:
 
-When sharing code examples, you can specify a filename by using the format:
-\`\`\`language:filename.ext
-// code goes here
-\`\`\`
+read_file: function_call: {"name": "read_file","arguments": {"target_file": "path/to/file","should_read_entire_file": true,"start_line_one_indexed": 1,"end_line_one_indexed_inclusive": 200}}
 
-For example:
-\`\`\`javascript:app.js
-const hello = "world";
-console.log(hello);
-\`\`\`
+list_dir: function_call: {"name": "list_dir","arguments": {"relative_workspace_path": "path/to/directory"}}
 
-This will display the filename above the code block to provide better context.`,
+grep_search: function_call: {"name": "grep_search","arguments": {"query": "search pattern","include_pattern": "*.ts","exclude_pattern": "node_modules"}}
+
+web_search: function_call: {"name": "web_search","arguments": {"search_term": "your search query"}}
+
+Rules:
+1. Use exact function_call format shown above
+2. Never guess about code - verify with tools
+3. Start with list_dir for new codebases
+4. Chain tools when needed
+5. Complete all responses fully`,
   attachments: undefined
 };
 
@@ -1295,13 +1306,55 @@ interface ToolArgs {
 
 // Add a utility function to generate valid tool call IDs
 const generateValidToolCallId = (): string => {
-  // Generate a random 9-character alphanumeric string
-  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-  let result = '';
-  for (let i = 0; i < 9; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  // Generate a 9-character alphanumeric ID for tool calls
+  return Math.random().toString(36).substring(2, 11);
+};
+
+// Helper to determine if we should force tool usage based on the query
+const shouldForceToolUse = (query: string): boolean => {
+  // Keywords that strongly indicate tool usage would be beneficial
+  const toolKeywords = [
+    'file', 'directory', 'folder', 'list', 'show', 'search', 'find', 'look up',
+    'check', 'get', 'fetch', 'read', 'browse', 'scan', 'examine', 'analyze', 
+    'what is in', 'what\'s in', 'contents of', 'code in', 'implementation'
+  ];
+  
+  const lowerQuery = query.toLowerCase();
+  return toolKeywords.some(keyword => lowerQuery.includes(keyword));
+};
+
+// Helper to suggest the most appropriate tool based on the query
+const getAppropriateToolForQuery = (query: string): string => {
+  const lowerQuery = query.toLowerCase();
+  
+  // File reading related keywords
+  if (lowerQuery.includes('file') || 
+      lowerQuery.includes('content') || 
+      lowerQuery.includes('code in') || 
+      lowerQuery.includes('implementation') ||
+      lowerQuery.includes('show me')) {
+    return 'read_file';
   }
-  return result;
+  
+  // Directory listing related keywords
+  if (lowerQuery.includes('directory') || 
+      lowerQuery.includes('folder') || 
+      lowerQuery.includes('list') || 
+      lowerQuery.includes('files in')) {
+    return 'list_directory';
+  }
+  
+  // Web search related keywords
+  if (lowerQuery.includes('search') || 
+      lowerQuery.includes('look up') || 
+      lowerQuery.includes('find information') ||
+      lowerQuery.includes('what is') ||
+      lowerQuery.includes('how to')) {
+    return 'web_search';
+  }
+  
+  // Default to auto if no clear match
+  return 'auto';
 };
 
 export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectChat }: LLMChatProps) {
@@ -1360,6 +1413,9 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   const [toolResults, setToolResults] = useState<{[key: string]: any}[]>([]);
   const [isExecutingTool, setIsExecutingTool] = useState(false);
   const [isInToolExecutionChain, setIsInToolExecutionChain] = useState(false);
+  
+  // Add a state variable to track thinking content
+  const [thinking, setThinking] = useState<string>('');
   
   // Preload the insert model only when needed
   const preloadInsertModel = async () => {
@@ -1486,7 +1542,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       const summaryPrompt = [
         { 
           role: 'system' as 'system', 
-          content: 'You are a helpful assistant that generates extremely concise chat titles. Respond with ONLY 3-4 words that summarize the following user messages. No punctuation at the end.'
+          content: 'Generate 3-4 word chat title. No punctuation.'
         },
         { role: 'user' as 'user', content: userMessages.slice(0, 500) } // Limit input size
       ];
@@ -1523,6 +1579,9 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
     try {
       if (messages.length <= 1) return; // Don't save if only system message exists
       
+      // Remove throttling logic - we want to save every time this is called
+      // for critical events like user messages, tool calls, and AI completion
+      
       let title = chatTitle;
       
       // Generate AI summary title if no title exists yet
@@ -1531,24 +1590,47 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         setChatTitle(title); // Save the title for future use
       }
       
+      // Add more detailed logging
+      console.log(`Saving chat ${chatId} with ${messages.length} messages`);
+      console.log('Message roles being saved:', messages.map(m => m.role));
+      
+      const chatData = {
+        id: chatId,
+        name: title,
+        createdAt: new Date().toISOString(),
+        messages,
+      };
+      
+      // Store in localStorage as a backup
+      try {
+        localStorage.setItem(`chat_${chatId}`, JSON.stringify(chatData));
+        console.log(`Chat backup saved to localStorage with ${messages.length} messages`);
+      } catch (e) {
+        console.warn('Could not save chat to localStorage:', e);
+      }
+      
       const response = await fetch(`http://localhost:23816/chats/${chatId}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          id: chatId,
-          name: title,
-          createdAt: new Date().toISOString(),
-          messages,
-        }),
+        body: JSON.stringify(chatData),
       });
 
       if (!response.ok) {
         throw new Error('Failed to save chat');
       }
       console.log('Chat saved successfully');
-      loadChats(); // Refresh the chat list after saving
+      
+      // Only refresh chat list occasionally (every 5 saves)
+      // Track saves with a counter
+      window.chatSaveCounter = (window.chatSaveCounter || 0) + 1;
+      if (window.chatSaveCounter % 5 === 0) {
+        loadChats(); // Refresh the chat list after saving
+      }
+      
+      // Record the time we saved
+      window.lastSaveChatTime = Date.now();
     } catch (error) {
       console.error('Error saving chat:', error);
     }
@@ -1557,18 +1639,47 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   // Load chat data
   const loadChat = async (chatId: string) => {
     try {
+      console.log(`Loading chat ${chatId}`);
+      
+      // Try to load from server first
       const response = await fetch(`http://localhost:23816/chats/${chatId}`);
+      let chat;
+      
       if (response.ok) {
-        const chat = await response.json();
-        
+        chat = await response.json();
+        console.log(`Loaded chat from server with ${chat.messages?.length || 0} messages`);
+      } else {
+        console.warn(`Failed to load chat from server: ${response.status}`);
+      }
+      
+      // If server failed or didn't return messages, try localStorage
+      if (!chat?.messages?.length) {
+        const localChat = localStorage.getItem(`chat_${chatId}`);
+        if (localChat) {
+          try {
+            chat = JSON.parse(localChat);
+            console.log(`Loaded chat from localStorage with ${chat.messages?.length || 0} messages`);
+          } catch (e) {
+            console.error('Error parsing localStorage chat:', e);
+          }
+        }
+      }
+      
+      // If we got a chat from either source
+      if (chat) {
         // Ensure the system message exists
         let chatMessages = Array.isArray(chat.messages) ? chat.messages : [];
+        
+        console.log(`Chat ${chatId} contains ${chatMessages.length} messages`);
+        console.log('Message roles:', chatMessages.map((m: ExtendedMessage) => m.role));
         
         // Make sure all messages have the correct format
         chatMessages = chatMessages.map((msg: any) => ({
           role: msg.role || 'user',
           content: msg.content || '',
-          attachments: msg.attachments || undefined
+          attachments: msg.attachments || undefined,
+          tool_call_id: msg.tool_call_id,
+          tool_calls: msg.tool_calls
         }));
         
         // Add system message if not present
@@ -1579,6 +1690,13 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         // Set messages and chat title
         setMessages(chatMessages);
         setChatTitle(chat.name || '');
+        
+        console.log(`Chat loaded successfully with ${chatMessages.length} messages`);
+      } else {
+        // Start with a new chat if no data was found
+        console.log('No chat data found, starting fresh chat');
+        setMessages([INITIAL_SYSTEM_MESSAGE]);
+        setChatTitle('');
       }
     } catch (error) {
       console.error('Error loading chat:', error);
@@ -1991,19 +2109,30 @@ Return ONLY the final merged code without any explanations. The code should be r
   }, []);
 
   // System messages for different modes
-  const chatSystemMessage = `You are a helpful coding assistant.
-  
-Current working directory: ${currentWorkingDirectory || 'Unknown'}`;
-
-  const agentSystemMessage = `You are a helpful coding assistant with access to tools. 
-  
+  const chatSystemMessage = `You are a concise, helpful coding assistant.
 Current working directory: ${currentWorkingDirectory || 'Unknown'}
-  
-When using tools, first explain your intention clearly before making the function call. For example:
+Be direct and to the point. Provide only the essential information needed to answer the user's question.
+Avoid unnecessary explanations, introductions, or conclusions unless specifically requested.`;
 
-"To provide an accurate analysis of the contents within the requested directory, I will list its contents."
-
-Then follow with your function call. This helps the user understand your reasoning process. Always be thorough but concise in your explanations.`;
+  const agentSystemMessage = 'You are a powerful agentic AI coding assistant, powered by Claude 3.7 Sonnet. You operate exclusively in Pointer, the world\'s best IDE.\n\n' +
+    'Your main goal is to follow the USER\'s instructions at each message.\n\n' +
+    '# Additional context\n' +
+    'Each time the USER sends a message, we may automatically attach some information about their current state, such as what files they have open, where their cursor is, recently viewed files, edit history in their session so far, linter errors, and more.\n' +
+    'Some information may be summarized or truncated.\n' +
+    'This information may or may not be relevant to the coding task, it is up for you to decide.\n\n' +
+    '# Tone and style\n' +
+    'You should be concise, direct, and to the point.\n' +
+    'Output text to communicate with the user; all text you output outside of tool use is displayed to the user. Only use tools to complete tasks. Never use tools or code comments as means to communicate with the user.\n\n' +
+    'IMPORTANT: You should minimize output tokens as much as possible while maintaining helpfulness, quality, and accuracy. Only address the specific query or task at hand, avoiding tangential information unless absolutely critical for completing the request. If you can answer in 1-3 sentences or a short paragraph, please do.\n' +
+    'IMPORTANT: Keep your responses short. Avoid introductions, conclusions, and explanations. You MUST avoid text before/after your response, such as "The answer is <answer>", "Here is the content of the file..." or "Based on the information provided, the answer is..." or "Here is what I will do next...". Here are some examples to demonstrate appropriate verbosity:\n\n' +
+    '<example>\n' +
+    'user: 2 + 2\n' +
+    'assistant: 4\n' +
+    '</example>\n\n' +
+    '<example>\n' +
+    'user: what is 2+2?\n' +
+    'assistant: 4\n' +
+    '</example>\n';
 
   // Modify handleSubmit to use the correct model based on mode
   const handleSubmit = async (e: React.FormEvent) => {
@@ -2021,11 +2150,22 @@ Then follow with your function call. This helps the user understand your reasoni
       // Create the user message
       const userMessage: ExtendedMessage = {
         role: 'user',
-        content: input,
+        content: mode === 'agent' ? 
+          `${input}` : 
+          input,
         attachments: attachedFiles.length > 0 ? [...attachedFiles] : undefined
       };
       
-      setMessages(prev => [...prev, userMessage]);
+      // Update messages state and save immediately after adding user message
+      setMessages(prev => {
+        const updatedMessages = [...prev, userMessage];
+        // Save chat history immediately after user message - no throttling
+        if (currentChatId) {
+          setTimeout(() => saveChat(currentChatId, updatedMessages), 50);
+        }
+        return updatedMessages;
+      });
+      
       setInput('');
       setAttachedFiles([]);
 
@@ -2033,7 +2173,11 @@ Then follow with your function call. This helps the user understand your reasoni
       abortControllerRef.current = new AbortController();
 
       // Add a temporary message for streaming
-      setMessages(prev => [...prev, { role: 'assistant', content: '' }]);
+      setMessages(prev => {
+        const updatedMessages = [...prev, { role: 'assistant' as const, content: '' }];
+        // We don't save here since it's an empty assistant message that will be updated
+        return updatedMessages;
+      });
 
       // Get model configuration based on mode
       const modelConfig = await AIFileService.getModelConfigForPurpose(mode === 'agent' ? 'agent' : 'chat');
@@ -2062,6 +2206,19 @@ Then follow with your function call. This helps the user understand your reasoni
           }) 
         };
       });
+
+      // Add additional data for agent mode
+      if (mode === 'agent') {
+        const additionalData = {
+          current_file: currentWorkingDirectory ? { path: currentWorkingDirectory } : undefined,
+          message_count: messages.length,
+          mode: 'agent'
+        };
+        messagesForAPI.push({
+          role: 'system',
+          content: `<additional_data>${JSON.stringify(additionalData)}</additional_data>`
+        });
+      }
 
       // Add tools configuration if in agent mode
       const apiConfig = {
@@ -2168,6 +2325,19 @@ Then follow with your function call. This helps the user understand your reasoni
         }, null, 2));
       }
 
+      // Replace "auto" with a configuration that forces tool usage when appropriate
+      if (mode === 'agent') {
+        // Update the typecasting to fix the type error
+        apiConfig.tool_choice = shouldForceToolUse(input) 
+          ? {
+              type: "function",
+              function: {
+                name: getAppropriateToolForQuery(input)
+              }
+            } as any // Cast to any to avoid type issues
+          : "auto";
+      }
+
       let currentContent = '';
       // Log what we're about to pass to the API
       console.log('Passing to API:', {
@@ -2193,6 +2363,14 @@ Then follow with your function call. This helps the user understand your reasoni
               role: 'assistant',
               content: content
             };
+            
+            // Save chat during streaming only when content changes significantly
+            if (currentChatId && (!window.lastContentLength || 
+                Math.abs(content.length - window.lastContentLength) > 100)) {
+              window.lastContentLength = content.length;
+              setTimeout(() => saveChat(currentChatId, newMessages), 100);
+            }
+            
             return newMessages;
           });
 
@@ -2228,6 +2406,15 @@ Then follow with your function call. This helps the user understand your reasoni
         // Process immediately
         setIsInToolExecutionChain(true); // Make sure we're in tool execution chain
         await processToolCalls(currentContent);
+      } else {
+        // If there are no tool calls, save the final AI message
+        if (currentChatId) {
+          setMessages(prev => {
+            // Save chat after AI completes response
+            setTimeout(() => saveChat(currentChatId, prev), 50);
+            return prev;
+          });
+        }
       }
 
       // Extract and queue code blocks for auto-insert
@@ -2274,6 +2461,9 @@ Then follow with your function call. This helps the user understand your reasoni
     setChatTitle(''); // Reset chat title for new chat
     onSelectChat(newChatId);
     setIsChatListVisible(false);
+    
+    // Reset content length tracking for the streaming save optimization
+    window.lastContentLength = undefined;
   };
 
   // Close chat list when clicking outside
@@ -2310,16 +2500,38 @@ Then follow with your function call. This helps the user understand your reasoni
     loadChats();
   }, []);
 
-  // Save chat when messages change
+  // Remove useEffect for debounced saving as we now save immediately after each change
+  // We'll still keep a minimal useEffect to save for any scenario where messages change but not through our direct actions
   useEffect(() => {
     if (currentChatId && messages.length > 1) {
       const saveTimer = setTimeout(() => {
-        saveChat(currentChatId, messages);
-      }, 1000); // Debounce save to avoid too many API calls
+        // Only save if we haven't saved recently
+        if (!window.lastSaveChatTime || Date.now() - window.lastSaveChatTime > 5000) {
+          saveChat(currentChatId, messages);
+        }
+      }, 5000); // Much longer debounce time as a safety net
       
       return () => clearTimeout(saveTimer);
     }
   }, [messages, currentChatId]);
+
+  // Listen for save-chat-request events from ToolService
+  useEffect(() => {
+    const handleSaveChatRequest = (e: CustomEvent) => {
+      if (currentChatId && messages.length > 1) {
+        console.log('Save chat request received from tool service');
+        saveChat(currentChatId, messages);
+        // Record that we've saved
+        window.lastSaveChatTime = Date.now();
+      }
+    };
+
+    window.addEventListener('save-chat-request', handleSaveChatRequest as EventListener);
+    
+    return () => {
+      window.removeEventListener('save-chat-request', handleSaveChatRequest as EventListener);
+    };
+  }, [currentChatId, messages]);
 
   // Add this before the return statement
   const handleEditMessage = (index: number) => {
@@ -2335,7 +2547,7 @@ Then follow with your function call. This helps the user understand your reasoni
     setInput('');
   };
 
-  // Update handleSubmitEdit to follow the same pattern
+  // Function to handle message editing
   const handleSubmitEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -2361,13 +2573,19 @@ Then follow with your function call. This helps the user understand your reasoni
       updatedMessages.splice(editingMessageIndex + 1);
       
       setMessages(updatedMessages);
+      
+      // Save chat history immediately after editing a message, if we haven't saved recently
+      if (currentChatId && (!window.lastSaveChatTime || Date.now() - window.lastSaveChatTime > 1000)) {
+        setTimeout(() => saveChat(currentChatId, updatedMessages), 50);
+      }
+      
       setInput('');
       setEditingMessageIndex(null);
       // Clear attached files after submitting edit
       setAttachedFiles([]);
 
       // Add a temporary message for streaming
-      setMessages(prev => [...prev, { role: 'assistant', content: '' }]);
+      setMessages(prev => [...prev, { role: 'assistant' as const, content: '' }]);
 
       // Get model configuration based on mode
       const modelConfig = await AIFileService.getModelConfigForPurpose(mode === 'agent' ? 'agent' : 'chat');
@@ -2516,6 +2734,14 @@ Then follow with your function call. This helps the user understand your reasoni
               role: 'assistant',
               content: content
             };
+            
+            // Save chat only occasionally during streaming (based on content length changes)
+            if (currentChatId && (!window.lastContentLength || 
+                Math.abs(content.length - window.lastContentLength) > 100)) {
+              window.lastContentLength = content.length;
+              setTimeout(() => saveChat(currentChatId, newMessages), 100);
+            }
+            
             return newMessages;
           });
 
@@ -2563,7 +2789,7 @@ Then follow with your function call. This helps the user understand your reasoni
           preloadInsertModel();
         }, 3000);
       }
-
+      
     } catch (error) {
       console.error('Error in handleSubmitEdit:', error);
       setMessages(prev => [
@@ -2594,7 +2820,14 @@ Then follow with your function call. This helps the user understand your reasoni
 
   // Add a helper function to process tool calls
   const addMessage = (message: ExtendedMessage) => {
-    setMessages(prev => [...prev, message]);
+    setMessages(prev => {
+      const updatedMessages = [...prev, message];
+      // Save chat immediately after adding any message, but only if we haven't saved recently
+      if (currentChatId && (!window.lastSaveChatTime || Date.now() - window.lastSaveChatTime > 1000)) {
+        setTimeout(() => saveChat(currentChatId, updatedMessages), 50);
+      }
+      return updatedMessages;
+    });
   };
 
   // Updated handleToolCall function with user prompt reincorporation
@@ -2608,6 +2841,30 @@ Then follow with your function call. This helps the user understand your reasoni
       // Parse arguments if they're a string
       const parsedArgs = typeof args === 'string' ? JSON.parse(args) : args;
       
+      // Fix relative directory paths for list_directory calls
+      if (name === "list_directory" && parsedArgs.directory_path) {
+        // Replace "." with actual working directory
+        if (parsedArgs.directory_path === "." || parsedArgs.directory_path === "./") {
+          parsedArgs.directory_path = currentWorkingDirectory || parsedArgs.directory_path;
+          console.log(`Resolved "." to actual working directory: ${parsedArgs.directory_path}`);
+        }
+        // Handle "./" prefix
+        else if (parsedArgs.directory_path.startsWith("./")) {
+          parsedArgs.directory_path = (currentWorkingDirectory || "") + 
+            parsedArgs.directory_path.substring(1); // Remove the "." but keep the "/"
+          console.log(`Resolved "./" prefix to: ${parsedArgs.directory_path}`);
+        }
+      }
+      
+      // Apply similar path resolution to read_file
+      if (name === "read_file" && parsedArgs.file_path) {
+        if (parsedArgs.file_path.startsWith("./")) {
+          parsedArgs.file_path = (currentWorkingDirectory || "") + 
+            parsedArgs.file_path.substring(1); // Remove the "." but keep the "/"
+          console.log(`Resolved relative file path to: ${parsedArgs.file_path}`);
+        }
+      }
+      
       // Ensure ID is in the correct format (9-character alphanumeric)
       const toolCallId = functionCall.id && functionCall.id.length === 9 && /^[a-z0-9]+$/.test(functionCall.id)
         ? functionCall.id
@@ -2615,27 +2872,91 @@ Then follow with your function call. This helps the user understand your reasoni
       
       // Get the last user message to reincorporate
       const lastUserMessage = messages.slice().reverse().find(msg => msg.role === 'user');
+      const userQuery = lastUserMessage?.content || '';
       
       // Call the ToolService to get real results
       const result = await ToolService.callTool(name, parsedArgs);
       
+      // Check if this is an error from the tool service
+      if (result.success === false) {
+        console.warn(`Tool call failed for ${name}:`, result.error || "Unknown error");
+        
+        // Instead of returning an error as a tool message, add it as an assistant message
+        setMessages(prev => {
+          const errorMessage: ExtendedMessage = {
+            role: 'assistant',
+            content: `I tried to ${name.replace(/_/g, ' ')} but encountered an error: ${result.error || "Unknown error"}\n\nLet me try to help you with what I know instead.`
+          };
+          
+          const updatedMessages = [...prev, errorMessage];
+          
+          // Save the chat after adding the error message
+          if (currentChatId) {
+            setTimeout(() => saveChat(currentChatId, updatedMessages), 50);
+          }
+          
+          return updatedMessages;
+        });
+        
+        // Return null to indicate we handled the error separately
+        return null;
+      }
+      
       // Add result to toolResults with proper ID format
       setToolResults(prev => [...prev, { id: toolCallId, result }]);
+      
+      // Add the user's original query to the result explicitly for better context maintenance
+      if (result.content) {
+        // Extract the JSON portion of the content
+        const contentMatch = result.content.match(/{.*}/s);
+        if (contentMatch && contentMatch[0]) {
+          try {
+            // Parse the JSON content
+            const jsonContent = JSON.parse(contentMatch[0]);
+            
+            // Add the user query context at the end
+            jsonContent._originalUserQuery = userQuery;
+            jsonContent._requireResponse = true;
+            
+            // Special reminder specific to the tool result
+            jsonContent._contextNote = `Remember to answer the original question: "${userQuery}"`;
+            
+            // Add suggestions for follow-up tool usage based on the current tool
+            if (name === 'list_directory') {
+              jsonContent._toolUsageSuggestion = `Consider using read_file to examine any relevant files from this directory listing.`;
+            } else if (name === 'read_file') {
+              jsonContent._toolUsageSuggestion = `If needed, you can read additional related files or list the directory to see other files in the same location.`;
+            } else if (name === 'web_search') {
+              jsonContent._toolUsageSuggestion = `Consider using fetch_webpage to get more detailed information from specific pages in the search results.`;
+            }
+            
+            // Add a general reminder to use tools
+            jsonContent._toolsReminder = `Remember to use appropriate tools to gather accurate information rather than guessing.`;
+            
+            // Replace the content with the updated JSON
+            result.content = result.content.replace(contentMatch[0], JSON.stringify(jsonContent));
+          } catch (e) {
+            console.error("Error adding user query to tool result:", e);
+          }
+        }
+      }
       
       // If the result includes a continuation prompt, add it to the conversation
       if (result.continuation) {
         // Add a special formatting marker in the result to force continued generation
-        result.content = result.content.replace(/"success":\s*true/, '"success": true, "_continue": true');
+        result.content = result.content.replace(/"success":\s*true/, '"success": true, "_continue": true, "_forceResponse": true');
         
         // Add the original user query to help the model continue
         if (lastUserMessage) {
           result.content = result.content.replace(
             /}$/,
-            `, "_original_user_query": ${JSON.stringify(lastUserMessage.content)}}`
+            `, "_original_user_query": ${JSON.stringify(lastUserMessage.content)}, "_requireCompletion": true}`
           );
           
-          // Update the continuation prompt to reference the user's original query
-          result.continuation = ``; // : ${lastUserMessage.content} || Based on the tool result above AND the user's original question, continue generating your response. You must address the user's original query directly.
+          // Update the continuation prompt to strongly reference the user's original query
+          result.continuation = lastUserMessage && lastUserMessage.content ? 
+            `YOU MUST CONTINUE YOUR RESPONSE using the tool result above. Directly answer the user's question: "${lastUserMessage.content}" - PROVIDE A COMPLETE RESPONSE that addresses all aspects of the query.` :
+            `YOU MUST CONTINUE YOUR RESPONSE using the tool result above. PROVIDE A COMPLETE RESPONSE that addresses all aspects of the user's query.`;
         }
       }
       
@@ -2650,27 +2971,32 @@ Then follow with your function call. This helps the user understand your reasoni
       // Get the last user message to reincorporate even on error
       const lastUserMessage = messages.slice().reverse().find(msg => msg.role === 'user');
       
-      return { 
-        role: 'system',
-        success: false,
-        error: `Failed to call tool: ${error.message}`,
-        toolCallId: functionCall.id || generateValidToolCallId(),
-        content: JSON.stringify({
-          success: false,
-          error: `Failed to call tool: ${error.message}`,
-          _original_user_query: lastUserMessage?.content || ""
-        }),
-        continuation: lastUserMessage ? 
-          `Despite this error, please address the user's original question: ${lastUserMessage.content}` : 
-          "Despite this error, please continue generating a helpful response."
-      };
+      // Handle errors by adding an assistant message instead of a tool message
+      setMessages(prev => {
+        const errorMessage: ExtendedMessage = {
+          role: 'assistant',
+          content: `I tried to ${name.replace(/_/g, ' ')} but encountered an error: ${error.message}\n\nLet me try to help you with what I know instead.`
+        };
+        
+        const updatedMessages = [...prev, errorMessage];
+        
+        // Save the chat after adding the error message
+        if (currentChatId) {
+          setTimeout(() => saveChat(currentChatId, updatedMessages), 50);
+        }
+        
+        return updatedMessages;
+      });
+      
+      // Return null to indicate we handled the error
+      return null;
     } finally {
       setIsExecutingTool(false);
     }
   };
 
   // Update the processToolCalls function for proper ID handling
-  const processToolCalls = async (content: string) => {
+  const processToolCalls = async (content: string): Promise<{ hasToolCalls: boolean }> => {
     // First try to find function calls using regex
     const functionCallRegex = /function_call:\s*({[\s\S]*?})\s*(?=function_call:|$)/g;
     const matches = content.matchAll(functionCallRegex);
@@ -2726,17 +3052,33 @@ Then follow with your function call. This helps the user understand your reasoni
           
           console.log("Processing tool call:", functionCall.name, "with ID:", functionCall.id);
           const result = await handleToolCall(functionCall);
+          
+          // If result is null, it means the error was already handled by handleToolCall
           if (result) {
             processedAnyCalls = true;
             
-            // Add the tool result to messages for display
-            setMessages(prev => [...prev, {
-              role: 'tool',
-              content: JSON.stringify(result, null, 2),
-              tool_call_id: functionCall.id
-            }]);
+            // Add the tool result to messages for display with correct typing
+            setMessages(prev => {
+              const newMessage: ExtendedMessage = {
+                role: 'tool',
+                content: JSON.stringify(result, null, 2),
+                tool_call_id: functionCall.id
+              };
+              
+              const updatedMessages = [...prev, newMessage];
+              
+              // Save the chat in real-time after adding the tool result
+              if (currentChatId) {
+                setTimeout(() => saveChat(currentChatId, updatedMessages), 50);
+              }
+              
+              return updatedMessages;
+            });
             
             console.log("Added tool result to messages with ID:", functionCall.id);
+          } else {
+            // Error was already handled, but we should still mark this as processed
+            processedAnyCalls = true;
           }
         }
       } catch (error) {
@@ -2757,6 +3099,9 @@ Then follow with your function call. This helps the user understand your reasoni
       console.log("No tool calls processed or processed successfully");
       setIsInToolExecutionChain(false);
     }
+    
+    // Return an object with a flag indicating whether any tool calls were processed
+    return { hasToolCalls: processedAnyCalls };
   };
   
   // Add a continuation method to the LLM conversation
@@ -2767,63 +3112,184 @@ Then follow with your function call. This helps the user understand your reasoni
       setIsProcessing(true);
       console.log("Starting to process conversation continuation");
       
-      // Get the last messages to provide context
-      const lastUserMessageIndex = [...messages].reverse().findIndex(msg => msg.role === 'user');
+      // LOOP DETECTION: Check if we're in an infinite loop of tool calls
+      const recentAssistantMessages = messages
+        .filter(m => m.role === 'assistant')
+        .slice(-5);
+      
+      // Check if we have multiple assistant messages making the same tool call
+      if (recentAssistantMessages.length >= 3) {
+        const lastThreeToolCalls = recentAssistantMessages
+          .slice(-3)
+          .filter(m => m.tool_calls && m.tool_calls.length > 0)
+          .map(m => m.tool_calls && m.tool_calls[0] && m.tool_calls[0].name);
+          
+        // If the last 3 assistant messages all called the same tool, likely in a loop
+        if (lastThreeToolCalls.length === 3 && 
+            lastThreeToolCalls[0] === lastThreeToolCalls[1] && 
+            lastThreeToolCalls[1] === lastThreeToolCalls[2]) {
+          console.log("Loop detected! Breaking out of tool execution chain");
+          
+          // Break the loop
+          setIsInToolExecutionChain(false);
+          setIsProcessing(false);
+          
+          // Add a message to inform the user
+          addMessage({
+            role: 'assistant',
+            content: "I notice I've been repeatedly making the same tool call. To avoid an infinite loop, I'll stop and respond directly based on what I know. Please let me know if you have any specific questions."
+          });
+          
+          return;
+        }
+      }
+      
+      // IMPORTANT: Log the entire state of messages to debug
+      console.log(`Current messages state contains ${messages.length} messages:`);
+      console.log(messages.map((m, i) => `${i}: ${m.role} - ${m.content?.substring(0, 30)}${m.tool_call_id ? ` (tool_call_id: ${m.tool_call_id})` : ''}`));
+      
+      // ALWAYS try to restore from localStorage first as it's more reliable
+      let relevantMessages = [...messages]; // default to current state
+      
+      const chatBackup = localStorage.getItem(`chat_${currentChatId}`);
+      if (chatBackup) {
+        try {
+          const parsedBackup = JSON.parse(chatBackup);
+          
+          if (parsedBackup.messages && parsedBackup.messages.length > 0) {
+            console.log(`Found localStorage backup with ${parsedBackup.messages.length} messages vs current ${messages.length} messages`);
+            
+            // If backup has more messages or different number of messages, use it
+            if (parsedBackup.messages.length !== messages.length) {
+              console.log("Using backup messages as they differ from current state");
+              relevantMessages = parsedBackup.messages;
+              
+              // Also update the state for future operations
+              setMessages(parsedBackup.messages);
+              // Don't wait for state update as we're using relevantMessages directly
+            } else {
+              console.log("Current state and backup have same message count, using current state");
+            }
+          }
+        } catch (e) {
+          console.error("Error restoring from backup:", e);
+        }
+      } else {
+        console.warn("No localStorage backup found for chat:", currentChatId);
+      }
+      
+      // Get the last user message to provide context
+      const lastUserMessageIndex = [...relevantMessages].reverse().findIndex(msg => msg.role === 'user');
       if (lastUserMessageIndex === -1) {
         console.log('No user message found, cannot continue conversation');
         setIsInToolExecutionChain(false);
         return;
       }
       
-      // Include the user message and all subsequent messages
-      const actualIndex = messages.length - 1 - lastUserMessageIndex;
-      const recentMessages = messages.slice(actualIndex);
+      // Get the actual index of the last user message in the messages array
+      const userMessageIndex = relevantMessages.length - 1 - lastUserMessageIndex;
+      
+      console.log(`Using full conversation history: ${relevantMessages.length} messages`);
+      console.log('Message roles to be sent:', relevantMessages.map(m => m.role));
+      
+      // Get last user message content for the continuation prompt
+      const lastUserMessage = relevantMessages[userMessageIndex];
       
       // Add a special system message to ensure continuation
       const continuationPrompt: ExtendedMessage = {
         role: 'system',
-        content: `You must continue your response to the user's query. Do not repeat what you've already said, but continue with new information or complete your previous thoughts. Be thorough and complete in your continuation. Reference the user's original question explicitly to maintain context.`
+        content: `YOU MUST CONTINUE YOUR RESPONSE. DO NOT STOP EARLY OR LEAVE YOUR ANSWER INCOMPLETE. Be concise and address the original question directly. Provide a complete answer that fully resolves the user's query: "${lastUserMessage.content}"`
       };
       
-      // Format a simpler context - avoid tool_call_id altogether
-      let formattedContext: Message[] = [];
+      // FIX: Process messages to ensure tool messages are properly formatted for OpenAI
+      // OpenAI requires that messages with role 'tool' follow messages with 'tool_calls'
+      const processedMessages: ExtendedMessage[] = [];
       
-      // Add the user's original query
-      formattedContext.push({
-        role: 'user' as const,
-        content: recentMessages[0].content || '',
-      });
+      // Track assistant messages with tool_calls to match tool messages later
+      let lastAssistantWithToolCalls: ExtendedMessage | null = null;
+      let lastAssistantToolCallIds = new Set<string>();
       
-      // Add the continuation prompt
-      formattedContext.push(continuationPrompt);
-      
-      // Collect all tool results into a single assistant response
-      let toolResults = '';
-      for (let i = 1; i < recentMessages.length; i++) {
-        const msg = recentMessages[i];
-        if (msg.role === 'tool') {
-          let resultData;
-          try {
-            resultData = JSON.parse(msg.content);
-          } catch (e) {
-            resultData = { content: msg.content };
-          }
+      // First pass: Keep all non-tool messages and track assistant messages with tool_calls
+      for (let i = 0; i < relevantMessages.length; i++) {
+        const msg = relevantMessages[i];
+        
+        // If this is not a tool message, add it to processed messages
+        if (msg.role !== 'tool') {
+          processedMessages.push({...msg});
           
-          toolResults += `\n\nTool Result:\n${JSON.stringify(resultData, null, 2)}`;
+          // If this is an assistant message with tool_calls, track it for matching tool messages
+          if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
+            lastAssistantWithToolCalls = msg;
+            lastAssistantToolCallIds = new Set(msg.tool_calls.map(tc => tc.id));
+          } else {
+            // If this is any other message type (user, system), reset the assistant tracking
+            lastAssistantWithToolCalls = null;
+            lastAssistantToolCallIds.clear();
+          }
         }
       }
       
-      // If we have tool results, add them as an assistant message
-      if (toolResults) {
-        formattedContext.push({
-          role: 'assistant' as const, 
-          content: `I've retrieved the following information:${toolResults}\n\nLet me analyze this information and provide you with a comprehensive answer.`
-        });
+      // Second pass: Add tool messages, but only if they follow an assistant with matching tool_calls
+      lastAssistantWithToolCalls = null;
+      lastAssistantToolCallIds.clear();
+      
+      for (let i = 0; i < relevantMessages.length; i++) {
+        const msg = relevantMessages[i];
+        
+        // Update assistant tracking for proper tool message placement
+        if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
+          lastAssistantWithToolCalls = msg;
+          lastAssistantToolCallIds = new Set(msg.tool_calls.map(tc => tc.id));
+        } else if (msg.role !== 'tool') {
+          // Reset tracking for non-tool messages
+          lastAssistantWithToolCalls = null;
+          lastAssistantToolCallIds.clear();
+        }
+        
+        // Only add tool messages that have a valid tool_call_id and follow the right assistant
+        if (msg.role === 'tool') {
+          if (!msg.tool_call_id) {
+            console.log(`Skipping tool message without tool_call_id`);
+            continue;
+          }
+          
+          if (!lastAssistantWithToolCalls) {
+            console.log(`Skipping tool message with tool_call_id ${msg.tool_call_id} as there's no preceding assistant message with tool_calls`);
+            continue;
+          }
+          
+          if (!lastAssistantToolCallIds.has(msg.tool_call_id)) {
+            console.log(`Skipping tool message with tool_call_id ${msg.tool_call_id} as it doesn't match any in the preceding assistant message`);
+            continue;
+          }
+          
+          // This tool message is valid, add it to processed messages
+          processedMessages.push({...msg});
+        }
       }
       
-      console.log('Simplified context:', formattedContext.map(m => ({ 
+      console.log('Processed messages for API format:', processedMessages.map((m: ExtendedMessage) => 
+        `${m.role}${m.tool_call_id ? ` (tool_call_id: ${m.tool_call_id})` : ''}${m.tool_calls ? ` (tool_calls: ${m.tool_calls.length})` : ''}`
+      ));
+      
+      // Prepare conversation context that includes everything the model needs
+      const conversationContext: ExtendedMessage[] = [
+        // Start with the initial system message (instructions)
+        INITIAL_SYSTEM_MESSAGE,
+        
+        // Include ALL messages in the correct format for OpenAI
+        ...processedMessages,
+        
+        // Add the continuation prompt at the end
+        continuationPrompt
+      ];
+      
+      console.log('Complete conversation context:', conversationContext.map((m, i) => ({ 
+        index: i,
         role: m.role, 
-        content: m.content?.substring(0, 50) 
+        content: m.content?.substring(0, 50),
+        tool_call_id: m.tool_call_id,
+        has_tool_calls: m.tool_calls ? true : false
       })));
       
       // Get model configuration
@@ -2835,26 +3301,12 @@ Then follow with your function call. This helps the user understand your reasoni
       }
       
       // Log what we're sending to the model
-      console.log('Continuing conversation with simplified format. Model:', modelId);
+      console.log('Continuing conversation with complete context. Model:', modelId);
       
-      // Format the API config with the conversation context
+      // Format the API config with the full conversation context
       const apiConfig = {
         model: modelId,
-        messages: [
-          {
-            role: 'system' as const,
-            content: `You are a helpful AI assistant. You have access to various tools to help answer the user's questions. Based on the tool results, you MUST continue generating a complete response that directly addresses the user's original question.
-
-Current working directory: ${currentWorkingDirectory || 'Unknown'}
-
-When using tools, first explain your intention clearly before making the function call. For example:
-
-"To provide an accurate analysis of the contents within the requested directory, I will list its contents."
-
-Then follow with your function call. This helps the user understand your reasoning process. Always be thorough but concise in your explanations.`
-          },
-          ...formattedContext
-        ],
+        messages: conversationContext,
         temperature: modelConfig.temperature || 0.7,
         max_tokens: modelConfig.maxTokens || -1,
         top_p: modelConfig.topP,
@@ -2940,170 +3392,103 @@ Then follow with your function call. This helps the user understand your reasoni
       
       // Debug log to check if tools are present
       console.log('Continuation - API Config:', JSON.stringify({
-        ...apiConfig,
-        messages: '[Messages included]',
-        tools: apiConfig.tools ? `[${apiConfig.tools.length} tools included]` : 'No tools',
-        tool_choice: apiConfig.tool_choice || 'No tool_choice'
-      }, null, 2));
+        model: modelConfig.modelId,
+        messageCount: apiConfig.messages.length,
+        toolsIncluded: apiConfig.tools ? apiConfig.tools.length : 0,
+        toolChoice: apiConfig.tool_choice
+      }));
       
-      let finalContent = '';
-      
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: '...'
-      }]);
-      
-      console.log("Calling AI with simplified context");
+      console.log("Calling AI with complete context");
       
       // Add timeout mechanism
-      let timeoutId: number | null = null;
-      const requestTimeout = 30000; // 30 seconds timeout
+      const timeoutId = setTimeout(() => {
+        console.log("Conversation continuation timed out");
+        setIsProcessing(false);
+        setIsInToolExecutionChain(false);
+        addMessage({
+          role: 'assistant',
+          content: "I apologize, but I'm having trouble continuing our conversation. Let me try to answer based on what I know already."
+        });
+      }, 30000); // 30 seconds timeout
       
-      // Create a promise that will reject after the timeout
-      const timeoutPromise = new Promise((_, reject) => {
-        timeoutId = setTimeout(() => {
-          reject(new Error("AI response timeout after " + requestTimeout / 1000 + " seconds"));
-        }, requestTimeout) as unknown as number;
-      });
+      // Use streaming API for continuation
+      let assistantResponse = '';
       
-      try {
-        // Race the API call against the timeout
-        await Promise.race([
-          lmStudio.createStreamingChatCompletion({
+      const process = async () => {
+        try {
+          await lmStudio.createStreamingChatCompletion({
             model: modelId,
-            messages: apiConfig.messages,
-            temperature: apiConfig.temperature || 0.7,
-            max_tokens: apiConfig.max_tokens || -1,
-            top_p: apiConfig.top_p,
-            frequency_penalty: apiConfig.frequency_penalty,
-            presence_penalty: apiConfig.presence_penalty,
+            messages: apiConfig.messages as any,
+            temperature: modelConfig.temperature || 0.7,
+            top_p: modelConfig.topP || 1,
+            frequency_penalty: modelConfig.frequencyPenalty || 0,
+            presence_penalty: modelConfig.presencePenalty || 0,
             tools: apiConfig.tools,
             tool_choice: apiConfig.tool_choice,
             purpose: 'agent',
-            onUpdate: async (content: string) => {
-              if (!content) return;
-              
-              // Clear timeout on first response
-              if (timeoutId) {
-                clearTimeout(timeoutId);
-                timeoutId = null;
-              }
-              
-              finalContent = content;
-              
-              console.log("Received content update:", content.substring(0, 50) + "...");
-              
-              // Update the last message with the new content
-              setMessages((prev: ExtendedMessage[]): ExtendedMessage[] => {
-                const newMessages = [...prev];
-                if (newMessages.length > 0) {
-                  const lastIndex = newMessages.length - 1;
-                  if (newMessages[lastIndex].role === 'assistant') {
-                    newMessages[lastIndex] = {
-                      role: 'assistant',
-                      content: content
-                    };
-                  }
-                }
-                return newMessages;
-              });
-              
-              // Only process tool calls if we have valid content
-              if (content && content.includes('function_call:')) {
-                console.log("Detected new tool calls in response");
-                try {
-                  // We want to avoid an infinite loop, so we'll set isInToolExecutionChain to false
-                  // before processing the new tool calls
-                  setIsInToolExecutionChain(false);
-                  
-                  // Then process the new tool calls
-                  setTimeout(() => {
-                    processToolCalls(content);
-                  }, 100);
-                } catch (toolError) {
-                  console.error('Error processing tool calls:', toolError);
-                }
-              }
+            onUpdate: (content) => {
+              assistantResponse = content;
+              setThinking(content);
             }
-          }),
-          timeoutPromise
-        ]);
-      } catch (error) {
-        // Handle timeout or other errors
-        console.error("Error during AI call:", error);
-        setMessages((prev: ExtendedMessage[]): ExtendedMessage[] => {
-          const newMessages = [...prev];
-          if (newMessages.length > 0) {
-            const lastIndex = newMessages.length - 1;
-            if (newMessages[lastIndex].role === 'assistant') {
-              newMessages[lastIndex] = {
-                role: 'assistant',
-                content: `Sorry, there was an error generating a response: ${(error as Error).message}`
-              };
-            }
-          }
-          return newMessages;
-        });
-        
-        // Ensure we clear the timeout if it's still active
-        if (timeoutId) {
+          });
+          
           clearTimeout(timeoutId);
-          timeoutId = null;
-        }
-      }
-      
-      // Check if we actually received a response
-      if (!finalContent || finalContent.trim() === '') {
-        console.error("AI response completed but no content was returned");
-        setMessages((prev: ExtendedMessage[]): ExtendedMessage[] => {
-          // Find the last message and update it
-          const newMessages = [...prev];
-          if (newMessages.length > 0) {
-            const lastIndex = newMessages.length - 1;
-            if (newMessages[lastIndex].role === 'assistant' && 
-                (newMessages[lastIndex].content === '' || newMessages[lastIndex].content === 'Thinking...')) {
-              newMessages[lastIndex] = {
-                role: 'assistant',
-                content: 'Sorry, I was unable to generate a response. Please try again.'
-              };
-            }
+          console.log('Final continuation response:', assistantResponse);
+          
+          // Extract and queue code blocks for auto-insert
+          const codeBlocks = extractCodeBlocks(assistantResponse);
+          if (codeBlocks.length > 0) {
+            setPendingInserts(prev => [
+              ...prev,
+              ...codeBlocks.map(block => ({ filename: block.filename, content: block.content }))
+            ]);
+            
+            setTimeout(() => {
+              preloadInsertModel();
+            }, 3000);
           }
-          return newMessages;
-        });
-      } else {
-        console.log("AI response completed with content:", finalContent.substring(0, 50) + "...");
-      }
-      
-      setIsInToolExecutionChain(false);
-
-      // Extract and queue code blocks for auto-insert, similar to handleSubmit
-      const codeBlocks = extractCodeBlocks(finalContent);
-      if (codeBlocks.length > 0) {
-        setPendingInserts(prev => [
-          ...prev,
-          ...codeBlocks.map(block => ({ filename: block.filename, content: block.content }))
-        ]);
-        
-        setTimeout(() => {
-          preloadInsertModel();
-        }, 3000);
-      }
-      
-    } catch (error) {
-      console.error('Error continuing conversation:', error);
-      setIsInToolExecutionChain(false);
-      
-      // Add a helpful error message
-      setMessages(prev => [
-        ...prev,
-        {
-          role: 'assistant',
-          content: `Sorry, I encountered an error while processing the tool results: ${(error as Error).message || 'Unknown error'}`
+          
+          // Process any tool calls in the response
+          const toolCallResult = await processToolCalls(assistantResponse);
+          
+          // If no tool calls were made, add the response as a normal message
+          if (!toolCallResult.hasToolCalls) {
+            setThinking('');
+            addMessage({
+              role: 'assistant',
+              content: assistantResponse
+            });
+            
+            // Reset the tool execution chain state
+            setIsInToolExecutionChain(false);
+          }
+          
+          setIsProcessing(false);
+        } catch (error) {
+          console.error('Error in AI continuation:', error);
+          setIsProcessing(false);
+          clearTimeout(timeoutId);
+          
+          addMessage({
+            role: 'assistant',
+            content: "I apologize, but I'm having trouble continuing our conversation. Let me try to answer based on what I know already."
+          });
+          
+          setIsInToolExecutionChain(false);
         }
-      ]);
-    } finally {
+      };
+      
+      // Start the process
+      process();
+    } catch (error) {
+      console.error('Error setting up conversation continuation:', error);
       setIsProcessing(false);
-      setIsStreamingComplete(true);
+      setIsInToolExecutionChain(false);
+      
+      addMessage({
+        role: 'assistant',
+        content: "I apologize, but I'm having trouble processing your request. Please try again."
+      });
     }
   };
 

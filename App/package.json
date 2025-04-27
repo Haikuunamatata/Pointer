@@ -9,6 +9,7 @@
     "serve": "vite preview",
     "dev:server": "vite",
     "dev:electron": "electron .",
+    "dev": "node start-pointer.js",
     "electron:dev": "concurrently \"yarn start\" \"wait-on http://localhost:3000 && electron .\"",
     "electron:start": "electron .",
     "postinstall": "electron-builder install-app-deps"
@@ -21,6 +22,7 @@
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/addon-web-links": "^0.11.0",
     "@xterm/xterm": "^5.5.0",
+    "chalk": "4",
     "diff": "^7.0.0",
     "discord-rpc": "^4.0.1",
     "monaco-editor": "^0.45.0",
@@ -30,6 +32,7 @@
     "react-markdown": "^9.0.3",
     "react-syntax-highlighter": "^15.6.1",
     "simple-git": "^3.27.0",
+    "tcp-port-used": "^1.0.2",
     "uuid": "^11.0.5",
     "zustand": "^5.0.3"
   },

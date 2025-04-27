@@ -28,6 +28,7 @@ from git_endpoints import router as git_router
 from github_oauth import GitHubOAuth
 import mimetypes
 import sqlite3
+import httpx
 
 # Import tool handling functionality
 from tools_handlers import handle_tool_call, TOOL_DEFINITIONS
@@ -183,6 +184,19 @@ class SettingsRequest(BaseModel):
 class SaveSettingsRequest(BaseModel):
     settingsDir: str  # Directory to save settings files
     settings: dict  # Settings data to save
+    show_password: bool = False
+
+class OpenAIAPIRequest(BaseModel):
+    model: str
+    messages: list
+    temperature: float = 0.7
+    max_tokens: int = -1
+    top_p: float = 1.0
+    frequency_penalty: float = 0.0
+    presence_penalty: float = 0.0
+    stream: bool = True
+    api_key: str | None = None
+    api_endpoint: str | None = None
 
 class GitHubTokenRequest(BaseModel):
     token: str
@@ -2033,6 +2047,139 @@ async def attempt_database_repair(db_path):
     except Exception as e:
         print(f"Error during repair attempt: {str(e)}")
         return {"success": False, "error": f"Repair attempt failed: {str(e)}"}
+
+@app.post("/api/openai/chat")
+async def openai_chat(request: OpenAIAPIRequest):
+    try:
+        # Get API key from request or settings
+        api_key = request.api_key
+        if not api_key:
+            # Try to get from settings
+            conn = sqlite3.connect('settings.db')
+            cursor = conn.cursor()
+            cursor.execute('SELECT value FROM settings WHERE key = ?', ('openai_api_key',))
+            result = cursor.fetchone()
+            conn.close()
+            if result:
+                api_key = result[0]
+            else:
+                raise HTTPException(status_code=401, detail="OpenAI API key not found")
+
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}"
+        }
+        
+        payload = {
+            "model": request.model,
+            "messages": request.messages,
+            "temperature": request.temperature,
+            "max_tokens": request.max_tokens if request.max_tokens > 0 else None,
+            "top_p": request.top_p,
+            "frequency_penalty": request.frequency_penalty,
+            "presence_penalty": request.presence_penalty,
+            "stream": request.stream
+        }
+        
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.post(
+                    request.api_endpoint or "https://api.openai.com/v1/chat/completions",
+                    headers=headers,
+                    json=payload
+                )
+                
+                if response.status_code == 401:
+                    raise HTTPException(status_code=401, detail="Invalid OpenAI API key")
+                elif response.status_code == 429:
+                    raise HTTPException(status_code=429, detail="Rate limit exceeded")
+                elif response.status_code == 400:
+                    error_data = response.json()
+                    raise HTTPException(status_code=400, detail=error_data.get("error", {}).get("message", "Bad request"))
+                
+                response.raise_for_status()
+                return response.json()
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 401:
+                    raise HTTPException(status_code=401, detail="Invalid OpenAI API key")
+                elif e.response.status_code == 429:
+                    raise HTTPException(status_code=429, detail="Rate limit exceeded")
+                else:
+                    raise HTTPException(status_code=e.response.status_code, detail=str(e))
+            except httpx.RequestError as e:
+                raise HTTPException(status_code=500, detail=f"Failed to connect to OpenAI API: {str(e)}")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/settings")
+async def save_settings(request: SaveSettingsRequest):
+    try:
+        conn = sqlite3.connect('settings.db')
+        cursor = conn.cursor()
+        
+        # Create settings table if it doesn't exist
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+        ''')
+        
+        # Save OpenAI API settings
+        cursor.execute('''
+            INSERT OR REPLACE INTO settings (key, value)
+            VALUES (?, ?)
+        ''', ('openai_api_key', request.openai_api_key))
+        
+        cursor.execute('''
+            INSERT OR REPLACE INTO settings (key, value)
+            VALUES (?, ?)
+        ''', ('openai_api_endpoint', request.openai_api_endpoint))
+        
+        cursor.execute('''
+            INSERT OR REPLACE INTO settings (key, value)
+            VALUES (?, ?)
+        ''', ('show_password', str(request.show_password).lower()))
+        
+        conn.commit()
+        conn.close()
+        
+        return {"success": True}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/settings")
+async def get_settings():
+    try:
+        conn = sqlite3.connect('settings.db')
+        cursor = conn.cursor()
+        
+        # Create settings table if it doesn't exist
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+        ''')
+        
+        # Get all settings
+        cursor.execute('SELECT key, value FROM settings')
+        settings = dict(cursor.fetchall())
+        
+        conn.close()
+        
+        return {
+            "openai_api_key": settings.get('openai_api_key', ''),
+            "openai_api_endpoint": settings.get('openai_api_endpoint', ''),
+            "show_password": settings.get('show_password', 'false').lower() == 'true'
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # Remove the uvicorn.run() call since we're using run.py now
 if __name__ == "__main__":

@@ -10,6 +10,51 @@ const electron = window.require ? window.require('electron') : null;
 // @ts-ignore
 const ipcRenderer = electron ? electron.ipcRenderer : null;
 
+// Add PasswordInput component
+const PasswordInput: React.FC<{
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  showPassword: boolean;
+  onToggleVisibility: () => void;
+}> = ({ value, onChange, placeholder, showPassword, onToggleVisibility }) => {
+  return (
+    <div style={{ position: 'relative' }}>
+      <input
+        type={showPassword ? 'text' : 'password'}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        style={{
+          width: '100%',
+          padding: '8px',
+          paddingRight: '32px', // Make room for the eye icon
+          background: 'var(--bg-secondary)',
+          border: '1px solid var(--border-primary)',
+          borderRadius: '4px',
+          color: 'var(--text-primary)',
+        }}
+      />
+      <button
+        onClick={onToggleVisibility}
+        style={{
+          position: 'absolute',
+          right: '8px',
+          top: '50%',
+          transform: 'translateY(-50%)',
+          background: 'none',
+          border: 'none',
+          cursor: 'pointer',
+          color: 'var(--text-secondary)',
+          padding: '0',
+        }}
+      >
+        {showPassword ? '👁️' : '👁️‍🗨️'}
+      </button>
+    </div>
+  );
+};
+
 interface SettingsProps {
   isVisible: boolean;
   onClose: () => void;
@@ -54,7 +99,7 @@ const defaultDiscordRpcSettings: DiscordRpcSettings = {
   smallImageKey: 'code',
   smallImageText: '{languageId} | Line {line}:{column}',
   button1Label: 'Download Pointer',
-  button1Url: 'https://pointer.f1shy312.com',
+  button1Url: 'https://pointr.sh',
   button2Label: '',
   button2Url: '',
 };
@@ -470,6 +515,7 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   const [isThemeLibraryVisible, setIsThemeLibraryVisible] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
     if (isVisible) {
@@ -738,6 +784,11 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
       }
     }));
     setHasUnsavedChanges(true);
+
+    // Save settings immediately when API key changes
+    if (field === 'apiKey') {
+      handleTogglePasswordVisibility();
+    }
   };
 
   const handleEditorSettingChange = (field: string, value: any) => {
@@ -893,6 +944,59 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
       };
     });
     setHasUnsavedChanges(true);
+  };
+
+  // Add useEffect to load password visibility state
+  useEffect(() => {
+    const loadPasswordVisibility = async () => {
+      try {
+        const response = await fetch('/api/settings');
+        if (response.ok) {
+          const data = await response.json();
+          setShowPassword(data.show_password);
+          // Update the API key in the model config if it exists
+          if (data.openai_api_key) {
+            setModelConfigs(prev => ({
+              ...prev,
+              [activeTab]: {
+                ...prev[activeTab],
+                apiKey: data.openai_api_key
+              }
+            }));
+          }
+        }
+      } catch (error) {
+        console.error('Error loading settings:', error);
+      }
+    };
+    loadPasswordVisibility();
+  }, [activeTab]);
+
+  // Add function to handle password visibility toggle
+  const handleTogglePasswordVisibility = async () => {
+    const newVisibility = !showPassword;
+    setShowPassword(newVisibility);
+    try {
+      const response = await fetch('/api/settings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${modelConfigs[activeTab].apiKey || ''}`
+        },
+        body: JSON.stringify({
+          openai_api_key: modelConfigs[activeTab].apiKey || '',
+          openai_api_endpoint: modelConfigs[activeTab].apiEndpoint || '',
+          show_password: newVisibility,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error('Failed to save settings');
+      }
+    } catch (error) {
+      console.error('Error saving settings:', error);
+      // Revert the visibility change if save failed
+      setShowPassword(!newVisibility);
+    }
   };
 
   if (!isVisible) return null;
@@ -1260,6 +1364,27 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                           <div>
                             <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px' }}>
+                              Model Provider
+                            </label>
+                            <select
+                              value={modelConfigs[activeTab].modelProvider || 'local'}
+                              onChange={(e) => handleModelConfigChange(activeTab, 'modelProvider', e.target.value)}
+                              style={{
+                                width: '100%',
+                                padding: '8px',
+                                background: 'var(--bg-primary)',
+                                border: '1px solid var(--border-primary)',
+                                borderRadius: '4px',
+                                color: 'var(--text-primary)',
+                              }}
+                            >
+                              <option value="local">Local (LMStudio/Ollama)</option>
+                              <option value="openai">OpenAI</option>
+                            </select>
+                          </div>
+
+                          <div>
+                            <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px' }}>
                               API Endpoint
                             </label>
                             <input
@@ -1274,9 +1399,28 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                                 borderRadius: '4px',
                                 color: 'var(--text-primary)',
                               }}
+                              placeholder={modelConfigs[activeTab].modelProvider === 'openai' ? 'https://api.openai.com/v1' : 'http://localhost:11434/v1'}
                             />
                           </div>
                         </div>
+
+                        {modelConfigs[activeTab].modelProvider === 'openai' && (
+                          <div>
+                            <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px' }}>
+                              OpenAI API Key
+                            </label>
+                            <PasswordInput
+                              value={modelConfigs[activeTab].apiKey || ''}
+                              onChange={(value) => handleModelConfigChange(activeTab, 'apiKey', value)}
+                              placeholder="Enter your OpenAI API key"
+                              showPassword={showPassword}
+                              onToggleVisibility={handleTogglePasswordVisibility}
+                            />
+                            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                              Your API key will be stored securely and only used for API calls
+                            </p>
+                          </div>
+                        )}
 
                         {/* System Prompt - Now more prominent */}
                         <div>
@@ -2680,7 +2824,7 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                             type="url"
                             value={discordRpcSettings.button1Url || ''}
                             onChange={(e) => handleDiscordRpcSettingChange('button1Url', e.target.value)}
-                            placeholder="https://pointer.f1shy312.com"
+                            placeholder="https://pointr.sh"
                             style={{
                               width: '100%',
                               padding: '8px',

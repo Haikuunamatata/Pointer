@@ -6,8 +6,8 @@ export default defineConfig({
   plugins: [react()],
   base: process.env.NODE_ENV === 'production' ? './' : '/',
   server: {
-    port: 3000,
-    strictPort: true,
+    port: parseInt(process.env.VITE_PORT || '3000', 10),
+    strictPort: false,
     host: true, // needed for Electron
     fs: {
       strict: false,

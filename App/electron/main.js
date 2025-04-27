@@ -5,6 +5,9 @@ const isDev = process.env.NODE_ENV !== 'production';
 const DiscordRPC = require('discord-rpc');
 const fs = require('fs');
 
+// Get dev server port from environment variable or default to 3000
+const DEV_SERVER_PORT = process.env.VITE_DEV_SERVER_PORT || '3000';
+
 console.log('Electron app is starting...');
 
 // Discord RPC client
@@ -20,7 +23,7 @@ let discordRpcSettings = {
   smallImageKey: "code",
   smallImageText: "{languageId} | Line {line}:{column}",
   button1Label: "Website",
-  button1Url: "https://pointer.f1shy312.com",
+  button1Url: "https://pointr.sh",
   button2Label: "Join the Discord 🚀",
   button2Url: "https://discord.gg/vhgc8THmNk"
 };
@@ -302,9 +305,12 @@ async function waitForViteServer() {
 
   updateSplashMessage('Starting development server...');
 
+  const serverUrl = `http://localhost:${DEV_SERVER_PORT}`;
+  console.log(`Checking for Vite server at: ${serverUrl}`);
+
   while (retries < maxRetries) {
     try {
-      const response = await fetch('http://localhost:3000');
+      const response = await fetch(serverUrl);
       if (response.ok) {
         console.log('Vite server is ready');
         return true;
@@ -441,9 +447,10 @@ async function createWindow() {
       }
 
       updateSplashMessage('Loading development environment...');
-      console.log('Loading development URL: http://localhost:3000');
+      const devUrl = `http://localhost:${DEV_SERVER_PORT}`;
+      console.log(`Loading development URL: ${devUrl}`);
       try {
-        await mainWindow.loadURL('http://localhost:3000');
+        await mainWindow.loadURL(devUrl);
         console.log('Development URL loaded successfully');
       } catch (error) {
         console.error('Error loading development URL:', error);
@@ -474,7 +481,8 @@ async function createWindow() {
         // Retry loading in development
         setTimeout(() => {
           console.log('Retrying to load the app...');
-          mainWindow.loadURL('http://localhost:3000').catch(err => {
+          const devUrl = `http://localhost:${DEV_SERVER_PORT}`;
+          mainWindow.loadURL(devUrl).catch(err => {
             console.error('Error retrying load:', err);
             // Force show the window even if we can't load it
             showMainWindow(mainWindow);
