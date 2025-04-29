@@ -56,10 +56,12 @@ export default function Navbar({
           <div className="flex items-center justify-between h-14 md:h-16">
             <Link href="/" className="flex items-center space-x-2">
               <Image
-                src="/images/logo.png"
+                src="/images/logo-min.png"
                 alt="Pointer Logo"
                 width={28}
                 height={28}
+                priority
+                quality={90}
                 className="h-7 w-7"
               />
               {showTextLogo && (

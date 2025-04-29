@@ -12,10 +12,12 @@ export default function Footer() {
         <div className="flex flex-col md:flex-row justify-between items-center">
           <div className="flex items-center space-x-2 mb-6 md:mb-0">
             <Image
-              src="/images/logo.png"
+              src="/images/logo-min.png"
               alt="Pointer Logo"
               width={28}
               height={28}
+              quality={90}
+              loading="lazy"
               className="h-7 w-7"
             />
             <span className="text-xl font-bold bg-gradient-to-r from-primary to-tertiary bg-clip-text text-transparent">

@@ -4,8 +4,8 @@
 @tailwind utilities;
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #050505;
+  --foreground: #ffffff;
   --foreground-rgb: 255, 255, 255;
   --background-rgb: 5, 5, 5;
 }
@@ -17,11 +17,32 @@
   --font-mono: var(--font-geist-mono);
 }
 
+/* Force dark mode regardless of system preferences */
+@media (prefers-color-scheme: light) {
+  :root {
+    --background: #050505;
+    --foreground: #ffffff;
+    --foreground-rgb: 255, 255, 255;
+    --background-rgb: 5, 5, 5;
+  }
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #050505;
+    --foreground: #ffffff;
+    --foreground-rgb: 255, 255, 255;
+    --background-rgb: 5, 5, 5;
   }
+}
+
+/* Always use dark mode */
+:root, :root.light {
+  color-scheme: dark;
+  --background: #050505;
+  --foreground: #ffffff;
+  --foreground-rgb: 255, 255, 255;
+  --background-rgb: 5, 5, 5;
 }
 
 body {
