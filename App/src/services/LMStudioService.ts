@@ -226,12 +226,71 @@ class LMStudioService {
           }
 
           console.log(`Trying endpoint: ${baseUrl}`);
+
+          // First attempt - include all messages
+          let trimmedMessages = messages.map(msg => {
+            // Don't trim system messages or tool messages
+            if (msg.role === 'system' || msg.role === 'tool') {
+              return {
+                role: msg.role,
+                content: msg.content,
+                ...(msg.tool_call_id && { tool_call_id: msg.tool_call_id })
+              };
+            }
+            
+            // Trim very long content only if necessary
+            const MAX_CONTENT_LENGTH = 10000; // Still generous but prevents extreme cases
+            const trimmedContent = typeof msg.content === 'string' && msg.content.length > MAX_CONTENT_LENGTH
+              ? msg.content.substring(0, MAX_CONTENT_LENGTH) + "... [content trimmed for size]"
+              : msg.content;
+              
+            return {
+              role: msg.role,
+              content: trimmedContent,
+              ...(msg.tool_call_id && { tool_call_id: msg.tool_call_id })
+            };
+          });
+          
+          // Check if payload is too large
+          const payloadEstimate = JSON.stringify(trimmedMessages).length;
+          const MAX_PAYLOAD_SIZE = 1024 * 1024; // 1MB max size
+          
+          if (payloadEstimate > MAX_PAYLOAD_SIZE) {
+            console.warn(`Payload too large (${payloadEstimate} bytes), reducing message count`);
+            
+            // First, ensure we keep all system messages and tool messages
+            const systemAndToolMessages = trimmedMessages.filter(
+              msg => msg.role === 'system' || msg.role === 'tool'
+            );
+            
+            // Keep user and assistant messages but limit their quantity
+            const otherMessages = trimmedMessages.filter(
+              msg => msg.role !== 'system' && msg.role !== 'tool'
+            );
+            
+            // Keep some user/assistant messages from the start 
+            const startMessages = otherMessages.slice(0, 5);
+            
+            // And keep some from the end for recency
+            const endMessages = otherMessages.slice(-10);
+            
+            // Combine them
+            trimmedMessages = [
+              ...systemAndToolMessages,
+              ...startMessages,
+              {
+                role: 'system',
+                content: '... [Previous messages omitted for size] ...'
+              },
+              ...endMessages
+            ];
+            
+            console.log(`Reduced to ${trimmedMessages.length} messages`);
+          }
+          
           const requestBody: any = {
             model,
-            messages: messages.map(msg => ({
-              role: msg.role,
-              content: msg.content
-            })),
+            messages: trimmedMessages,
             temperature,
             max_tokens: max_tokens > 0 ? max_tokens : undefined, // Only include max_tokens if it's positive
             top_p,
@@ -251,7 +310,14 @@ class LMStudioService {
           // Enhanced debug logging
           console.log('Final API request payload:', JSON.stringify({
             ...requestBody,
-            messages: requestBody.messages.length > 0 ? '[Messages included]' : '[]',
+            messages: requestBody.messages.map((m: any, i: number) => ({
+              index: i,
+              role: m.role,
+              tool_call_id: m.tool_call_id || undefined,
+              content_preview: typeof m.content === 'string' ? 
+                (m.content.length > 50 ? m.content.substring(0, 50) + '...' : m.content) : 
+                '[Non-string content]'
+            })),
             tools: requestBody.tools ? `[${requestBody.tools.length} tools included]` : 'undefined',
             tool_choice: requestBody.tool_choice || 'undefined',
             model: requestBody.model,

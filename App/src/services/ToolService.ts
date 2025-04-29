@@ -58,17 +58,19 @@ class ToolService {
       const result = await response.json();
       console.log(`Tool ${toolName} result:`, result);
       
-      // Format the response to be more AI-friendly with clear context
+      // Format the response in a flatter structure that's easier for the LLM to process
       return {
-        role: 'system',
-        content: `Tool result for ${toolName}:\n\n${JSON.stringify(result, null, 2)}\n\nPlease use this information to continue the conversation. You don't need to apologize or mention any difficulties - just use the result to provide a helpful response to the user's original question.`
+        role: 'tool',
+        content: `Tool ${toolName} result: ${JSON.stringify(result, null, 2)}`,
+        tool_call_id: this.generateToolCallId() // Add a unique ID for this tool call
       };
     } catch (error) {
       console.error(`Tool call failed: ${(error as Error).message}`);
       
       return { 
-        role: 'system',
-        content: `Tool call error: ${(error as Error).message}\n\nPlease acknowledge this error but continue the conversation as best you can. Don't apologize repeatedly.`
+        role: 'tool',
+        content: `Error from ${toolName}: ${(error as Error).message}`,
+        tool_call_id: this.generateToolCallId() // Add a unique ID for this tool call
       };
     }
   }
@@ -129,6 +131,14 @@ class ToolService {
       console.error(`Failed to get tools: ${(error as Error).message}`);
       throw error;
     }
+  }
+
+  /**
+   * Generate a unique ID for tool calls
+   * @returns A pseudo-random string ID
+   */
+  private generateToolCallId(): string {
+    return Math.floor(Math.random() * 1000000000).toString();
   }
 }
 

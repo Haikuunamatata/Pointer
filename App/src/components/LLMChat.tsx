@@ -60,7 +60,7 @@ const INITIAL_SYSTEM_MESSAGE: ExtendedMessage = {
   role: 'system',
   content: `You are a helpful AI coding assistant. Use these tools:
 
-read_file: function_call: {"name": "read_file","arguments": {"target_file": "path/to/file","should_read_entire_file": true,"start_line_one_indexed": 1,"end_line_one_indexed_inclusive": 200}}
+read_file: function_call: {"name": "read_file","arguments": {"file_path": "path/to/file","should_read_entire_file": true,"start_line_one_indexed": 1,"end_line_one_indexed_inclusive": 200}}
 
 list_dir: function_call: {"name": "list_dir","arguments": {"relative_workspace_path": "path/to/directory"}}
 
@@ -1575,12 +1575,16 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   };
 
   // Function to save chat
-  const saveChat = async (chatId: string, messages: ExtendedMessage[]) => {
+  const saveChat = async (chatId: string, messages: ExtendedMessage[], reloadAfterSave = false) => {
     try {
       if (messages.length <= 1) return; // Don't save if only system message exists
       
-      // Remove throttling logic - we want to save every time this is called
-      // for critical events like user messages, tool calls, and AI completion
+      console.log(`Saving chat ${chatId} with ${messages.length} messages (${
+        messages.filter((m: ExtendedMessage) => m.tool_call_id || m.tool_calls).length
+      } tool-related messages)`);
+      
+      // Record that we're saving now
+      window.lastSaveChatTime = Date.now();
       
       let title = chatTitle;
       
@@ -1590,31 +1594,43 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         setChatTitle(title); // Save the title for future use
       }
       
-      // Add more detailed logging
-      console.log(`Saving chat ${chatId} with ${messages.length} messages`);
-      console.log('Message roles being saved:', messages.map(m => m.role));
-      
-      const chatData = {
-        id: chatId,
-        name: title,
-        createdAt: new Date().toISOString(),
-        messages,
-      };
-      
-      // Store in localStorage as a backup
-      try {
-        localStorage.setItem(`chat_${chatId}`, JSON.stringify(chatData));
-        console.log(`Chat backup saved to localStorage with ${messages.length} messages`);
-      } catch (e) {
-        console.warn('Could not save chat to localStorage:', e);
-      }
+      // Make sure to properly format the chat before saving
+      const formattedMessages = messages.map((msg: ExtendedMessage) => {
+        // Create a cleaned version of the message with only the properties we need
+        const cleanedMsg: any = {
+          role: msg.role,
+          content: msg.content
+        };
+        
+        // Add tool_call_id if present
+        if (msg.tool_call_id) {
+          cleanedMsg.tool_call_id = msg.tool_call_id;
+        }
+        
+        // Add tool_calls if present
+        if (msg.tool_calls && msg.tool_calls.length > 0) {
+          cleanedMsg.tool_calls = msg.tool_calls;
+        }
+        
+        // Add attachments if present
+        if (msg.attachments && msg.attachments.length > 0) {
+          cleanedMsg.attachments = msg.attachments;
+        }
+        
+        return cleanedMsg;
+      });
       
       const response = await fetch(`http://localhost:23816/chats/${chatId}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(chatData),
+        body: JSON.stringify({
+          id: chatId,
+          name: title,
+          createdAt: new Date().toISOString(),
+          messages: formattedMessages,
+        }),
       });
 
       if (!response.ok) {
@@ -1622,79 +1638,77 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       }
       console.log('Chat saved successfully');
       
+      // Reload the chat if requested (important for tool calls)
+      if (reloadAfterSave) {
+        // Wait a brief moment to ensure the file is written
+        setTimeout(() => {
+          loadChat(chatId, true);
+        }, 100);
+      }
+      
       // Only refresh chat list occasionally (every 5 saves)
       // Track saves with a counter
       window.chatSaveCounter = (window.chatSaveCounter || 0) + 1;
       if (window.chatSaveCounter % 5 === 0) {
         loadChats(); // Refresh the chat list after saving
       }
-      
-      // Record the time we saved
-      window.lastSaveChatTime = Date.now();
     } catch (error) {
       console.error('Error saving chat:', error);
     }
   };
 
-  // Load chat data
-  const loadChat = async (chatId: string) => {
+  // Load chat data with cache-busting
+  const loadChat = async (chatId: string, forceReload = false) => {
     try {
-      console.log(`Loading chat ${chatId}`);
+      setIsProcessing(true); // Show loading state
+      console.log(`Loading chat with ID: ${chatId}${forceReload ? ' (forced reload)' : ''}`);
       
-      // Try to load from server first
-      const response = await fetch(`http://localhost:23816/chats/${chatId}`);
-      let chat;
-      
+      // Add a timestamp to bypass caching
+      const timestamp = Date.now();
+      const response = await fetch(`http://localhost:23816/chats/${chatId}?t=${timestamp}`);
       if (response.ok) {
-        chat = await response.json();
-        console.log(`Loaded chat from server with ${chat.messages?.length || 0} messages`);
-      } else {
-        console.warn(`Failed to load chat from server: ${response.status}`);
-      }
-      
-      // If server failed or didn't return messages, try localStorage
-      if (!chat?.messages?.length) {
-        const localChat = localStorage.getItem(`chat_${chatId}`);
-        if (localChat) {
-          try {
-            chat = JSON.parse(localChat);
-            console.log(`Loaded chat from localStorage with ${chat.messages?.length || 0} messages`);
-          } catch (e) {
-            console.error('Error parsing localStorage chat:', e);
-          }
-        }
-      }
-      
-      // If we got a chat from either source
-      if (chat) {
+        const chat = await response.json();
+        console.log(`Loaded chat with ${chat.messages ? chat.messages.length : 0} messages`);
+        
         // Ensure the system message exists
         let chatMessages = Array.isArray(chat.messages) ? chat.messages : [];
         
-        console.log(`Chat ${chatId} contains ${chatMessages.length} messages`);
-        console.log('Message roles:', chatMessages.map((m: ExtendedMessage) => m.role));
-        
-        // Make sure all messages have the correct format
-        chatMessages = chatMessages.map((msg: any) => ({
-          role: msg.role || 'user',
-          content: msg.content || '',
-          attachments: msg.attachments || undefined,
-          tool_call_id: msg.tool_call_id,
-          tool_calls: msg.tool_calls
-        }));
+        // Make sure all messages have the correct format while preserving tool properties
+        chatMessages = chatMessages.map((msg: any) => {
+          const formattedMessage: ExtendedMessage = {
+            role: msg.role || 'user',
+            content: msg.content || '',
+            // Preserve these critical properties for tool calls
+            tool_call_id: msg.tool_call_id,
+            tool_calls: msg.tool_calls,
+            // And attachments for files
+            attachments: msg.attachments
+          };
+          
+          // Clean up undefined properties
+          Object.keys(formattedMessage).forEach(key => {
+            if (formattedMessage[key as keyof ExtendedMessage] === undefined) {
+              delete formattedMessage[key as keyof ExtendedMessage];
+            }
+          });
+          
+          return formattedMessage;
+        });
         
         // Add system message if not present
         if (!chatMessages.some((m: ExtendedMessage) => m.role === 'system')) {
           chatMessages = [INITIAL_SYSTEM_MESSAGE, ...chatMessages];
         }
         
+        console.log(`Processed ${chatMessages.length} messages with tool calls:`, 
+          chatMessages.filter((m: ExtendedMessage) => m.tool_call_id || m.tool_calls).length);
+        
         // Set messages and chat title
         setMessages(chatMessages);
         setChatTitle(chat.name || '');
-        
-        console.log(`Chat loaded successfully with ${chatMessages.length} messages`);
       } else {
-        // Start with a new chat if no data was found
-        console.log('No chat data found, starting fresh chat');
+        console.error(`Failed to load chat ${chatId}: ${response.status} ${response.statusText}`);
+        // Start with a new chat if there's an error
         setMessages([INITIAL_SYSTEM_MESSAGE]);
         setChatTitle('');
       }
@@ -1703,6 +1717,8 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       // Start with a new chat if there's an error
       setMessages([INITIAL_SYSTEM_MESSAGE]);
       setChatTitle('');
+    } finally {
+      setIsProcessing(false); // Hide loading state
     }
   };
 
@@ -2820,11 +2836,24 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
 
   // Add a helper function to process tool calls
   const addMessage = (message: ExtendedMessage) => {
+    console.log(`Adding message with role ${message.role}${message.tool_call_id ? ` and tool_call_id ${message.tool_call_id}` : ''}`);
+    
+    // Ensure the message has all required properties
+    const formattedMessage: ExtendedMessage = {
+      role: message.role,
+      content: message.content || '',
+      ...(message.tool_call_id && { tool_call_id: message.tool_call_id }),
+      ...(message.tool_calls && message.tool_calls.length > 0 && { tool_calls: message.tool_calls }),
+      ...(message.attachments && message.attachments.length > 0 && { attachments: message.attachments })
+    };
+    
     setMessages(prev => {
-      const updatedMessages = [...prev, message];
+      const updatedMessages = [...prev, formattedMessage];
       // Save chat immediately after adding any message, but only if we haven't saved recently
       if (currentChatId && (!window.lastSaveChatTime || Date.now() - window.lastSaveChatTime > 1000)) {
-        setTimeout(() => saveChat(currentChatId, updatedMessages), 50);
+        // For tool messages, force a reload after saving
+        const shouldReload = message.role === 'tool' || !!message.tool_call_id || !!message.tool_calls;
+        setTimeout(() => saveChat(currentChatId, updatedMessages, shouldReload), 50);
       }
       return updatedMessages;
     });
@@ -2877,6 +2906,13 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
       // Call the ToolService to get real results
       const result = await ToolService.callTool(name, parsedArgs);
       
+      // After getting the tool result, immediately save the state
+      if (currentChatId) {
+        // We don't add the tool result to messages here, we'll do it in processToolCalls
+        // But we save the current state to ensure it's persistent
+        saveChat(currentChatId, messages, true);
+      }
+      
       // Check if this is an error from the tool service
       if (result.success === false) {
         console.warn(`Tool call failed for ${name}:`, result.error || "Unknown error");
@@ -2892,7 +2928,7 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
           
           // Save the chat after adding the error message
           if (currentChatId) {
-            setTimeout(() => saveChat(currentChatId, updatedMessages), 50);
+            setTimeout(() => saveChat(currentChatId, updatedMessages, true), 50);
           }
           
           return updatedMessages;
@@ -2902,93 +2938,28 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
         return null;
       }
       
-      // Add result to toolResults with proper ID format
-      setToolResults(prev => [...prev, { id: toolCallId, result }]);
+      console.log(`Tool call ${name} completed successfully with ID: ${toolCallId}`);
+      return result;
+    } catch (error) {
+      console.error(`Error in handleToolCall for ${name}:`, error);
       
-      // Add the user's original query to the result explicitly for better context maintenance
-      if (result.content) {
-        // Extract the JSON portion of the content
-        const contentMatch = result.content.match(/{.*}/s);
-        if (contentMatch && contentMatch[0]) {
-          try {
-            // Parse the JSON content
-            const jsonContent = JSON.parse(contentMatch[0]);
-            
-            // Add the user query context at the end
-            jsonContent._originalUserQuery = userQuery;
-            jsonContent._requireResponse = true;
-            
-            // Special reminder specific to the tool result
-            jsonContent._contextNote = `Remember to answer the original question: "${userQuery}"`;
-            
-            // Add suggestions for follow-up tool usage based on the current tool
-            if (name === 'list_directory') {
-              jsonContent._toolUsageSuggestion = `Consider using read_file to examine any relevant files from this directory listing.`;
-            } else if (name === 'read_file') {
-              jsonContent._toolUsageSuggestion = `If needed, you can read additional related files or list the directory to see other files in the same location.`;
-            } else if (name === 'web_search') {
-              jsonContent._toolUsageSuggestion = `Consider using fetch_webpage to get more detailed information from specific pages in the search results.`;
-            }
-            
-            // Add a general reminder to use tools
-            jsonContent._toolsReminder = `Remember to use appropriate tools to gather accurate information rather than guessing.`;
-            
-            // Replace the content with the updated JSON
-            result.content = result.content.replace(contentMatch[0], JSON.stringify(jsonContent));
-          } catch (e) {
-            console.error("Error adding user query to tool result:", e);
-          }
-        }
-      }
-      
-      // If the result includes a continuation prompt, add it to the conversation
-      if (result.continuation) {
-        // Add a special formatting marker in the result to force continued generation
-        result.content = result.content.replace(/"success":\s*true/, '"success": true, "_continue": true, "_forceResponse": true');
-        
-        // Add the original user query to help the model continue
-        if (lastUserMessage) {
-          result.content = result.content.replace(
-            /}$/,
-            `, "_original_user_query": ${JSON.stringify(lastUserMessage.content)}, "_requireCompletion": true}`
-          );
-          
-          // Update the continuation prompt to strongly reference the user's original query
-          result.continuation = lastUserMessage && lastUserMessage.content ? 
-            `YOU MUST CONTINUE YOUR RESPONSE using the tool result above. Directly answer the user's question: "${lastUserMessage.content}" - PROVIDE A COMPLETE RESPONSE that addresses all aspects of the query.` :
-            `YOU MUST CONTINUE YOUR RESPONSE using the tool result above. PROVIDE A COMPLETE RESPONSE that addresses all aspects of the user's query.`;
-        }
-      }
-      
-      return {
-        ...result,
-        toolCallId // Add the toolCallId to the result for reference
-      };
-    } catch (err) {
-      const error = err as Error;
-      console.error(`Exception calling tool ${name}:`, error);
-      
-      // Get the last user message to reincorporate even on error
-      const lastUserMessage = messages.slice().reverse().find(msg => msg.role === 'user');
-      
-      // Handle errors by adding an assistant message instead of a tool message
+      // Add an error message to the chat
       setMessages(prev => {
         const errorMessage: ExtendedMessage = {
           role: 'assistant',
-          content: `I tried to ${name.replace(/_/g, ' ')} but encountered an error: ${error.message}\n\nLet me try to help you with what I know instead.`
+          content: `I encountered an error trying to ${name.replace(/_/g, ' ')}: ${(error as Error).message}\n\nLet me try a different approach.`
         };
         
         const updatedMessages = [...prev, errorMessage];
         
         // Save the chat after adding the error message
         if (currentChatId) {
-          setTimeout(() => saveChat(currentChatId, updatedMessages), 50);
+          setTimeout(() => saveChat(currentChatId, updatedMessages, true), 50);
         }
         
         return updatedMessages;
       });
       
-      // Return null to indicate we handled the error
       return null;
     } finally {
       setIsExecutingTool(false);
@@ -3004,85 +2975,126 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
     
     console.log("Checking for tool calls in:", content.substring(0, 100) + "...");
     
-    for (const match of matches) {
-      try {
-        const functionCallStr = match[1];
-        if (!functionCallStr) continue;
-        
-        console.log("Found function call:", functionCallStr);
-        
-        // Try to parse the function call JSON
-        let functionCall: FunctionCall;
+    // First, load the latest chat state before processing any tools
+    if (currentChatId) {
+      await loadChat(currentChatId, true);
+      console.log("Reloaded chat before processing tool calls");
+    }
+    
+    // Start a polling mechanism to keep loading the latest chat state during tool execution
+    let pollingInterval: number | null = null;
+    
+    if (isInToolExecutionChain) {
+      pollingInterval = setInterval(async () => {
+        if (currentChatId && isInToolExecutionChain) {
+          console.log("Polling: reloading chat during tool execution");
+          await loadChat(currentChatId, true);
+        }
+      }, 1000); // Poll every second
+    }
+    
+    try {
+      for (const match of matches) {
         try {
-          functionCall = JSON.parse(functionCallStr);
-        } catch (error) {
-          // If JSON parsing fails, try to extract components manually
-          console.log("Attempting to parse function call manually:", functionCallStr);
+          const functionCallStr = match[1];
+          if (!functionCallStr) continue;
           
-          // Extract ID - ensure it's valid or generate a new one
-          const idMatch = functionCallStr.match(/"id"\s*:\s*"([^"]+)"/);
-          const rawId = idMatch ? idMatch[1] : '';
-          // Validate the ID format or generate a new one
-          const id = (rawId && rawId.length === 9 && /^[a-z0-9]+$/.test(rawId))
-            ? rawId
-            : generateValidToolCallId();
+          console.log("Found function call:", functionCallStr);
           
-          // Extract name
-          const nameMatch = functionCallStr.match(/"name"\s*:\s*"([^"]+)"/);
-          const name = nameMatch ? nameMatch[1] : '';
-          
-          // Extract arguments
-          const argsMatch = functionCallStr.match(/"arguments"\s*:\s*({[^}]+}|"[^"]+")/);
-          let args = argsMatch ? argsMatch[1] : '{}';
-          
-          // Create the function call object
-          functionCall = {
-            id,
-            name,
-            arguments: args
-          };
-        }
-        
-        // If we have a valid function call, process it
-        if (functionCall.name) {
-          // Ensure ID is in the correct format
-          if (!functionCall.id || functionCall.id.length !== 9 || !/^[a-z0-9]+$/.test(functionCall.id)) {
-            functionCall.id = generateValidToolCallId();
+          // Try to parse the function call JSON
+          let functionCall: FunctionCall;
+          try {
+            functionCall = JSON.parse(functionCallStr);
+          } catch (error) {
+            // If JSON parsing fails, try to extract components manually
+            console.log("Attempting to parse function call manually:", functionCallStr);
+            
+            // Extract ID - ensure it's valid or generate a new one
+            const idMatch = functionCallStr.match(/"id"\s*:\s*"([^"]+)"/);
+            const rawId = idMatch ? idMatch[1] : '';
+            // Validate the ID format or generate a new one
+            const id = (rawId && rawId.length === 9 && /^[a-z0-9]+$/.test(rawId))
+              ? rawId
+              : generateValidToolCallId();
+            
+            // Extract name
+            const nameMatch = functionCallStr.match(/"name"\s*:\s*"([^"]+)"/);
+            const name = nameMatch ? nameMatch[1] : '';
+            
+            // Extract arguments
+            const argsMatch = functionCallStr.match(/"arguments"\s*:\s*({[^}]+}|"[^"]+")/);
+            let args = argsMatch ? argsMatch[1] : '{}';
+            
+            // Create the function call object
+            functionCall = {
+              id,
+              name,
+              arguments: args
+            };
           }
           
-          console.log("Processing tool call:", functionCall.name, "with ID:", functionCall.id);
-          const result = await handleToolCall(functionCall);
-          
-          // If result is null, it means the error was already handled by handleToolCall
-          if (result) {
-            processedAnyCalls = true;
+          // If we have a valid function call, process it
+          if (functionCall.name) {
+            // Ensure ID is in the correct format
+            if (!functionCall.id || functionCall.id.length !== 9 || !/^[a-z0-9]+$/.test(functionCall.id)) {
+              functionCall.id = generateValidToolCallId();
+            }
             
-            // Add the tool result to messages for display with correct typing
-            setMessages(prev => {
-              const newMessage: ExtendedMessage = {
-                role: 'tool',
-                content: JSON.stringify(result, null, 2),
-                tool_call_id: functionCall.id
-              };
+            console.log("Processing tool call:", functionCall.name, "with ID:", functionCall.id);
+            
+            // Reload the chat before handling each tool call
+            if (currentChatId) {
+              await loadChat(currentChatId, true);
+              console.log("Reloaded chat before handling tool call:", functionCall.name);
+            }
+            
+            const result = await handleToolCall(functionCall);
+            
+            // If result is null, it means the error was already handled by handleToolCall
+            if (result) {
+              processedAnyCalls = true;
               
-              const updatedMessages = [...prev, newMessage];
+              // Add the tool result to messages for display with correct typing
+              setMessages(prev => {
+                // Use the result directly from ToolService which already has the correct format
+                // with role: 'tool', content, and tool_call_id
+                const newMessage: ExtendedMessage = {
+                  ...result,
+                  tool_call_id: functionCall.id
+                };
+                
+                const updatedMessages = [...prev, newMessage];
+                
+                // Save the chat in real-time after adding the tool result
+                if (currentChatId) {
+                  setTimeout(() => saveChat(currentChatId, updatedMessages, true), 50);
+                }
+                
+                return updatedMessages;
+              });
               
-              // Save the chat in real-time after adding the tool result
+              console.log("Added tool result to messages with ID:", functionCall.id);
+              
+              // Reload the chat again after saving the tool result
               if (currentChatId) {
-                setTimeout(() => saveChat(currentChatId, updatedMessages), 50);
+                setTimeout(async () => {
+                  await loadChat(currentChatId, true);
+                  console.log("Reloaded chat after adding tool result");
+                }, 200);
               }
-              
-              return updatedMessages;
-            });
-            
-            console.log("Added tool result to messages with ID:", functionCall.id);
-          } else {
-            // Error was already handled, but we should still mark this as processed
-            processedAnyCalls = true;
+            } else {
+              // Error was already handled, but we should still mark this as processed
+              processedAnyCalls = true;
+            }
           }
+        } catch (error) {
+          console.error("Error processing function call:", error);
         }
-      } catch (error) {
-        console.error("Error processing function call:", error);
+      }
+    } finally {
+      // Clean up the polling interval
+      if (pollingInterval) {
+        clearInterval(pollingInterval);
       }
     }
     
@@ -3094,7 +3106,7 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
       // Use setTimeout to ensure state updates have completed
       setTimeout(() => {
         continueLLMConversation();
-      }, 100);
+      }, 300); // Increased delay to ensure all reloads complete
     } else {
       console.log("No tool calls processed or processed successfully");
       setIsInToolExecutionChain(false);
@@ -3112,184 +3124,55 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
       setIsProcessing(true);
       console.log("Starting to process conversation continuation");
       
-      // LOOP DETECTION: Check if we're in an infinite loop of tool calls
-      const recentAssistantMessages = messages
-        .filter(m => m.role === 'assistant')
-        .slice(-5);
-      
-      // Check if we have multiple assistant messages making the same tool call
-      if (recentAssistantMessages.length >= 3) {
-        const lastThreeToolCalls = recentAssistantMessages
-          .slice(-3)
-          .filter(m => m.tool_calls && m.tool_calls.length > 0)
-          .map(m => m.tool_calls && m.tool_calls[0] && m.tool_calls[0].name);
-          
-        // If the last 3 assistant messages all called the same tool, likely in a loop
-        if (lastThreeToolCalls.length === 3 && 
-            lastThreeToolCalls[0] === lastThreeToolCalls[1] && 
-            lastThreeToolCalls[1] === lastThreeToolCalls[2]) {
-          console.log("Loop detected! Breaking out of tool execution chain");
-          
-          // Break the loop
-          setIsInToolExecutionChain(false);
-          setIsProcessing(false);
-          
-          // Add a message to inform the user
-          addMessage({
-            role: 'assistant',
-            content: "I notice I've been repeatedly making the same tool call. To avoid an infinite loop, I'll stop and respond directly based on what I know. Please let me know if you have any specific questions."
-          });
-          
-          return;
-        }
+      // First, make sure we have the most up-to-date chat data
+      if (currentChatId) {
+        // Load the chat with fresh data from disk
+        await loadChat(currentChatId, true);
+        console.log("Reloaded chat for continuation");
       }
       
-      // IMPORTANT: Log the entire state of messages to debug
-      console.log(`Current messages state contains ${messages.length} messages:`);
-      console.log(messages.map((m, i) => `${i}: ${m.role} - ${m.content?.substring(0, 30)}${m.tool_call_id ? ` (tool_call_id: ${m.tool_call_id})` : ''}`));
+      // Don't filter or truncate the messages at all - use ALL messages
+      // This ensures we have the complete context with all tool calls and results
+      const relevantMessages = [...messages];
       
-      // ALWAYS try to restore from localStorage first as it's more reliable
-      let relevantMessages = [...messages]; // default to current state
+      console.log(`Including ALL ${relevantMessages.length} messages for context`);
       
-      const chatBackup = localStorage.getItem(`chat_${currentChatId}`);
-      if (chatBackup) {
-        try {
-          const parsedBackup = JSON.parse(chatBackup);
-          
-          if (parsedBackup.messages && parsedBackup.messages.length > 0) {
-            console.log(`Found localStorage backup with ${parsedBackup.messages.length} messages vs current ${messages.length} messages`);
-            
-            // If backup has more messages or different number of messages, use it
-            if (parsedBackup.messages.length !== messages.length) {
-              console.log("Using backup messages as they differ from current state");
-              relevantMessages = parsedBackup.messages;
-              
-              // Also update the state for future operations
-              setMessages(parsedBackup.messages);
-              // Don't wait for state update as we're using relevantMessages directly
-            } else {
-              console.log("Current state and backup have same message count, using current state");
-            }
-          }
-        } catch (e) {
-          console.error("Error restoring from backup:", e);
-        }
-      } else {
-        console.warn("No localStorage backup found for chat:", currentChatId);
-      }
-      
-      // Get the last user message to provide context
-      const lastUserMessageIndex = [...relevantMessages].reverse().findIndex(msg => msg.role === 'user');
-      if (lastUserMessageIndex === -1) {
-        console.log('No user message found, cannot continue conversation');
-        setIsInToolExecutionChain(false);
-        return;
-      }
-      
-      // Get the actual index of the last user message in the messages array
-      const userMessageIndex = relevantMessages.length - 1 - lastUserMessageIndex;
-      
-      console.log(`Using full conversation history: ${relevantMessages.length} messages`);
-      console.log('Message roles to be sent:', relevantMessages.map(m => m.role));
-      
-      // Get last user message content for the continuation prompt
-      const lastUserMessage = relevantMessages[userMessageIndex];
+      // Get the last user message for the continuation prompt
+      const lastUserMessage = [...messages].reverse().find(msg => msg.role === 'user');
       
       // Add a special system message to ensure continuation
       const continuationPrompt: ExtendedMessage = {
         role: 'system',
-        content: `YOU MUST CONTINUE YOUR RESPONSE. DO NOT STOP EARLY OR LEAVE YOUR ANSWER INCOMPLETE. Be concise and address the original question directly. Provide a complete answer that fully resolves the user's query: "${lastUserMessage.content}"`
+        content: `YOU MUST CONTINUE YOUR RESPONSE. DO NOT STOP EARLY OR LEAVE YOUR ANSWER INCOMPLETE. Be concise and address the original question directly. Provide a complete answer that fully resolves the user's query: "${lastUserMessage?.content || 'the user query'}"` 
       };
       
-      // FIX: Process messages to ensure tool messages are properly formatted for OpenAI
-      // OpenAI requires that messages with role 'tool' follow messages with 'tool_calls'
-      const processedMessages: ExtendedMessage[] = [];
-      
-      // Track assistant messages with tool_calls to match tool messages later
-      let lastAssistantWithToolCalls: ExtendedMessage | null = null;
-      let lastAssistantToolCallIds = new Set<string>();
-      
-      // First pass: Keep all non-tool messages and track assistant messages with tool_calls
-      for (let i = 0; i < relevantMessages.length; i++) {
-        const msg = relevantMessages[i];
-        
-        // If this is not a tool message, add it to processed messages
-        if (msg.role !== 'tool') {
-          processedMessages.push({...msg});
-          
-          // If this is an assistant message with tool_calls, track it for matching tool messages
-          if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
-            lastAssistantWithToolCalls = msg;
-            lastAssistantToolCallIds = new Set(msg.tool_calls.map(tc => tc.id));
-          } else {
-            // If this is any other message type (user, system), reset the assistant tracking
-            lastAssistantWithToolCalls = null;
-            lastAssistantToolCallIds.clear();
-          }
-        }
-      }
-      
-      // Second pass: Add tool messages, but only if they follow an assistant with matching tool_calls
-      lastAssistantWithToolCalls = null;
-      lastAssistantToolCallIds.clear();
-      
-      for (let i = 0; i < relevantMessages.length; i++) {
-        const msg = relevantMessages[i];
-        
-        // Update assistant tracking for proper tool message placement
-        if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
-          lastAssistantWithToolCalls = msg;
-          lastAssistantToolCallIds = new Set(msg.tool_calls.map(tc => tc.id));
-        } else if (msg.role !== 'tool') {
-          // Reset tracking for non-tool messages
-          lastAssistantWithToolCalls = null;
-          lastAssistantToolCallIds.clear();
-        }
-        
-        // Only add tool messages that have a valid tool_call_id and follow the right assistant
-        if (msg.role === 'tool') {
-          if (!msg.tool_call_id) {
-            console.log(`Skipping tool message without tool_call_id`);
-            continue;
-          }
-          
-          if (!lastAssistantWithToolCalls) {
-            console.log(`Skipping tool message with tool_call_id ${msg.tool_call_id} as there's no preceding assistant message with tool_calls`);
-            continue;
-          }
-          
-          if (!lastAssistantToolCallIds.has(msg.tool_call_id)) {
-            console.log(`Skipping tool message with tool_call_id ${msg.tool_call_id} as it doesn't match any in the preceding assistant message`);
-            continue;
-          }
-          
-          // This tool message is valid, add it to processed messages
-          processedMessages.push({...msg});
-        }
-      }
-      
-      console.log('Processed messages for API format:', processedMessages.map((m: ExtendedMessage) => 
-        `${m.role}${m.tool_call_id ? ` (tool_call_id: ${m.tool_call_id})` : ''}${m.tool_calls ? ` (tool_calls: ${m.tool_calls.length})` : ''}`
-      ));
-      
       // Prepare conversation context that includes everything the model needs
-      const conversationContext: ExtendedMessage[] = [
-        // Start with the initial system message (instructions)
-        INITIAL_SYSTEM_MESSAGE,
-        
-        // Include ALL messages in the correct format for OpenAI
-        ...processedMessages,
+      const conversationContext: Message[] = [
+        // Include all relevant messages without filtering
+        ...relevantMessages.map(msg => {
+          // Ensure tool messages are properly formatted for the API
+          if (msg.role === 'tool') {
+            return {
+              role: msg.role,
+              content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content),
+              tool_call_id: msg.tool_call_id
+            };
+          }
+          return {
+            role: msg.role,
+            content: msg.content,
+            tool_call_id: msg.tool_call_id
+          };
+        }),
         
         // Add the continuation prompt at the end
         continuationPrompt
       ];
       
-      console.log('Complete conversation context:', conversationContext.map((m, i) => ({ 
-        index: i,
+      console.log('Complete conversation context:', conversationContext.map(m => ({ 
         role: m.role, 
         content: m.content?.substring(0, 50),
-        tool_call_id: m.tool_call_id,
-        has_tool_calls: m.tool_calls ? true : false
+        tool_call_id: m.tool_call_id || undefined
       })));
       
       // Get model configuration
@@ -3302,6 +3185,13 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
       
       // Log what we're sending to the model
       console.log('Continuing conversation with complete context. Model:', modelId);
+      console.log('Full messages being sent to API:', JSON.stringify(conversationContext.map(m => ({
+        role: m.role,
+        content: typeof m.content === 'string' ? 
+          (m.content.length > 100 ? m.content.substring(0, 100) + '...' : m.content) : 
+          'Non-string content',
+        tool_call_id: m.tool_call_id || undefined
+      })), null, 2));
       
       // Format the API config with the full conversation context
       const apiConfig = {
@@ -3866,6 +3756,54 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
       </div>
     );
   };
+
+  // Add a function to restart the conversation with fresh data
+  const restartConversation = async () => {
+    if (!currentChatId) return;
+    
+    console.log("Restarting conversation with fresh data");
+    setIsProcessing(true);
+    
+    try {
+      // Force reload the chat from disk
+      await loadChat(currentChatId, true);
+      
+      // Reset tool execution state
+      setIsInToolExecutionChain(false);
+      setIsExecutingTool(false);
+      
+      // Clear any thinking state
+      setThinking('');
+      
+      console.log("Conversation restarted successfully");
+    } catch (error) {
+      console.error("Error restarting conversation:", error);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+  
+  // Add an automatic recovery mechanism for stuck tool chains
+  useEffect(() => {
+    if (isInToolExecutionChain) {
+      // Set a timeout to auto-recover from stuck tool chains
+      const recoveryTimeout = setTimeout(() => {
+        if (isInToolExecutionChain) {
+          console.log("Tool execution chain possibly stuck, attempting auto-recovery");
+          restartConversation();
+        }
+      }, 30000); // 30 seconds timeout
+      
+      return () => clearTimeout(recoveryTimeout);
+    }
+  }, [isInToolExecutionChain, currentChatId]);
+  
+  // Also restart when changing chats
+  useEffect(() => {
+    if (currentChatId) {
+      restartConversation();
+    }
+  }, [currentChatId]);
 
   if (!isVisible) return null;
 
