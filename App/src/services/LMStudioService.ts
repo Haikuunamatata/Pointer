@@ -1,6 +1,7 @@
 import { cleanAIResponse } from '../utils/textUtils';
 import { Message } from '../types';
 import { AIFileService } from './AIFileService';
+import { ToolService } from './ToolService';
 
 interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
@@ -202,6 +203,54 @@ class LMStudioService {
       onUpdate
     } = options;
     
+    // Create a wrapper for onUpdate that will detect and parse function calls
+    const onUpdateWithFunctionCallDetection = (content: string) => {
+      // Try to detect function calls in the content
+      const detectedFunctionCall = this.detectFunctionCallInContent(content);
+      if (detectedFunctionCall) {
+        console.log('Detected function call in content update:', detectedFunctionCall);
+        
+        // Create a properly formatted function call
+        let functionName = detectedFunctionCall.name;
+        let functionArgs = detectedFunctionCall.arguments;
+        
+        // Fix common tool name issues (e.g., list_dir vs list_directory)
+        if (functionName === 'list_dir') {
+          functionName = 'list_directory';
+        }
+        
+        // Make sure arguments is a proper JSON string
+        if (typeof functionArgs === 'string') {
+          try {
+            // If it's already a valid JSON string, parse and stringify it to ensure proper format
+            const parsedArgs = JSON.parse(functionArgs);
+            functionArgs = JSON.stringify(parsedArgs);
+          } catch (e) {
+            // If it's not valid JSON, try to fix it
+            console.warn('Invalid JSON arguments:', functionArgs);
+            functionArgs = '{}';
+          }
+        } else if (typeof functionArgs === 'object') {
+          functionArgs = JSON.stringify(functionArgs);
+        } else {
+          functionArgs = '{}';
+        }
+        
+        // Create the formatted function call string
+        const formattedFunctionCall = `function_call: {"id":"tool-${Date.now()}","name":"${functionName}","arguments":${functionArgs}}`;
+        
+        // Update the content with the formatted function call
+        const contentWithFormattedCall = content.replace(/function_call\s*:\s*{[\s\S]*?}\s*$/, '').trim() + '\n\n' + formattedFunctionCall;
+        
+        // Call onUpdate with the new content
+        onUpdate(contentWithFormattedCall);
+        return;
+      }
+      
+      // If no function call detected, just call the original onUpdate
+      onUpdate(content);
+    };
+    
     try {
       // Get the endpoint based on provided purpose
       const modelConfig = await AIFileService.getModelConfigForPurpose(purpose);
@@ -227,66 +276,11 @@ class LMStudioService {
 
           console.log(`Trying endpoint: ${baseUrl}`);
 
-          // First attempt - include all messages
-          let trimmedMessages = messages.map(msg => {
-            // Don't trim system messages or tool messages
-            if (msg.role === 'system' || msg.role === 'tool') {
-              return {
-                role: msg.role,
-                content: msg.content,
-                ...(msg.tool_call_id && { tool_call_id: msg.tool_call_id })
-              };
-            }
-            
-            // Trim very long content only if necessary
-            const MAX_CONTENT_LENGTH = 10000; // Still generous but prevents extreme cases
-            const trimmedContent = typeof msg.content === 'string' && msg.content.length > MAX_CONTENT_LENGTH
-              ? msg.content.substring(0, MAX_CONTENT_LENGTH) + "... [content trimmed for size]"
-              : msg.content;
-              
-            return {
-              role: msg.role,
-              content: trimmedContent,
-              ...(msg.tool_call_id && { tool_call_id: msg.tool_call_id })
-            };
-          });
+          // Process messages to remove thinking tags and ensure consistent tool naming
+          let processedMessages = this.processMessages(messages);
           
-          // Check if payload is too large
-          const payloadEstimate = JSON.stringify(trimmedMessages).length;
-          const MAX_PAYLOAD_SIZE = 1024 * 1024; // 1MB max size
-          
-          if (payloadEstimate > MAX_PAYLOAD_SIZE) {
-            console.warn(`Payload too large (${payloadEstimate} bytes), reducing message count`);
-            
-            // First, ensure we keep all system messages and tool messages
-            const systemAndToolMessages = trimmedMessages.filter(
-              msg => msg.role === 'system' || msg.role === 'tool'
-            );
-            
-            // Keep user and assistant messages but limit their quantity
-            const otherMessages = trimmedMessages.filter(
-              msg => msg.role !== 'system' && msg.role !== 'tool'
-            );
-            
-            // Keep some user/assistant messages from the start 
-            const startMessages = otherMessages.slice(0, 5);
-            
-            // And keep some from the end for recency
-            const endMessages = otherMessages.slice(-10);
-            
-            // Combine them
-            trimmedMessages = [
-              ...systemAndToolMessages,
-              ...startMessages,
-              {
-                role: 'system',
-                content: '... [Previous messages omitted for size] ...'
-              },
-              ...endMessages
-            ];
-            
-            console.log(`Reduced to ${trimmedMessages.length} messages`);
-          }
+          // Apply limits to prevent oversized payloads
+          let trimmedMessages = this.applyMessageLimits(processedMessages);
           
           const requestBody: any = {
             model,
@@ -301,30 +295,14 @@ class LMStudioService {
 
           // Add tools and tool_choice if provided
           if (tools && tools.length > 0) {
-            requestBody.tools = tools;
+            requestBody.tools = this.processToolDefinitions(tools);
             if (tool_choice) {
               requestBody.tool_choice = tool_choice;
             }
           }
 
-          // Enhanced debug logging
-          console.log('Final API request payload:', JSON.stringify({
-            ...requestBody,
-            messages: requestBody.messages.map((m: any, i: number) => ({
-              index: i,
-              role: m.role,
-              tool_call_id: m.tool_call_id || undefined,
-              content_preview: typeof m.content === 'string' ? 
-                (m.content.length > 50 ? m.content.substring(0, 50) + '...' : m.content) : 
-                '[Non-string content]'
-            })),
-            tools: requestBody.tools ? `[${requestBody.tools.length} tools included]` : 'undefined',
-            tool_choice: requestBody.tool_choice || 'undefined',
-            model: requestBody.model,
-            endpoint: `${baseUrl}/chat/completions`,
-            temperature: requestBody.temperature,
-            stream: requestBody.stream
-          }, null, 2));
+          // Enhanced debug logging with less verbosity
+          this.logApiRequest(baseUrl, requestBody);
 
           const response = await fetch(`${baseUrl}/chat/completions`, {
             method: 'POST',
@@ -341,181 +319,8 @@ class LMStudioService {
             throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
           }
 
-          const reader = response.body?.getReader();
-          if (!reader) {
-            throw new Error('Response body is null');
-          }
-
-          let buffer = '';
-          let accumulatedContent = '';  // Keep track of all content
-          let toolCallDetected = false;
-          let toolCallData = '';
-          let toolCallBuffer = ''; // Buffer for collecting tool call fragments
-          let completeFunctionCalls: Record<string, any> = {}; // Track complete function calls
-          let lastToolCallUpdateTime = Date.now();
-          let partialToolCall: any = null; // To accumulate partial tool calls
-          
-          // Restore the flushToolCall function to format tool calls for the client
-          const flushToolCall = (toolCall: any) => {
-            if (!toolCall || !toolCall.id || !toolCall.function) return;
-            
-            // Format the tool call data for the client
-            const formattedToolCall = `function_call: ${JSON.stringify({
-              id: toolCall.id,
-              name: toolCall.function.name || '',
-              arguments: toolCall.function.arguments || '{}'
-            })}`;
-            
-            // Add to accumulated content and notify client
-            accumulatedContent += formattedToolCall;
-            console.log("Flushing tool call to client:", formattedToolCall);
-            onUpdate(accumulatedContent);
-            
-            // Reset the partial tool call
-            partialToolCall = null;
-          };
-          
-          // Set up a periodic check for tool calls that may be stuck
-          const toolCallInterval = setInterval(() => {
-            const now = Date.now();
-            // If we have a partial tool call and it hasn't been updated in 2 seconds, flush it
-            if (partialToolCall && (now - lastToolCallUpdateTime > 2000)) {
-              console.log("Timeout - flushing incomplete tool call:", partialToolCall);
-              flushToolCall(partialToolCall);
-              partialToolCall = null;
-            }
-          }, 500);
-          
-          try {
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) {
-                // When done, flush any remaining partial tool call
-                if (partialToolCall) {
-                  console.log("End of stream - flushing incomplete tool call:", partialToolCall);
-                  flushToolCall(partialToolCall);
-                }
-                break;
-              }
-
-              const chunk = new TextDecoder().decode(value);
-              buffer += chunk;
-
-              const lines = buffer.split('\n');
-              buffer = lines.pop() || '';
-
-              for (const line of lines) {
-                if (line.trim() === '' || line.trim() === 'data: [DONE]') continue;
-
-                try {
-                  if (!line.startsWith('data: ')) continue;
-                  const jsonData = line.replace(/^data: /, '');
-                  const data = JSON.parse(jsonData);
-                  
-                  // Log the data structure to debug the response format
-                  console.debug('Parsed data from streaming response:', data);
-                  
-                  // Check if data and choices exist
-                  if (!data || !data.choices || !data.choices.length) {
-                    console.debug('Response has no choices:', data);
-                    continue;
-                  }
-                  
-                  // Check for tool call in the response
-                  const content = data.choices[0]?.delta?.content || '';
-                  if (content) {
-                    // Regular content (not a tool call via choices.delta.tool_calls)
-                    accumulatedContent += content;
-                    onUpdate(accumulatedContent);
-                  }
-                  
-                  // Check if there's a tool_call in the choices object directly
-                  // Add additional safety checks
-                  const deltaObj = data.choices[0]?.delta;
-                  if (!deltaObj) {
-                    console.debug('No delta object in response');
-                    continue;
-                  }
-                  
-                  const toolCalls = deltaObj.tool_calls;
-                  if (!toolCalls || !toolCalls.length) {
-                    // No tool calls in this delta, continue
-                    continue;
-                  }
-                  
-                  const toolCallDelta = toolCalls[0];
-                  if (toolCallDelta) {
-                    lastToolCallUpdateTime = Date.now();
-                    
-                    // Initialize partial tool call if needed
-                    if (!partialToolCall) {
-                      partialToolCall = {
-                        id: toolCallDelta.id || `tool-call-${Date.now()}`,
-                        type: toolCallDelta.type || 'function',
-                        function: {
-                          name: '',
-                          arguments: ''
-                        }
-                      };
-                    }
-                    
-                    // Make sure the function property exists
-                    if (!toolCallDelta.function) {
-                      console.debug('Tool call delta has no function property:', toolCallDelta);
-                      continue;
-                    }
-                    
-                    // Update the ID if it's now available
-                    if (toolCallDelta.id && !partialToolCall.id) {
-                      partialToolCall.id = toolCallDelta.id;
-                    }
-                    
-                    // Update function name if present in this delta
-                    if (toolCallDelta.function?.name) {
-                      partialToolCall.function.name = 
-                        (partialToolCall.function.name || '') + toolCallDelta.function.name;
-                    }
-                    
-                    // Update function arguments if present in this delta
-                    if (toolCallDelta.function?.arguments) {
-                      partialToolCall.function.arguments = 
-                        (partialToolCall.function.arguments || '') + toolCallDelta.function.arguments;
-                    }
-                    
-                    // Check if we have a complete function call
-                    const isComplete = partialToolCall.id && 
-                                      partialToolCall.function.name && 
-                                      partialToolCall.function.arguments;
-                    
-                    if (isComplete) {
-                      // Try to parse the arguments to verify they're valid JSON
-                      try {
-                        JSON.parse(partialToolCall.function.arguments);
-                        flushToolCall(partialToolCall);
-                      } catch (e) {
-                        // If arguments are not valid JSON, wait for more data
-                        console.log("Waiting for complete tool call arguments");
-                      }
-                    }
-                  }
-                } catch (error) {
-                  console.error('Error processing line:', error);
-                  // If we have a partial tool call and hit an error, flush it
-                  if (partialToolCall) {
-                    console.log("Error encountered - flushing incomplete tool call:", partialToolCall);
-                    flushToolCall(partialToolCall);
-                  }
-                }
-              }
-            }
-          } finally {
-            clearInterval(toolCallInterval);
-            // Ensure any remaining partial tool call is flushed
-            if (partialToolCall) {
-              console.log("Stream ended - flushing final tool call:", partialToolCall);
-              flushToolCall(partialToolCall);
-            }
-          }
+          // Process the streaming response
+          await this.processStreamingResponse(response, onUpdateWithFunctionCallDetection);
           
           // If we get here, the request succeeded, so we can return
           return;
@@ -535,6 +340,794 @@ class LMStudioService {
     } catch (error) {
       console.error('Error in createStreamingChatCompletion:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Validates and fixes tool call parameters based on the tool name
+   */
+  private validateAndFixToolCallParameters(toolCall: any): any {
+    if (!toolCall || !toolCall.function) return toolCall;
+    
+    const toolName = toolCall.function.name || '';
+    let params: any = {};
+    
+    // Parse arguments
+    try {
+      // Handle arguments as string or object
+      if (typeof toolCall.function.arguments === 'string') {
+        // Try to fix common issues with JSON string arguments
+        let argsStr = toolCall.function.arguments.trim();
+        
+        // Handle escaped quotes in arguments
+        argsStr = argsStr
+          .replace(/\\"/g, '"')  // Replace escaped quotes with actual quotes
+          .replace(/\\\\"/g, '\\"'); // Fix double escaped quotes
+        
+        // Handle unquoted property names
+        argsStr = argsStr.replace(/([{,]\s*)([a-zA-Z0-9_]+)(\s*:)/g, '$1"$2"$3');
+        
+        console.log(`Processed arguments string: ${argsStr}`);
+        
+        // Try parsing the fixed arguments string
+        try {
+          params = JSON.parse(argsStr);
+          console.log('Successfully parsed arguments:', params);
+        } catch (parseError) {
+          // If parsing still fails, try a simpler approach with fixed keys
+          console.warn('Failed to parse arguments JSON, using fallbacks:', parseError);
+          
+          // Handle specific tool arguments
+          if (toolName === 'list_directory' || toolName === 'list_dir') {
+            const dirMatch = argsStr.match(/"?directory_path"?\s*:\s*"([^"]+)"/);
+            if (dirMatch && dirMatch[1]) {
+              params = { directory_path: dirMatch[1] };
+            } else {
+              params = { directory_path: '.' }; // Default to current directory
+            }
+          } else if (toolName === 'read_file') {
+            const fileMatch = argsStr.match(/"?target_file"?\s*:\s*"([^"]+)"/);
+            if (fileMatch && fileMatch[1]) {
+              params = { target_file: fileMatch[1] };
+            } else {
+              params = {}; // Empty params for read_file
+            }
+          } else {
+            params = {}; // Default empty params
+          }
+        }
+      } else {
+        // Arguments is already an object
+        params = toolCall.function.arguments || {};
+      }
+    } catch (e) {
+      console.warn('Failed to parse tool arguments:', e);
+      params = {};
+    }
+    
+    console.log(`Tool parameters before fixing: ${JSON.stringify(params)}`);
+    
+    // Fix parameters based on tool name
+    let fixedParams = {...params};
+    let fixedToolName = toolName;
+    
+    // Check for parameter mismatches and fix them
+    if (toolName === 'read_file' && params.directory_path && !params.target_file) {
+      // If read_file is used with directory_path, it's likely meant to be list_directory
+      console.log('Detected parameter mismatch: read_file with directory_path');
+      fixedToolName = 'list_directory';
+    } else if (toolName === 'list_dir' || toolName === 'list_directory') {
+      // Make sure list_directory uses directory_path
+      if (params.relative_workspace_path && !params.directory_path) {
+        fixedParams.directory_path = params.relative_workspace_path;
+        delete fixedParams.relative_workspace_path;
+      }
+      
+      // Ensure directory_path has a value (default to '.' if missing)
+      if (!fixedParams.directory_path) {
+        fixedParams.directory_path = '.';
+      }
+      
+      // Always use list_directory on the backend
+      fixedToolName = 'list_directory';
+      console.log('Fixed tool name to list_directory');
+    } else if (toolName === 'read_file') {
+      // Make sure read_file uses target_file
+      if (params.directory_path && !params.target_file) {
+        fixedParams.target_file = params.directory_path;
+        delete fixedParams.directory_path;
+      }
+      
+      // Also handle file_path parameter
+      if (params.file_path && !params.target_file) {
+        fixedParams.target_file = params.file_path;
+        delete fixedParams.file_path;
+      }
+      
+      // Ensure target_file exists
+      if (!fixedParams.target_file) {
+        console.warn('No target_file parameter for read_file');
+      }
+    }
+    
+    console.log(`Tool parameters after fixing: ${JSON.stringify(fixedParams)}`);
+    
+    // Update the tool call with fixed parameters
+    return {
+      ...toolCall,
+      function: {
+        ...toolCall.function,
+        name: fixedToolName,
+        arguments: JSON.stringify(fixedParams)
+      }
+    };
+  }
+
+  /**
+   * Process messages to clean up thinking tags and ensure consistent tool naming
+   */
+  private processMessages(messages: Message[]): Message[] {
+    // Log the messages being processed to help diagnose issues
+    console.log(`Processing ${messages.length} messages for tool calls`);
+    
+    // Try to extract function calls with multiple patterns
+    const detectFunctionCalls = (content: string): string[] => {
+      const patterns = [
+        // Standard pattern
+        /function_call\s*:\s*({[\s\S]*?})(?:\s*$|\s*\n)/g,
+        // Tool format pattern
+        /<function_calls>[\s\S]*?<\/antml:function_calls>/g,
+        // More lenient pattern
+        /function_call[^{]*({.*})/g,
+        // Claude format pattern
+        /<invoke[^>]*>[\s\S]*?<\/antml:invoke>/g,
+      ];
+      
+      for (const pattern of patterns) {
+        const matches = content.match(pattern);
+        if (matches && matches.length > 0) {
+          console.log(`Found ${matches.length} function calls with pattern ${pattern}`);
+          return matches;
+        }
+      }
+      return [];
+    };
+
+    let toolCallCount = 0;
+    
+    // First, log all messages to diagnose the issue
+    messages.forEach((msg, index) => {
+      console.log(`Message ${index}: role=${msg.role}, length=${typeof msg.content === 'string' ? msg.content.length : 'non-string'}`);
+      if (msg.role === 'tool' && msg.tool_call_id) {
+        console.log(`  Tool response to call ID: ${msg.tool_call_id}`);
+      }
+    });
+    
+    // Now process the messages
+    const processedMessages = messages.map(msg => {
+      // Skip processing for non-assistant messages
+      if (msg.role !== 'assistant') {
+        return msg;
+      }
+      
+      // Special handling for assistant messages that might contain thinking tags and function calls
+      if (typeof msg.content === 'string') {
+        const originalContent = msg.content;
+        console.log(`Processing assistant message (${msg.content.length} chars):`);
+        console.log(originalContent.substring(0, Math.min(500, originalContent.length)));
+        
+        // First, extract any function calls BEFORE removing thinking tags to preserve them
+        // Try multiple detection patterns
+        const functionCallMatches = detectFunctionCalls(originalContent);
+        let functionCallData = null;
+        
+        if (functionCallMatches && functionCallMatches.length > 0) {
+          toolCallCount += functionCallMatches.length;
+          console.log(`Found ${functionCallMatches.length} function calls in message`);
+          functionCallMatches.forEach((match, index) => {
+            console.log(`Function call ${index+1}:`, match.substring(0, 100) + (match.length > 100 ? '...' : ''));
+          });
+          
+          // Extract the last function call (most recent)
+          const lastFunctionCall = functionCallMatches[functionCallMatches.length - 1];
+          const jsonPart = lastFunctionCall.replace(/^function_call\s*:\s*/, '');
+          
+          console.log(`Found function call: ${jsonPart}`);
+          
+          try {
+            // Try to parse the function call to validate it's proper JSON
+            functionCallData = JSON.parse(jsonPart);
+            console.log('Successfully parsed function call:', functionCallData);
+            
+            // If arguments is a string (which it often is), parse it too
+            if (typeof functionCallData.arguments === 'string') {
+              try {
+                // Replace escaped quotes in arguments
+                const fixedArgs = functionCallData.arguments
+                  .replace(/\\"/g, '"')  // Replace escaped quotes
+                  .replace(/\\\\"/g, '\\"'); // Fix double escaped quotes
+                
+                functionCallData.arguments = fixedArgs;
+                console.log('Processed arguments:', fixedArgs);
+              } catch (e) {
+                console.warn('Could not process arguments string:', e);
+              }
+            }
+          } catch (e) {
+            console.warn('Failed to parse function call, will attempt repair:', e);
+            
+            // Try to repair the JSON
+            try {
+              // Handle escaped quotes in JSON
+              const fixedJson = jsonPart
+                .replace(/\\"/g, '"')  // Replace escaped quotes
+                .replace(/\\\\"/g, '\\"'); // Fix double escaped quotes
+              
+              functionCallData = JSON.parse(fixedJson);
+              console.log('Successfully repaired and parsed function call:', functionCallData);
+            } catch (fixError) {
+              console.error('Failed to repair JSON:', fixError);
+              // Don't lose the original text even if we can't parse it
+              functionCallData = jsonPart;
+            }
+          }
+        } else {
+          console.log('No function calls found with regex in this message');
+          // Try a more lenient pattern as a backup
+          const altRegex = /function_call[^{]*({.*})/;
+          const altMatch = originalContent.match(altRegex);
+          if (altMatch && altMatch[1]) {
+            console.log('Found function call with alternate regex:', altMatch[1].substring(0, 100));
+            toolCallCount += 1;
+            
+            // Try to parse this match too
+            try {
+              functionCallData = JSON.parse(altMatch[1]);
+              console.log('Successfully parsed function call from alternate regex');
+            } catch (e) {
+              console.warn('Failed to parse alternate function call:', e);
+              functionCallData = altMatch[1]; // Use the raw string
+            }
+          }
+        }
+        
+        // Remove all thinking tags and their content
+        let cleanedContent = originalContent.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+        
+        // Remove any incomplete thinking tags
+        if (cleanedContent.includes('<think>')) {
+          const startIndex = cleanedContent.indexOf('<think>');
+          const endIndex = cleanedContent.indexOf('</think>', startIndex);
+          
+          if (endIndex !== -1) {
+            // Remove everything between <think> and </think>
+            cleanedContent = cleanedContent.substring(0, startIndex) + 
+                            cleanedContent.substring(endIndex + 8); // 8 is length of '</think>'
+          } else {
+            // If opening tag without closing tag, remove everything from opening tag onwards
+            cleanedContent = cleanedContent.substring(0, startIndex).trim();
+          }
+        }
+        
+        // Remove any stray </think> tags
+        cleanedContent = cleanedContent.replace(/<\/think>/g, '').trim();
+        
+        // Now add the function call back if it was present but was removed during cleanup
+        if (functionCallData && !cleanedContent.includes('function_call:')) {
+          console.log('Function call was removed during thinking tag cleanup, adding it back');
+          
+          // Format the function call properly
+          let functionCallStr = '';
+          if (typeof functionCallData === 'string') {
+            // Handle the case where we couldn't parse it as JSON
+            functionCallStr = `function_call: ${functionCallData}`;
+          } else {
+            // Properly formatted JSON object - validate and fix parameters
+            const validatedCall = this.validateAndFixToolCallParameters({
+              id: functionCallData.id || `function-call-${Date.now()}`,
+              function: {
+                name: functionCallData.name || '',
+                arguments: functionCallData.arguments || '{}'
+              }
+            });
+            
+            functionCallStr = `function_call: ${JSON.stringify({
+              id: validatedCall.id,
+              name: validatedCall.function.name,
+              arguments: validatedCall.function.arguments
+            })}`;
+          }
+          
+          cleanedContent = cleanedContent 
+            ? `${cleanedContent}\n\n${functionCallStr}` 
+            : functionCallStr;
+          
+          console.log(`Added function call back to content: ${functionCallStr}`);
+        }
+        
+        // Return the processed message
+        return {
+          role: 'assistant',
+          content: cleanedContent,
+          ...(msg.tool_call_id && { tool_call_id: msg.tool_call_id })
+        };
+      }
+      
+      return msg;
+    }).map(msg => {
+      // Now handle tool message renaming in a separate pass
+      if (msg.role === 'tool' && typeof msg.content === 'string') {
+        // Ensure all tool results use consistent naming
+        const backendToFrontendMap: { [key: string]: string } = {
+          'list_directory': 'list_dir',
+          'read_file': 'read_file',
+          'web_search': 'web_search',
+          'fetch_webpage': 'fetch_webpage'
+        };
+        
+        // Extract tool name from content
+        const toolNameMatch = msg.content.match(/Tool ([a-z_]+) result:/);
+        if (toolNameMatch && toolNameMatch[1]) {
+          const backendToolName = toolNameMatch[1];
+          const frontendToolName = backendToFrontendMap[backendToolName] || backendToolName;
+          
+          console.log(`Converting tool name in response from ${backendToolName} to ${frontendToolName}`);
+          
+          return {
+            ...msg,
+            content: msg.content.replace(
+              `Tool ${backendToolName} result:`, 
+              `Tool ${frontendToolName} result:`
+            )
+          };
+        }
+      }
+      
+      return msg;
+    }) as Message[]; // Add the type assertion to fix type error
+
+    console.log(`Processed ${messages.length} messages with ${toolCallCount} tool calls detected`);
+    return processedMessages;
+  }
+  
+  /**
+   * Apply size limits to messages to prevent oversized payloads
+   */
+  private applyMessageLimits(messages: Message[]): Message[] {
+    // Check if payload is too large
+    const payloadEstimate = JSON.stringify(messages).length;
+    const MAX_PAYLOAD_SIZE = 1024 * 1024; // 1MB max size
+    
+    if (payloadEstimate <= MAX_PAYLOAD_SIZE) {
+      return messages;
+    }
+    
+    console.warn(`Payload too large (${payloadEstimate} bytes), reducing message count`);
+    
+    // First, ensure we keep all system messages and tool messages
+    const systemMessages = messages.filter(msg => msg.role === 'system');
+    const toolMessages = messages.filter(msg => msg.role === 'tool');
+    
+    // Keep user and assistant messages but limit their quantity
+    const otherMessages = messages.filter(
+      msg => msg.role !== 'system' && msg.role !== 'tool'
+    );
+    
+    // Keep some user/assistant messages from the start 
+    const startMessages = otherMessages.slice(0, 5);
+    
+    // And keep some from the end for recency
+    const endMessages = otherMessages.slice(-10);
+    
+    // Combine them - ensure tool messages are included
+    return [
+      ...systemMessages,
+      ...startMessages,
+      {
+        role: 'system',
+        content: '... [Previous messages omitted for size] ...'
+      },
+      ...toolMessages, // Ensure tool messages are included
+      ...endMessages
+    ];
+  }
+  
+  /**
+   * Process tool definitions to ensure consistent naming
+   */
+  private processToolDefinitions(tools: any[]): any[] {
+    // Define mapping from frontend to backend names
+    const frontendToBackendMap: { [key: string]: string } = {
+      'list_dir': 'list_directory',
+      'read_file': 'read_file',
+      'web_search': 'web_search',
+      'fetch_webpage': 'fetch_webpage'
+    };
+    
+    // Log the tools before processing
+    console.log(`Processing ${tools.length} tool definitions`);
+    tools.forEach((tool, index) => {
+      if (tool.function && tool.function.name) {
+        console.log(`Tool ${index}: ${tool.function.name}`);
+      }
+    });
+    
+    return tools.map(tool => {
+      if (tool.function && tool.function.name) {
+        // Get frontend-compatible tool name
+        const frontendName = tool.function.name;
+        const backendName = frontendToBackendMap[frontendName] || frontendName;
+        
+        if (frontendName !== backendName) {
+          console.log(`Mapping tool name from ${frontendName} to ${backendName}`);
+        }
+        
+        return {
+          ...tool,
+          function: {
+            ...tool.function,
+            name: backendName
+          }
+        };
+      }
+      return tool;
+    });
+  }
+  
+  /**
+   * Log API request with limited verbosity
+   */
+  private logApiRequest(baseUrl: string, requestBody: any): void {
+    console.log('Final API request payload:', JSON.stringify({
+      ...requestBody,
+      messages: requestBody.messages.map((m: any, i: number) => ({
+        index: i,
+        role: m.role,
+        tool_call_id: m.tool_call_id || undefined,
+        content_preview: typeof m.content === 'string' ? 
+          (m.content.length > 50 ? m.content.substring(0, 50) + '...' : m.content) : 
+          '[Non-string content]'
+      })),
+      tools: requestBody.tools ? `[${requestBody.tools.length} tools included]` : 'undefined',
+      tool_choice: requestBody.tool_choice || 'undefined',
+      model: requestBody.model,
+      endpoint: `${baseUrl}/chat/completions`,
+      temperature: requestBody.temperature,
+      stream: requestBody.stream
+    }, null, 2));
+  }
+  
+  /**
+   * Process the streaming response from API
+   */
+  private async processStreamingResponse(response: Response, onUpdate: (content: string) => void): Promise<void> {
+    const reader = response.body?.getReader();
+    if (!reader) {
+      throw new Error('Response body is null');
+    }
+
+    let buffer = '';
+    let accumulatedContent = '';  // Keep track of all content
+    let lastToolCallUpdateTime = Date.now();
+    let partialToolCall: any = null; // To accumulate partial tool calls
+    let processingToolCall = false; // Flag to track if we're currently processing a tool call
+    
+    // Add detection for function call formats
+    const detectFunctionCallInText = (text: string): boolean => {
+      const patterns = [
+        /function_call\s*:/i,
+        /<function_calls>/i,
+        /<tool>/i,
+        /<invoke/i
+      ];
+      
+      return patterns.some(pattern => pattern.test(text));
+    };
+    
+    // Set up a periodic check for tool calls that may be stuck
+    const toolCallInterval = setInterval(() => {
+      const now = Date.now();
+      // If we have a partial tool call and it hasn't been updated in 1 second, flush it
+      if (partialToolCall && (now - lastToolCallUpdateTime > 1000)) {
+        console.log("Timeout - flushing incomplete tool call:", partialToolCall);
+        this.flushToolCall(partialToolCall, onUpdate, accumulatedContent);
+        partialToolCall = null;
+      }
+    }, 500);
+    
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          // When done, flush any remaining partial tool call
+          if (partialToolCall) {
+            console.log("End of stream - flushing incomplete tool call:", partialToolCall);
+            this.flushToolCall(partialToolCall, onUpdate, accumulatedContent);
+          }
+          
+          // Check for function call markers in the accumulated content
+          if (!processingToolCall && detectFunctionCallInText(accumulatedContent)) {
+            console.log('End of stream - detected function call in accumulated content');
+            this.extractAndFlushFunctionCall(accumulatedContent, onUpdate);
+          }
+          break;
+        }
+
+        const chunk = new TextDecoder().decode(value);
+        buffer += chunk;
+
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.trim() === '' || line.trim() === 'data: [DONE]') continue;
+
+          try {
+            if (!line.startsWith('data: ')) continue;
+            const jsonData = line.replace(/^data: /, '');
+            const data = JSON.parse(jsonData);
+            
+            // Check if data and choices exist
+            if (!data || !data.choices || !data.choices.length) {
+              continue;
+            }
+            
+            // Check for regular content
+            const content = data.choices[0]?.delta?.content || '';
+            if (content) {
+              accumulatedContent += content;
+              onUpdate(accumulatedContent);
+            }
+            
+            // Check for tool calls in delta
+            const deltaObj = data.choices[0]?.delta;
+            if (!deltaObj) continue;
+            
+            const toolCalls = deltaObj.tool_calls;
+            if (toolCalls && toolCalls.length > 0) {
+              // Process tool call delta
+              lastToolCallUpdateTime = Date.now(); // Update timestamp before processing
+              this.processToolCallDelta(toolCalls[0], partialToolCall, accumulatedContent, this.flushToolCall, onUpdate);
+              
+              // Update reference to the partial tool call for next iteration
+              if (partialToolCall === null) {
+                partialToolCall = {
+                  id: toolCalls[0].id || `tool-call-${Date.now()}`,
+                  type: toolCalls[0].type || 'function',
+                  function: {
+                    name: '',
+                    arguments: ''
+                  }
+                };
+              }
+            }
+          } catch (error) {
+            console.error('Error processing line:', error);
+          }
+        }
+        
+        // After processing all lines, check for function calls in the accumulated content
+        if (!processingToolCall && !partialToolCall && detectFunctionCallInText(accumulatedContent)) {
+          processingToolCall = true;
+          console.log('Detected function call marker in accumulated content');
+          const extracted = this.extractAndFlushFunctionCall(accumulatedContent, onUpdate);
+          if (extracted) {
+            processingToolCall = false;
+          }
+        }
+      }
+    } finally {
+      clearInterval(toolCallInterval);
+    }
+  }
+  
+  /**
+   * Extract and flush function calls found in text content
+   */
+  private extractAndFlushFunctionCall(content: string, onUpdate: (content: string) => void): boolean {
+    // Try different patterns to extract function call
+    const patterns = [
+      {
+        pattern: /function_call\s*:\s*({[\s\S]*?})(?:\s*$|\s*\n)/,
+        extractor: (match: RegExpMatchArray) => {
+          try {
+            const data = JSON.parse(match[1]);
+            return {
+              id: data.id || `function-call-${Date.now()}`,
+              type: 'function',
+              function: {
+                name: data.name,
+                arguments: data.arguments || '{}'
+              }
+            };
+          } catch (e) {
+            console.warn('Failed to parse function call:', e);
+            return null;
+          }
+        }
+      },
+      {
+        pattern: /function_call\s*:\s*\{.*?"name"\s*:\s*"([^"]+)".*?"arguments"\s*:\s*"([^"]+)"/s,
+        extractor: (match: RegExpMatchArray) => ({
+          id: `function-call-${Date.now()}`,
+          type: 'function',
+          function: {
+            name: match[1],
+            arguments: match[2].replace(/\\"/g, '"') || '{}'
+          }
+        })
+      }
+    ];
+    
+    for (const {pattern, extractor} of patterns) {
+      const match = content.match(pattern);
+      if (match) {
+        console.log(`Found function call with pattern ${pattern}:`, match[0]);
+        const toolCall = extractor(match);
+        if (toolCall) {
+          console.log('Extracted tool call:', toolCall);
+          this.flushToolCall(toolCall, onUpdate, content);
+          return true;
+        }
+      }
+    }
+    
+    return false;
+  }
+
+  /**
+   * Process a single tool call delta from the API
+   */
+  private processToolCallDelta(
+    toolCallDelta: any, 
+    partialToolCall: any, 
+    accumulatedContent: string,
+    flushCallback: (toolCall: any, onUpdate: (content: string) => void, accumulatedContent: string) => void,
+    onUpdate: (content: string) => void
+  ): void {
+    if (!toolCallDelta) return;
+    
+    // Initialize partial tool call if needed
+    if (!partialToolCall) {
+      partialToolCall = {
+        id: toolCallDelta.id || `tool-call-${Date.now()}`,
+        type: toolCallDelta.type || 'function',
+        function: {
+          name: '',
+          arguments: ''
+        }
+      };
+    }
+    
+    // Update the ID if it's now available
+    if (toolCallDelta.id && !partialToolCall.id) {
+      partialToolCall.id = toolCallDelta.id;
+    }
+    
+    // Handle function property - it might be missing in some deltas
+    if (toolCallDelta.function) {
+      // Update function name if present in this delta
+      if (toolCallDelta.function.name) {
+        partialToolCall.function.name = 
+          (partialToolCall.function.name || '') + toolCallDelta.function.name;
+      }
+      
+      // Update function arguments if present in this delta
+      if (toolCallDelta.function.arguments) {
+        partialToolCall.function.arguments = 
+          (partialToolCall.function.arguments || '') + toolCallDelta.function.arguments;
+      }
+    }
+    
+    // Check if the ID contains a tool name we can extract (like 'list_directory')
+    if (!partialToolCall.function.name && partialToolCall.id) {
+      if (partialToolCall.id.includes('list_directory')) {
+        partialToolCall.function.name = 'list_directory';
+      } else if (partialToolCall.id.includes('read_file')) {
+        partialToolCall.function.name = 'read_file';
+      }
+    }
+    
+    // Log progress
+    console.log(`Tool call progress: ID=${partialToolCall.id}, Name=${partialToolCall.function.name || "pending"}, Args=${partialToolCall.function.arguments?.length || 0} chars`);
+    
+    // Check if we have a complete function call with valid JSON arguments
+    const hasValidName = !!partialToolCall.function.name && partialToolCall.function.name !== 'pending';
+    const hasCompleteArgs = partialToolCall.function.arguments && 
+                          partialToolCall.function.arguments.startsWith('{') && 
+                          partialToolCall.function.arguments.endsWith('}');
+    
+    // Determine if we should flush the tool call
+    const shouldFlush = partialToolCall.id && hasValidName && hasCompleteArgs;
+    
+    if (shouldFlush) {
+      try {
+        // Try to validate the arguments as JSON
+        JSON.parse(partialToolCall.function.arguments);
+        
+        console.log('Flushing complete tool call:', {
+          id: partialToolCall.id,
+          name: partialToolCall.function.name,
+          argsLength: partialToolCall.function.arguments.length
+        });
+        
+        // Call the callback with the complete tool call
+        flushCallback(partialToolCall, onUpdate, accumulatedContent);
+      } catch (error: any) {
+        // Arguments are not valid JSON yet
+        console.log(`Arguments not valid JSON yet: ${error.message}`);
+        
+        // If arguments look complete but have JSON errors, try to fix them
+        if (hasCompleteArgs) {
+          try {
+            const fixedArgs = this.attemptToFixJsonString(partialToolCall.function.arguments);
+            partialToolCall.function.arguments = fixedArgs;
+            
+            // Check if our fix worked
+            JSON.parse(fixedArgs);
+            console.log('Fixed JSON arguments, flushing tool call');
+            flushCallback(partialToolCall, onUpdate, accumulatedContent);
+          } catch {
+            // If arguments are still not valid JSON, wait for more data
+            console.log("Waiting for complete tool call arguments");
+          }
+        }
+      }
+    }
+  }
+  
+  /**
+   * Attempts to fix common JSON formatting issues in tool call arguments
+   */
+  private attemptToFixJsonString(jsonString: string): string {
+    // Don't try to fix empty strings
+    if (!jsonString || !jsonString.trim()) {
+      return '{}';
+    }
+    
+    try {
+      // If it's already valid JSON, return it
+      JSON.parse(jsonString);
+      return jsonString;
+    } catch (error) {
+      console.log('Attempting to fix malformed JSON:', jsonString);
+      
+      let fixedJson = jsonString;
+      
+      // Fix common issues:
+      
+      // 1. Missing closing quotes on property names
+      fixedJson = fixedJson.replace(/([{,]\s*)([a-zA-Z0-9_]+)(\s*:)/g, '$1"$2"$3');
+      
+      // 2. Missing quotes around string values
+      fixedJson = fixedJson.replace(/:\s*([a-zA-Z0-9_\/\.\-]+)(\s*[,}])/g, ': "$1"$2');
+      
+      // 3. Replace single quotes with double quotes
+      fixedJson = fixedJson.replace(/'/g, '"');
+      
+      // 4. Fix any trailing commas in objects
+      fixedJson = fixedJson.replace(/,\s*}/g, '}');
+      
+      // 5. Fix any trailing commas in arrays
+      fixedJson = fixedJson.replace(/,\s*\]/g, ']');
+      
+      // 6. Make sure object has opening and closing braces
+      if (!fixedJson.trim().startsWith('{')) {
+        fixedJson = '{' + fixedJson;
+      }
+      if (!fixedJson.trim().endsWith('}')) {
+        fixedJson = fixedJson + '}';
+      }
+      
+      // 7. Check if we need quotes around the entire thing
+      if (fixedJson.includes('{') && !fixedJson.trim().startsWith('{')) {
+        // Extract just the JSON part
+        const jsonPart = fixedJson.substring(fixedJson.indexOf('{'));
+        return jsonPart;
+      }
+      
+      console.log('Fixed JSON:', fixedJson);
+      return fixedJson;
     }
   }
 
@@ -604,6 +1197,179 @@ class LMStudioService {
       // If parsing fails, it's not a complete call
       return false;
     }
+  }
+
+  private mapToolName(name: string, direction: 'frontend' | 'backend' | 'storage'): string {
+    // Use the centralized mapping function from ToolService
+    if (direction === 'frontend') {
+      return ToolService.mapToolName(name, 'to_frontend');
+    } else if (direction === 'backend') {
+      return ToolService.mapToolName(name, 'to_backend');
+    } else {
+      // For storage, use the frontend name as that's what we use in the UI
+      return ToolService.mapToolName(name, 'to_frontend');
+    }
+  }
+
+  /**
+   * Format and flush a complete tool call
+   */
+  private flushToolCall(toolCall: any, onUpdate: (content: string) => void, accumulatedContent: string): void {
+    if (!toolCall || !toolCall.id) return;
+    
+    try {
+      console.log('Raw tool call to flush:', JSON.stringify(toolCall));
+      
+      // If the function property doesn't exist or is incomplete, initialize it
+      if (!toolCall.function) {
+        toolCall.function = { name: '', arguments: '{}' };
+      }
+      
+      // Ensure we have a valid function name - use the ID's tool name if available
+      if (!toolCall.function.name && toolCall.id.includes('list_directory')) {
+        toolCall.function.name = 'list_directory';
+      } else if (!toolCall.function.name && toolCall.id.includes('read_file')) {
+        toolCall.function.name = 'read_file';
+      } else if (!toolCall.function.name) {
+        // Extract tool name from the ID if possible
+        const idParts = toolCall.id.split('-');
+        if (idParts.length > 1 && idParts[0] !== 'tool') {
+          toolCall.function.name = idParts[0];
+        } else {
+          console.warn('No tool name found in ID, using default');
+          toolCall.function.name = 'list_dir'; // Default to list_dir as fallback
+        }
+      }
+      
+      // Check for tool name in the arguments if it's a string
+      if (toolCall.function.name === '' && typeof toolCall.function.arguments === 'string') {
+        const argStr = toolCall.function.arguments;
+        if (argStr.includes('directory_path') || argStr.includes('relative_workspace_path')) {
+          toolCall.function.name = 'list_dir';
+        } else if (argStr.includes('target_file')) {
+          toolCall.function.name = 'read_file';
+        }
+      }
+      
+      // Ensure we have valid arguments
+      if (!toolCall.function.arguments) {
+        toolCall.function.arguments = '{}';
+      }
+      
+      // Try to parse and validate the arguments
+      try {
+        JSON.parse(toolCall.function.arguments);
+      } catch (e) {
+        console.warn('Arguments are not valid JSON, attempting to fix', e);
+        toolCall.function.arguments = this.attemptToFixJsonString(toolCall.function.arguments);
+      }
+      
+      // Validate and fix tool parameters
+      const validatedToolCall = this.validateAndFixToolCallParameters(toolCall);
+      
+      // Get the consistent storage tool name
+      const backendToolName = validatedToolCall.function.name || '';
+      const storageToolName = this.mapToolName(backendToolName, 'storage');
+      
+      // Log the tool call
+      console.log('FLUSHING COMPLETE TOOL CALL:', {
+        id: validatedToolCall.id,
+        name: storageToolName,
+        args: validatedToolCall.function.arguments
+      });
+      
+      // Format the tool call data for the client
+      const formattedToolCall = `function_call: ${JSON.stringify({
+        id: validatedToolCall.id,
+        name: storageToolName,
+        arguments: validatedToolCall.function.arguments || '{}'
+      })}`;
+      
+      // Clear any existing function call in the accumulated content
+      let updatedAccumulatedContent = accumulatedContent;
+      if (updatedAccumulatedContent.includes('function_call:')) {
+        const functionCallIndex = updatedAccumulatedContent.indexOf('function_call:');
+        updatedAccumulatedContent = updatedAccumulatedContent.substring(0, functionCallIndex).trim();
+      }
+      
+      // Add the formatted tool call
+      const updatedContent = updatedAccumulatedContent
+        ? `${updatedAccumulatedContent}\n\n${formattedToolCall}`
+        : formattedToolCall;
+        
+      // Update client with the new content
+      console.log('Sending tool call to client:', formattedToolCall);
+      onUpdate(updatedContent);
+    } catch (e) {
+      console.error('Error formatting tool call:', e);
+      // Try simple recovery - Define backendToolName in case it wasn't set in try block
+      const safeToolName = toolCall.function?.name || 'list_dir';
+      const safeToolCall = `function_call: {"id":"${toolCall.id || 'unknown'}","name":"${safeToolName}","arguments":"{}"}`;
+      const updatedContent = `${accumulatedContent}\n\n${safeToolCall}`;
+      onUpdate(updatedContent);
+    }
+  }
+
+  /**
+   * Detects and extracts function calls from content
+   */
+  private detectFunctionCallInContent(content: string): any | null {
+    // Various patterns to match function calls
+    const functionCallPatterns = [
+      // Standard function_call pattern
+      /function_call\s*:\s*({[\s\S]*?})\s*$/m,
+      
+      // Another common variant
+      /function_call\s*=\s*({[\s\S]*?})\s*$/m,
+      
+      // Variant with name and arguments directly
+      /function_call\s*:\s*\{\s*"name"\s*:\s*"([^"]+)"\s*,\s*"arguments"\s*:\s*({[\s\S]*?})\s*\}\s*$/m,
+      
+      // Specific pattern for list_dir function
+      /function_call\s*:\s*\{\s*(?:"id"\s*:\s*"[^"]*"\s*,\s*)?"name"\s*:\s*"(list_dir(?:ectory)?)"(?:.*?)"arguments"\s*:\s*({[\s\S]*?})\s*\}/m,
+      
+      // Specific pattern for read_file function
+      /function_call\s*:\s*\{\s*(?:"id"\s*:\s*"[^"]*"\s*,\s*)?"name"\s*:\s*"(read_file)"(?:.*?)"arguments"\s*:\s*({[\s\S]*?})\s*\}/m
+    ];
+    
+    // Log the content to help with debugging
+    console.log('Checking for function calls in content:', content.substring(Math.max(0, content.length - 300)));
+    
+    // Try each pattern
+    for (const pattern of functionCallPatterns) {
+      const match = content.match(pattern);
+      if (match) {
+        console.log(`Function call detected with pattern ${pattern}:`, match[1]);
+        
+        try {
+          // If it's the variant with name and arguments directly
+          if (match.length > 2 && pattern.source.includes('"name"')) {
+            return {
+              name: match[1],
+              arguments: match[2]
+            };
+          }
+          
+          // Otherwise, parse the entire JSON
+          const parsedCall = JSON.parse(match[1]);
+          return parsedCall;
+        } catch (error) {
+          console.warn('Error parsing function call:', error);
+          // Try to extract with a more lenient approach
+          const nameMatch = match[1].match(/"name"\s*:\s*"([^"]+)"/);
+          const argsMatch = match[1].match(/"arguments"\s*:\s*({[\s\S]*?})\s*[,}]/);
+          
+          if (nameMatch && argsMatch) {
+            return {
+              name: nameMatch[1],
+              arguments: argsMatch[1]
+            };
+          }
+        }
+      }
+    }
+    
+    return null;
   }
 }
 

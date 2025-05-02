@@ -60,18 +60,18 @@ const INITIAL_SYSTEM_MESSAGE: ExtendedMessage = {
   role: 'system',
   content: `You are a helpful AI coding assistant. Use these tools:
 
-read_file: function_call: {"name": "read_file","arguments": {"file_path": "path/to/file","should_read_entire_file": true,"start_line_one_indexed": 1,"end_line_one_indexed_inclusive": 200}}
+read_file (read a file's contents): function_call: {"name": "read_file","arguments": {"file_path": "path/to/file","should_read_entire_file": true,"start_line_one_indexed": 1,"end_line_one_indexed_inclusive": 200}}
 
-list_dir: function_call: {"name": "list_dir","arguments": {"relative_workspace_path": "path/to/directory"}}
+list_directory (list the contents of a directory): function_call: {"name": "list_directory","arguments": {"relative_workspace_path": "path/to/directory"}}
 
-grep_search: function_call: {"name": "grep_search","arguments": {"query": "search pattern","include_pattern": "*.ts","exclude_pattern": "node_modules"}}
+grep_search (search for a pattern in the workspace): function_call: {"name": "grep_search","arguments": {"query": "search pattern","include_pattern": "*.ts","exclude_pattern": "node_modules"}}
 
-web_search: function_call: {"name": "web_search","arguments": {"search_term": "your search query"}}
+web_search (search the web): function_call: {"name": "web_search","arguments": {"search_term": "your search query"}}
 
 Rules:
 1. Use exact function_call format shown above
 2. Never guess about code - verify with tools
-3. Start with list_dir for new codebases
+3. Start with list_directory for new codebases
 4. Chain tools when needed
 5. Complete all responses fully`,
   attachments: undefined
@@ -3143,7 +3143,7 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
       // Add a special system message to ensure continuation
       const continuationPrompt: ExtendedMessage = {
         role: 'system',
-        content: `YOU MUST CONTINUE YOUR RESPONSE. DO NOT STOP EARLY OR LEAVE YOUR ANSWER INCOMPLETE. Be concise and address the original question directly. Provide a complete answer that fully resolves the user's query: "${lastUserMessage?.content || 'the user query'}"` 
+        content: `Be concise and address the original question directly. Provide a complete answer that fully resolves the user's query: "${lastUserMessage?.content || 'the user query'}"` 
       };
       
       // Prepare conversation context that includes everything the model needs

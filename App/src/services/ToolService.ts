@@ -2,17 +2,73 @@
  * Service for interacting with AI tools via the backend
  */
 
-class ToolService {
+export class ToolService {
   // Use the main backend URL
   private baseUrl: string = 'http://localhost:23816/api/tools';
   
-  // Map frontend tool names to backend tool names
-  private toolNameMap: Record<string, string> = {
+  // Static property to track tool execution state
+  private static isExecutingTool = false;
+  
+  // Tool name mapping between frontend and backend
+  private static toolNameMap: Record<string, string> = {
+    // Frontend to backend mappings
     'list_dir': 'list_directory',
     'read_file': 'read_file',
-    'web_search': 'web_search',
-    'fetch_webpage': 'fetch_webpage'
+    'write_file': 'write_file',
+    'run_command': 'run_command',
+    
+    // Backend to frontend mappings
+    'list_directory': 'list_dir',
   };
+  
+  /**
+   * Map tool names between frontend and backend
+   * @param name The tool name to map
+   * @param direction Whether to map frontend->backend or backend->frontend
+   */
+  public static mapToolName(name: string, direction: 'to_backend' | 'to_frontend'): string {
+    if (!name) return name;
+    
+    if (direction === 'to_backend') {
+      return this.toolNameMap[name] || name;
+    } else {
+      // Find the key with the matching value
+      for (const [frontendName, backendName] of Object.entries(this.toolNameMap)) {
+        if (backendName === name) return frontendName;
+      }
+      return name; // If no mapping found, return original
+    }
+  }
+  
+  /**
+   * Check if a tool execution is currently in progress
+   */
+  public static isToolExecutionInProgress(): boolean {
+    return this.isExecutingTool;
+  }
+  
+  /**
+   * Set the tool execution state
+   */
+  public static setToolExecutionState(isExecuting: boolean): void {
+    this.isExecutingTool = isExecuting;
+    console.log(`Tool execution state set to: ${isExecuting}`);
+  }
+
+  /**
+   * Get the consistent tool name for the given context
+   * @param toolName Raw tool name from any source
+   * @param context 'frontend', 'backend', or 'storage'
+   * @returns Consistently mapped tool name
+   */
+  public getConsistentToolName(toolName: string, context: 'frontend' | 'backend' | 'storage'): string {
+    // Use the static mapToolName method for consistent mapping
+    if (context === 'backend') {
+      return ToolService.mapToolName(toolName, 'to_backend');
+    } else {
+      return ToolService.mapToolName(toolName, 'to_frontend');
+    }
+  }
 
   /**
    * Call a tool with parameters
@@ -22,13 +78,21 @@ class ToolService {
    */
   async callTool(toolName: string, params: any): Promise<any> {
     try {
+      // Use the setToolExecutionState static method for tracking
+      ToolService.setToolExecutionState(true);
+      
       console.log(`Calling tool ${toolName} with params:`, params);
       
-      // Save chat state before making a tool call
-      await this.saveCurrentChat();
+      // Determine if the tool name is already in backend format
+      let backendToolName = toolName;
       
-      // Map frontend tool name to backend tool name
-      const backendToolName = this.toolNameMap[toolName] || toolName;
+      // Only map the tool name if it's in frontend format
+      if (toolName === 'list_dir') {
+        backendToolName = 'list_directory';
+        console.log(`Mapped frontend tool name ${toolName} to backend tool name ${backendToolName}`);
+      } else {
+        console.log(`Using tool name as-is: ${backendToolName}`);
+      }
       
       // Map parameter names if needed (e.g., relative_workspace_path to directory_path)
       let mappedParams = {...params};
@@ -36,9 +100,10 @@ class ToolService {
         mappedParams = {
           directory_path: params.relative_workspace_path
         };
+        console.log(`Mapped relative_workspace_path to directory_path for list_directory`);
       }
       
-      console.log(`Mapped to backend tool ${backendToolName} with params:`, mappedParams);
+      console.log(`Making API call to backend tool ${backendToolName} with params:`, mappedParams);
       
       const response = await fetch(`${this.baseUrl}/call`, {
         method: 'POST',
@@ -58,10 +123,13 @@ class ToolService {
       const result = await response.json();
       console.log(`Tool ${toolName} result:`, result);
       
+      // Format the response with consistent tool name for storage
+      const storageToolName = toolName; // Keep original name for consistent display
+      
       // Format the response in a flatter structure that's easier for the LLM to process
       return {
         role: 'tool',
-        content: `Tool ${toolName} result: ${JSON.stringify(result, null, 2)}`,
+        content: `Tool ${storageToolName} result: ${JSON.stringify(result, null, 2)}`,
         tool_call_id: this.generateToolCallId() // Add a unique ID for this tool call
       };
     } catch (error) {
@@ -72,41 +140,19 @@ class ToolService {
         content: `Error from ${toolName}: ${(error as Error).message}`,
         tool_call_id: this.generateToolCallId() // Add a unique ID for this tool call
       };
+    } finally {
+      // Reset executing flag after tool call completes using the static method
+      ToolService.setToolExecutionState(false);
     }
   }
 
   /**
-   * Save the current chat state
+   * Save the current chat state (DISABLED to prevent file toggling)
    * This is called before making a tool call to ensure the chat is preserved
    */
   private async saveCurrentChat(): Promise<void> {
-    try {
-      // Try to get chat ID from a custom event handler
-      const event = new CustomEvent('save-chat-request', {
-        detail: { source: 'tool-service' }
-      });
-      
-      // Dispatch event to notify chat component to save
-      window.dispatchEvent(event);
-      
-      // Get current chat ID from URL if available
-      const urlParams = new URLSearchParams(window.location.search);
-      const chatId = urlParams.get('chatId');
-      
-      if (!chatId) {
-        console.log('No chat ID in URL, skipping direct save');
-        return;
-      }
-      
-      // Try to save directly via the API as a fallback
-      console.log(`Attempting to save chat ${chatId} before tool call`);
-      
-      // Record that we attempted to save
-      window.lastSaveChatTime = Date.now();
-      
-    } catch (error) {
-      console.error('Error in saveCurrentChat:', error);
-    }
+    // REMOVED automatic chat saving to prevent file toggling
+    // Chat saving is now handled only after tool execution is complete
   }
 
   /**
@@ -142,4 +188,22 @@ class ToolService {
   }
 }
 
-export default new ToolService(); 
+// Create a singleton instance
+const toolServiceInstance = new ToolService();
+
+// Add static methods to the instance to make them accessible
+(toolServiceInstance as any).isExecutingTool = () => {
+  return ToolService.isToolExecutionInProgress();
+};
+
+// Add getConsistentToolName as a static method on the instance
+(toolServiceInstance as any).getConsistentToolName = (toolName: string, context: 'frontend' | 'backend' | 'storage'): string => {
+  if (context === 'backend') {
+    return ToolService.mapToolName(toolName, 'to_backend');
+  } else {
+    return ToolService.mapToolName(toolName, 'to_frontend');
+  }
+};
+
+// Export the instance with added static methods
+export default toolServiceInstance; 
