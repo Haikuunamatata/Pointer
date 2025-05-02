@@ -9,6 +9,7 @@ const path = require('path');
 // Parse command line arguments
 const args = process.argv.slice(2);
 const runInBackground = args.includes('--background') || args.includes('-b');
+const skipChecks = args.includes('--skip-checks') || args.includes('-s');
 
 // Default ports
 const BACKEND_PORT = 23816;
@@ -74,9 +75,12 @@ function startProcess(command, args, name, color, env = {}) {
 async function main() {
   console.log(chalk.blue('Starting Pointer app...'));
   console.log(chalk.blue(`Mode: ${runInBackground ? 'Background' : 'Interactive'}`));
+  if (skipChecks) {
+    console.log(chalk.yellow('Skip checks mode enabled: bypassing connection checks'));
+  }
   
   // Check if backend is already running
-  const backendRunning = await isPortInUse(BACKEND_PORT);
+  let backendRunning = skipChecks ? true : await isPortInUse(BACKEND_PORT);
   
   let backendProcess = null;
   if (!backendRunning) {
@@ -106,20 +110,25 @@ async function main() {
     VITE_PORT: serverPort.toString() 
   });
   
-  // Wait a bit for the server to start
-  console.log(chalk.blue(`Waiting for server to start on port ${serverPort}...`));
-  try {
-    await tcpPortUsed.waitUntilUsed(serverPort, 500, 30000);
-    console.log(chalk.green('Server started successfully!'));
-  } catch (error) {
-    console.error(chalk.red('Server failed to start within timeout period.'));
-    if (backendProcess) backendProcess.kill();
-    process.exit(1);
+  // Wait a bit for the server to start if not skipping checks
+  if (!skipChecks) {
+    console.log(chalk.blue(`Waiting for server to start on port ${serverPort}...`));
+    try {
+      await tcpPortUsed.waitUntilUsed(serverPort, 500, 30000);
+      console.log(chalk.green('Server started successfully!'));
+    } catch (error) {
+      console.error(chalk.red('Server failed to start within timeout period.'));
+      if (backendProcess) backendProcess.kill();
+      process.exit(1);
+    }
+  } else {
+    console.log(chalk.yellow('Skipping server startup verification'));
   }
   
   // Start electron with custom server port
   const electronProcess = startProcess('yarn', ['dev:electron'], 'Electron', 'magenta', {
-    VITE_DEV_SERVER_PORT: serverPort.toString()
+    VITE_DEV_SERVER_PORT: serverPort.toString(),
+    SKIP_CONNECTION_CHECKS: skipChecks ? 'true' : 'false'
   });
   
   // If running in background mode, unref the child processes to allow the parent to exit

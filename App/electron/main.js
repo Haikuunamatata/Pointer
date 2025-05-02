@@ -7,8 +7,13 @@ const fs = require('fs');
 
 // Get dev server port from environment variable or default to 3000
 const DEV_SERVER_PORT = process.env.VITE_DEV_SERVER_PORT || '3000';
+// Check if connection checks should be skipped
+const SKIP_CONNECTION_CHECKS = process.env.SKIP_CONNECTION_CHECKS === 'true';
 
 console.log('Electron app is starting...');
+if (SKIP_CONNECTION_CHECKS) {
+  console.log('Skip connection checks mode enabled');
+}
 
 // Discord RPC client
 let rpc = null;
@@ -354,20 +359,24 @@ async function createWindow() {
     // Load settings first
     await loadSettings();
     
-    // First check if backend is running
-    const backendReady = await checkBackendConnection();
-    if (!backendReady) {
-      console.error('Failed to connect to backend');
-      // Show error dialog
-      if (splashWindow) {
-        dialog.showErrorBox(
-          'Connection Error',
-          'Failed to connect to the backend. Please ensure the backend server is running.'
-        );
-        splashWindow.destroy();
+    // First check if backend is running (unless skipping checks)
+    if (!SKIP_CONNECTION_CHECKS) {
+      const backendReady = await checkBackendConnection();
+      if (!backendReady) {
+        console.error('Failed to connect to backend');
+        // Show error dialog
+        if (splashWindow) {
+          dialog.showErrorBox(
+            'Connection Error',
+            'Failed to connect to the backend. Please ensure the backend server is running.'
+          );
+          splashWindow.destroy();
+        }
+        app.quit();
+        return;
       }
-      app.quit();
-      return;
+    } else {
+      console.log('Skipping backend connection check');
     }
     
     // Update splash message
@@ -431,19 +440,23 @@ async function createWindow() {
 
     // Load the app
     if (isDev) {
-      // Wait for Vite server in development
-      const serverReady = await waitForViteServer();
-      if (!serverReady) {
-        console.error('Failed to connect to Vite server');
-        if (splashWindow) {
-          dialog.showErrorBox(
-            'Development Server Error',
-            'Failed to connect to the development server. Please ensure "yarn start" is running.'
-          );
-          splashWindow.destroy();
+      // Wait for Vite server in development (unless skipping checks)
+      if (!SKIP_CONNECTION_CHECKS) {
+        const serverReady = await waitForViteServer();
+        if (!serverReady) {
+          console.error('Failed to connect to Vite server');
+          if (splashWindow) {
+            dialog.showErrorBox(
+              'Development Server Error',
+              'Failed to connect to the development server. Please ensure "yarn start" is running.'
+            );
+            splashWindow.destroy();
+          }
+          app.quit();
+          return;
         }
-        app.quit();
-        return;
+      } else {
+        console.log('Skipping Vite server connection check');
       }
 
       updateSplashMessage('Loading development environment...');
