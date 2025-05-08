@@ -12,6 +12,20 @@ import { Message } from '../types';
 import { FileSystemService } from '../services/FileSystemService';
 import { ChatModeSwitch } from './ChatModeSwitch';
 import ToolService from '../services/ToolService';
+// Import configurations from the new chatConfig file
+import { 
+  INITIAL_SYSTEM_MESSAGE, 
+  REFRESH_KNOWLEDGE_PROMPT,
+  ExtendedMessage, 
+  AttachedFile, 
+  ChatSession,
+  shouldForceToolUse,
+  getAppropriateToolForQuery,
+  getFileExtension,
+  generateValidToolCallId,
+  generatePrompts,
+  defaultModelConfigs
+} from '../config/chatConfig';
 
 // Add TypeScript declarations for window properties
 declare global {
@@ -19,34 +33,12 @@ declare global {
     lastSaveChatTime?: number;
     chatSaveCounter?: number;
     lastContentLength?: number;
+    chatSaveVersion?: number; // Track the version of saves to prevent old overwrites
+    lastSavedMessageCount?: number; // Track the number of messages saved
   }
 }
 
-// Extend the Message interface to include attachments
-interface ExtendedMessage extends Message {
-  attachments?: AttachedFile[];
-  tool_call_id?: string;
-  tool_calls?: Array<{
-    id: string;
-    name: string;
-    arguments: string | object;
-  }>;
-}
-
-interface ChatSession {
-  id: string;
-  name: string;
-  createdAt: string;
-  messages: ExtendedMessage[];
-}
-
-// Add interface for attached files
-interface AttachedFile {
-  name: string;
-  path: string;
-  content: string;
-}
-
+// LLMChat props
 interface LLMChatProps {
   isVisible: boolean;
   onClose: () => void;
@@ -54,28 +46,6 @@ interface LLMChatProps {
   currentChatId: string;
   onSelectChat: (chatId: string) => void;
 }
-
-// Simplified system message
-const INITIAL_SYSTEM_MESSAGE: ExtendedMessage = {
-  role: 'system',
-  content: `You are a helpful AI coding assistant. Use these tools:
-
-read_file (read a file's contents): function_call: {"name": "read_file","arguments": {"file_path": "path/to/file","should_read_entire_file": true,"start_line_one_indexed": 1,"end_line_one_indexed_inclusive": 200}}
-
-list_directory (list the contents of a directory): function_call: {"name": "list_directory","arguments": {"relative_workspace_path": "path/to/directory"}}
-
-grep_search (search for a pattern in the workspace): function_call: {"name": "grep_search","arguments": {"query": "search pattern","include_pattern": "*.ts","exclude_pattern": "node_modules"}}
-
-web_search (search the web): function_call: {"name": "web_search","arguments": {"search_term": "your search query"}}
-
-Rules:
-1. Use exact function_call format shown above
-2. Never guess about code - verify with tools
-3. Start with list_directory for new codebases
-4. Chain tools when needed
-5. Complete all responses fully`,
-  attachments: undefined
-};
 
 // Combined actions button component for code blocks
 const CodeActionsButton: React.FC<{ content: string; filename: string }> = ({ content, filename }) => {
@@ -146,24 +116,7 @@ const CodeActionsButton: React.FC<{ content: string; filename: string }> = ({ co
       };
 
       // Create a prompt for the AI to merge the changes
-      const mergePrompt = `You are a code merging expert. You need to analyze and merge code changes intelligently.
-
-${originalContent ? `EXISTING FILE (${filename}):\n\`\`\`\n${originalContent}\n\`\`\`\n` : `The file ${filename} is new and will be created.\n`}
-
-${originalContent ? 'NEW CHANGES:' : 'NEW FILE CONTENT:'}
-\`\`\`
-${content}
-\`\`\`
-
-Task:
-${originalContent ? 
-  '1. If the new changes are a complete file, determine if they should replace the existing file entirely\n2. If the new changes are partial (e.g., a single function), merge them into the appropriate location\n3. Preserve any existing functionality that isn\'t being explicitly replaced' : 
-  '1. This is a new file, so use the provided content directly.'
-}
-4. Ensure the merged code is properly formatted and maintains consistency
-5. Consider the project structure when merging (e.g., for imports)
-
-Return ONLY the final merged code without any explanations. The code should be ready to use as-is.`;
+      const mergePrompt = generatePrompts.codeMerging(filename, originalContent, content);
 
       // Use the chat completions endpoint for merging
       const result = await lmStudio.createChatCompletion({
@@ -206,24 +159,7 @@ Return ONLY the final merged code without any explanations. The code should be r
         };
 
         // Create a prompt for the AI to merge the changes
-        const mergePrompt = `You are a code merging expert. You need to analyze and merge code changes intelligently.
-
-${originalContent ? `EXISTING FILE (${filename}):\n\`\`\`\n${originalContent}\n\`\`\`\n` : `The file ${filename} is new and will be created.\n`}
-
-${originalContent ? 'NEW CHANGES:' : 'NEW FILE CONTENT:'}
-\`\`\`
-${content}
-\`\`\`
-
-Task:
-${originalContent ? 
-  '1. If the new changes are a complete file, determine if they should replace the existing file entirely\n2. If the new changes are partial (e.g., a single function), merge them into the appropriate location\n3. Preserve any existing functionality that isn\'t being explicitly replaced' : 
-  '1. This is a new file, so use the provided content directly.'
-}
-4. Ensure the merged code is properly formatted and maintains consistency
-5. Consider the project structure when merging (e.g., for imports)
-
-Return ONLY the final merged code without any explanations. The code should be ready to use as-is.`;
+        const mergePrompt = generatePrompts.codeMerging(filename, originalContent, content);
 
         // Use the lmStudio service for merging
         const result = await lmStudio.createChatCompletion({
@@ -577,22 +513,27 @@ interface CodeProps extends React.HTMLAttributes<HTMLElement> {
 const MessageRenderer: React.FC<{ message: ExtendedMessage }> = ({ message }) => {
   const [thinkTimes] = useState<ThinkTimes>({});
   
+  // Handle non-string content
+  const messageContent = typeof message.content === 'string' 
+    ? message.content 
+    : JSON.stringify(message.content, null, 2);
+  
   // Check if we have an incomplete think block
-  const hasIncompleteThink = message.content.includes('<think>') && 
-    !message.content.includes('</think>');
+  const hasIncompleteThink = messageContent.includes('<think>') && 
+    !messageContent.includes('</think>');
 
   // Start timing when a think block starts
   useEffect(() => {
     if (hasIncompleteThink) {
       const thinkStart = Date.now();
-      const thinkKey = message.content; // Use the full message content as the key
+      const thinkKey = messageContent; // Use the full message content as the key
       thinkTimes[thinkKey] = thinkStart;
     }
-  }, [hasIncompleteThink, message.content, thinkTimes]);
+  }, [hasIncompleteThink, messageContent, thinkTimes]);
 
   // If we have an incomplete think, extract the content after <think>
   if (hasIncompleteThink) {
-    const parts = message.content.split('<think>');
+    const parts = messageContent.split('<think>');
     return (
       <>
         {/* Render content before <think> tag */}
@@ -751,7 +692,7 @@ const MessageRenderer: React.FC<{ message: ExtendedMessage }> = ({ message }) =>
   }
 
   // Split content into think blocks and other content
-  const parts = message.content.split(/(<think>.*?<\/think>)/s);
+  const parts = messageContent.split(/(<think>.*?<\/think>)/s);
   
   // If no think blocks and no special parts, render as a regular message
   if (parts.length === 1) {
@@ -901,7 +842,7 @@ const MessageRenderer: React.FC<{ message: ExtendedMessage }> = ({ message }) =>
             }
           }}
         >
-          {message.content}
+          {messageContent}
         </ReactMarkdown>
       </div>
     );
@@ -915,7 +856,7 @@ const MessageRenderer: React.FC<{ message: ExtendedMessage }> = ({ message }) =>
           // Extract content between think tags
           const thinkContent = part.slice(7, -8); // Remove <think> and </think>
           // Calculate actual thinking time using the full message as key
-          const thinkKey = message.content;
+          const thinkKey = messageContent;
           const thinkTime = thinkTimes[thinkKey] ? Math.round((Date.now() - thinkTimes[thinkKey]) / 1000) : 0;
           return <ThinkBlock key={index} content={thinkContent} thinkTime={thinkTime} />;
         }
@@ -1087,10 +1028,11 @@ const ThinkBlock: React.FC<{ content: string; thinkTime: number }> = ({ content,
       style={{
         position: 'relative',
         marginTop: '8px',
-        marginBottom: '8px',
+        marginBottom: '12px', // Increased from 4px to 12px to create more space before tool calls
       }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
+      className="think-block-container" // Added for easier targeting in CSS
     >
       <button 
         onClick={() => setIsCollapsed(!isCollapsed)}
@@ -1153,7 +1095,7 @@ const ThinkingBlock: React.FC<{ content: string }> = ({ content }) => {
     <div
       style={{
         marginTop: '4px',
-        marginBottom: '8px',
+        marginBottom: '16px', // Increased from 8px to 16px for more space
         padding: '4px 12px',
         color: 'var(--text-secondary)',
         fontSize: '13px',
@@ -1161,6 +1103,7 @@ const ThinkingBlock: React.FC<{ content: string }> = ({ content }) => {
         display: 'flex',
         flexDirection: 'column',
         gap: '4px',
+        position: 'relative', // Added for positioning
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -1179,40 +1122,18 @@ const ThinkingBlock: React.FC<{ content: string }> = ({ content }) => {
         <span style={{ fontWeight: 500 }}>Thinking...</span>
       </div>
       <div style={{ paddingLeft: '22px' }}>{content}</div>
+      
+      {/* Spacer div to create more separation after thinking blocks */}
+      <div style={{
+        position: 'absolute',
+        height: '10px',
+        bottom: '-10px',
+        left: 0,
+        right: 0,
+        pointerEvents: 'none'
+      }} />
     </div>
   );
-};
-
-// Helper function to get file extension based on language
-const getFileExtension = (language: string): string => {
-  const extensionMap: { [key: string]: string } = {
-    javascript: 'js',
-    typescript: 'ts',
-    python: 'py',
-    java: 'java',
-    cpp: 'cpp',
-    'c++': 'cpp',
-    c: 'c',
-    csharp: 'cs',
-    ruby: 'rb',
-    php: 'php',
-    swift: 'swift',
-    go: 'go',
-    rust: 'rs',
-    html: 'html',
-    css: 'css',
-    json: 'json',
-    yaml: 'yml',
-    markdown: 'md',
-    text: 'txt',
-    shell: 'sh',
-    bash: 'sh',
-    powershell: 'ps1',
-    sql: 'sql',
-    // Add more mappings as needed
-  };
-
-  return extensionMap[language.toLowerCase()] || 'txt';
 };
 
 // Add this section before the LLMChat component
@@ -1287,6 +1208,12 @@ const AUTO_INSERT_STYLES = `
   .rotating-svg {
     animation: rotate 1.5s linear infinite;
   }
+  
+  /* Add spacing between thinking blocks and subsequent tool messages */
+  .think-block-container + div .message.tool {
+    margin-top: 12px !important;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1) !important;
+  }
 `;
 
 // First, restore the interface for FunctionCall and ToolArgs
@@ -1304,57 +1231,190 @@ interface ToolArgs {
   [key: string]: any;
 }
 
-// Add a utility function to generate valid tool call IDs
-const generateValidToolCallId = (): string => {
-  // Generate a 9-character alphanumeric ID for tool calls
-  return Math.random().toString(36).substring(2, 11);
-};
+// Add a function to normalize conversation history before sending to LLM
+const normalizeConversationHistory = (messages: ExtendedMessage[]): Message[] => {
+  console.log('Normalizing conversation history, messages count:', messages.length);
+  
+  // Track seen tool call IDs to avoid duplicates
+  const seenToolCallIds = new Set<string>();
+  
+  // First pass: identify and log all tool-related messages
+  console.log('--- MESSAGE ANALYSIS START ---');
+  messages.forEach((msg, idx) => {
+    if (msg.role === 'tool' && msg.tool_call_id) {
+      console.log(`Tool response at index ${idx}, ID: ${msg.tool_call_id}, content: ${typeof msg.content === 'string' ? msg.content.substring(0, 50) + '...' : '[object]'}`);
+    } else if (msg.role === 'assistant' && 'tool_calls' in msg && msg.tool_calls && msg.tool_calls.length > 0) {
+      console.log(`Assistant with tool calls at index ${idx}, count: ${msg.tool_calls.length}`);
+      msg.tool_calls.forEach(tc => console.log(`  Tool call: ${tc.name}, ID: ${tc.id}, args: ${typeof tc.arguments === 'string' ? tc.arguments.substring(0, 50) + '...' : '[object]'}`));
+    } else if (msg.role === 'assistant' && typeof msg.content === 'string' && msg.content.includes('function_call:')) {
+      console.log(`Assistant with function_call string at index ${idx}, content: ${msg.content.substring(0, 100)}...`);
+    } else {
+      console.log(`Message at index ${idx}, role: ${msg.role}, content: ${typeof msg.content === 'string' ? msg.content.substring(0, 50) + '...' : '[object]'}`);
+    }
+  });
+  console.log('--- MESSAGE ANALYSIS END ---');
+  
+  // Second pass: filter and normalize messages
+  const normalizedMessages = messages
+    // First filter out duplicate tool responses - keep only the first one for each tool_call_id
+    .filter((msg) => {
+      if (msg.role === 'tool' && msg.tool_call_id) {
+        if (seenToolCallIds.has(msg.tool_call_id)) {
+          console.log(`Filtering out duplicate tool response for ID: ${msg.tool_call_id}`);
+          return false;
+        }
+        seenToolCallIds.add(msg.tool_call_id);
+      }
+      return true;
+    })
+    // Then map to the correct format for the API
+    .map((msg) => {
+      // Handle file attachments
+      if (msg.attachments && msg.attachments.length > 0) {
+        let contentWithAttachments = msg.content || '';
+        if (contentWithAttachments && contentWithAttachments.trim() !== '') {
+          contentWithAttachments += '\n\n';
+        }
+        msg.attachments.forEach(file => {
+          contentWithAttachments += `File: ${file.name}\n\`\`\`\n${file.content}\n\`\`\`\n\n`;
+        });
+        return { role: msg.role, content: contentWithAttachments };
+      }
 
-// Helper to determine if we should force tool usage based on the query
-const shouldForceToolUse = (query: string): boolean => {
-  // Keywords that strongly indicate tool usage would be beneficial
-  const toolKeywords = [
-    'file', 'directory', 'folder', 'list', 'show', 'search', 'find', 'look up',
-    'check', 'get', 'fetch', 'read', 'browse', 'scan', 'examine', 'analyze', 
-    'what is in', 'what\'s in', 'contents of', 'code in', 'implementation'
-  ];
-  
-  const lowerQuery = query.toLowerCase();
-  return toolKeywords.some(keyword => lowerQuery.includes(keyword));
-};
+      // Handle tool messages - ensure proper formatting
+      if (msg.role === 'tool' && msg.tool_call_id) {
+        const formattedToolResponse = { 
+          role: 'tool' as const, 
+          content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content),
+          tool_call_id: msg.tool_call_id
+        };
+        console.log(`Normalized tool response for ID: ${msg.tool_call_id}`);
+        return formattedToolResponse;
+      }
 
-// Helper to suggest the most appropriate tool based on the query
-const getAppropriateToolForQuery = (query: string): string => {
-  const lowerQuery = query.toLowerCase();
+      // Special handling for assistant messages with function_call syntax in content
+      if (msg.role === 'assistant' && typeof msg.content === 'string' && msg.content.includes('function_call:')) {
+        try {
+          // Extract the function call - try multiple patterns
+          const functionCallMatch = msg.content.match(/function_call:\s*({[\s\S]*?})(?=function_call:|$)/);
+          if (functionCallMatch && functionCallMatch[1]) {
+            console.log('Found function_call in content, extracting...');
+            let functionCall: any;
+            
+            try {
+              functionCall = JSON.parse(functionCallMatch[1]);
+            } catch (e) {
+              console.error('Error parsing function call JSON:', e);
+              
+              // Try manual extraction if JSON parsing fails
+              const idMatch = functionCallMatch[1].match(/"id"\s*:\s*"([^"]+)"/);
+              const nameMatch = functionCallMatch[1].match(/"name"\s*:\s*"([^"]+)"/);
+              const argsMatch = functionCallMatch[1].match(/"arguments"\s*:\s*({[^}]+}|"[^"]+")/);
+              
+              functionCall = {
+                id: idMatch?.[1] || generateValidToolCallId(),
+                name: nameMatch?.[1] || 'unknown_function',
+                arguments: argsMatch?.[1] || '{}'
+              };
+              console.log('Manually extracted function call:', functionCall);
+            }
+            
+            // Ensure valid ID format
+            if (!functionCall.id || functionCall.id.length !== 9 || !/^[a-z0-9]+$/.test(functionCall.id)) {
+              functionCall.id = generateValidToolCallId();
+            }
+            
+            // Create a tool calls format message
+            const formattedAssistantMessage = {
+              role: 'assistant' as const,
+              content: '', // Empty content when it's a tool call
+              tool_calls: [{
+                id: functionCall.id,
+                type: 'function',
+                function: {
+                  name: functionCall.name,
+                  arguments: typeof functionCall.arguments === 'string' ? 
+                    functionCall.arguments : JSON.stringify(functionCall.arguments)
+                }
+              }]
+            };
+            
+            console.log('Converted string function_call to proper tool_calls format:', 
+              JSON.stringify(formattedAssistantMessage.tool_calls));
+            
+            return formattedAssistantMessage;
+          }
+        } catch (e) {
+          console.error('Error extracting function call from content:', e);
+          // On error, fallback to original content
+        }
+      }
+
+      // Handle normal assistant messages with tool_calls property
+      if (msg.role === 'assistant' && 'tool_calls' in msg && msg.tool_calls && msg.tool_calls.length > 0) {
+        // Properly format each tool call
+        const formattedToolCalls = msg.tool_calls.map(tc => {
+          // Generate valid ID if missing or invalid
+          const validId = (!tc.id || tc.id.length !== 9 || !/^[a-z0-9]+$/.test(tc.id)) 
+            ? generateValidToolCallId() 
+            : tc.id;
+            
+          return {
+            id: validId,
+            type: 'function',
+            function: {
+              name: tc.name,
+              arguments: typeof tc.arguments === 'string' ? 
+                tc.arguments : JSON.stringify(tc.arguments)
+            }
+          };
+        });
+        
+        console.log(`Formatted ${formattedToolCalls.length} tool calls for assistant message`);
+        
+        return {
+          role: 'assistant' as const,
+          content: '', // Clear content when there are tool calls
+          tool_calls: formattedToolCalls
+        };
+      }
+
+      // Default for regular messages
+      return { 
+        role: msg.role as ('user' | 'assistant' | 'system' | 'tool'), 
+        content: msg.content || '',
+        // Include tool_call_id if present
+        ...(msg.tool_call_id && {
+          tool_call_id: msg.tool_call_id
+        })
+      };
+    });
+    
+  console.log(`Normalized ${messages.length} messages to ${normalizedMessages.length} messages for API`);
   
-  // File reading related keywords
-  if (lowerQuery.includes('file') || 
-      lowerQuery.includes('content') || 
-      lowerQuery.includes('code in') || 
-      lowerQuery.includes('implementation') ||
-      lowerQuery.includes('show me')) {
-    return 'read_file';
-  }
+  // Log the final normalized messages
+  console.log('--- NORMALIZED MESSAGES START ---');
+  normalizedMessages.forEach((msg, idx) => {
+    if (msg.role === 'tool') {
+      console.log(`Normalized tool message at index ${idx}, ID: ${msg.tool_call_id}`);
+    } else if (msg.role === 'assistant' && 'tool_calls' in msg && msg.tool_calls) {
+      console.log(`Normalized assistant with tool_calls at index ${idx}, count: ${msg.tool_calls.length}`);
+    } else {
+      console.log(`Normalized message at index ${idx}, role: ${msg.role}`);
+    }
+  });
+  console.log('--- NORMALIZED MESSAGES END ---');
   
-  // Directory listing related keywords
-  if (lowerQuery.includes('directory') || 
-      lowerQuery.includes('folder') || 
-      lowerQuery.includes('list') || 
-      lowerQuery.includes('files in')) {
-    return 'list_directory';
-  }
+  // Add the REFRESH_KNOWLEDGE_PROMPT at the beginning of every API call
+  // This automatically provides context about the application to every message
+  // without requiring the user to explicitly refresh the AI's knowledge
+  const refreshKnowledgeMessage: Message = {
+    role: REFRESH_KNOWLEDGE_PROMPT.role,
+    content: REFRESH_KNOWLEDGE_PROMPT.content
+  };
   
-  // Web search related keywords
-  if (lowerQuery.includes('search') || 
-      lowerQuery.includes('look up') || 
-      lowerQuery.includes('find information') ||
-      lowerQuery.includes('what is') ||
-      lowerQuery.includes('how to')) {
-    return 'web_search';
-  }
-  
-  // Default to auto if no clear match
-  return 'auto';
+  // Return the normalized messages with the refresh knowledge prompt inserted at the beginning
+  return [refreshKnowledgeMessage, ...normalizedMessages];
 };
 
 export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectChat }: LLMChatProps) {
@@ -1500,116 +1560,183 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   }, [onResize]);
 
   // Generate a title based on the first user message
-  const generateChatTitle = (messages: ExtendedMessage[]): string => {
-    // Find the first user message
-    const firstUserMessage = messages.find(m => m.role === 'user');
-    
-    if (!firstUserMessage) {
-      return `New Chat ${new Date().toLocaleString()}`;
+  const generateChatTitle = async (messages: ExtendedMessage[]): Promise<string> => {
+    try {
+      const modelId = await AIFileService.getModelIdForPurpose('chat');
+      
+      // Get model settings from localStorage
+      const modelConfigStr = localStorage.getItem('modelConfig');
+      const modelConfig = modelConfigStr ? JSON.parse(modelConfigStr) : defaultModelConfigs.chat;
+
+      // Use the prompt from chatConfig
+      const prompt = generatePrompts.titleGeneration(messages);
+
+      // Create completion with the conversation
+      const result = await lmStudio.createCompletion({
+        model: modelId,
+        prompt: prompt,
+        temperature: modelConfig.temperature || 0.3,
+        max_tokens: 20
+        // Remove the 'stream: false' property that was causing linter error
+      });
+
+      // Extract and clean the generated title
+      let title = result.choices[0].text.trim();
+      // Remove quotes if present
+      if ((title.startsWith('"') && title.endsWith('"')) || (title.startsWith("'") && title.endsWith("'"))) {
+        title = title.substring(1, title.length - 1);
+      }
+      return title || 'New Chat';
+    } catch (err) { // Fixed the error variable name
+      console.error('Error generating chat title:', err);
+      return 'New Chat';
     }
-    
-    const content = firstUserMessage.content;
-    
-    // Extract the first sentence or first few words
-    let title = '';
-    
-    // Try to get the first sentence (up to 50 chars)
-    const sentenceMatch = content.match(/^[^.!?]+[.!?]/);
-    if (sentenceMatch && sentenceMatch[0]) {
-      title = sentenceMatch[0].trim();
-    } else {
-      // If no sentence found, take first 6-8 words
-      const words = content.split(' ');
-      title = words.slice(0, Math.min(8, words.length)).join(' ');
-    }
-    
-    // Limit title length
-    if (title.length > 50) {
-      title = title.substring(0, 50) + '...';
-    }
-    
-    return title;
   };
 
-  // Generate AI summary for chat title
-  const generateAISummary = async (messages: ExtendedMessage[]): Promise<string> => {
-    try {
-      if (messages.length <= 1) return "New Chat";
-      
-      // Create a summary prompt with the conversation
-      const userMessages = messages.filter(m => m.role === 'user').map(m => m.content).join("\n");
-      
-      const summaryPrompt = [
-        { 
-          role: 'system' as 'system', 
-          content: 'Generate 3-4 word chat title. No punctuation.'
-        },
-        { role: 'user' as 'user', content: userMessages.slice(0, 500) } // Limit input size
-      ];
-      
-      // Get model configuration for summary purpose
-      const summaryModelId = await AIFileService.getModelIdForPurpose('summary');
-      
-      // Use LMStudioService to handle fallback endpoints
-      const result = await lmStudio.createChatCompletion({
-        model: summaryModelId,
-        messages: summaryPrompt,
-        temperature: 0.7,
-        max_tokens: 15
-      });
-      
-      let summary = result.choices[0].message.content.trim();
-      
-      // Ensure summary is concise
-      const words = summary.split(' ');
-      if (words.length > 4) {
-        summary = words.slice(0, 4).join(' ');
-      }
-      
-      return summary;
-    } catch (error) {
-      console.error('Error generating AI summary:', error);
-      // Fallback to the basic title generation
-      return generateChatTitle(messages);
-    }
-  };
 
   // Function to save chat
   const saveChat = async (chatId: string, messages: ExtendedMessage[], reloadAfterSave = false) => {
     try {
       if (messages.length <= 1) return; // Don't save if only system message exists
       
-      console.log(`Saving chat ${chatId} with ${messages.length} messages (${
-        messages.filter((m: ExtendedMessage) => m.tool_call_id || m.tool_calls).length
-      } tool-related messages)`);
+      // Increment the save version to track most recent save
+      window.chatSaveVersion = (window.chatSaveVersion || 0) + 1;
+      const currentSaveVersion = window.chatSaveVersion;
       
       // Record that we're saving now
       window.lastSaveChatTime = Date.now();
       
       let title = chatTitle;
       
-      // Generate AI summary title if no title exists yet
-      if (!title) {
-        title = await generateAISummary(messages);
-        setChatTitle(title); // Save the title for future use
-      }
+      // Filter out continuation system messages before saving
+      const filteredMessages = messages.filter((msg: ExtendedMessage) => {
+        // Keep the first system message (instructions) but filter out continuation prompts
+        if (msg.role === 'system') {
+          const isFirstSystemMessage = messages.findIndex(m => m.role === 'system') === messages.indexOf(msg);
+          const isContinuationPrompt = msg.content.includes("address the original question directly") || 
+                                      msg.content.includes("Be concise and address the original question");
+          return isFirstSystemMessage && !isContinuationPrompt;
+        }
+        return true;
+      });
       
-      // Make sure to properly format the chat before saving
-      const formattedMessages = messages.map((msg: ExtendedMessage) => {
+      // Deduplicate messages to prevent duplications
+      const deduplicatedMessages: ExtendedMessage[] = [];
+      const seenMessageKeys = new Set<string>();
+      
+      // Function to generate a unique key for a message
+      const getMessageKey = (msg: ExtendedMessage): string => {
+        // For tool messages, include the tool_call_id to identify uniquely
+        if (msg.role === 'tool' && msg.tool_call_id) {
+          return `tool:${msg.tool_call_id}:${msg.content.substring(0, 50)}`;
+        }
+        // For assistant messages with tool calls, include the tool call IDs
+        else if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
+          const toolCallIds = msg.tool_calls.map(tc => tc.id).join(',');
+          return `assistant:toolcalls:${toolCallIds}`;
+        }
+        // For other messages, use role and content (truncated)
+        else {
+          return `${msg.role}:${typeof msg.content === 'string' ? 
+            msg.content.substring(0, 100) : JSON.stringify(msg.content).substring(0, 100)}`;
+        }
+      };
+      
+      // Only keep unique messages
+      filteredMessages.forEach(msg => {
+        const key = getMessageKey(msg);
+        if (!seenMessageKeys.has(key)) {
+          seenMessageKeys.add(key);
+          deduplicatedMessages.push(msg);
+        } else {
+          console.log(`Skipping duplicate message: ${key}`);
+        }
+      });
+      
+      console.log(`Deduplicated ${filteredMessages.length} messages to ${deduplicatedMessages.length} messages`);
+      
+      // Format the messages for the backend
+      const messagesToSave = deduplicatedMessages.map((msg: ExtendedMessage) => {
         // Create a cleaned version of the message with only the properties we need
         const cleanedMsg: any = {
           role: msg.role,
-          content: msg.content
+          content: msg.content || '' // Ensure content is never undefined
         };
         
-        // Add tool_call_id if present
-        if (msg.tool_call_id) {
-          cleanedMsg.tool_call_id = msg.tool_call_id;
+        // Special case: Check for assistant messages with function_call in content
+        if (msg.role === 'assistant' && typeof msg.content === 'string' && 
+            msg.content.includes('function_call:') && !msg.tool_calls) {
+          try {
+            console.log('Found function_call string in content during save, extracting...');
+            const functionCallMatch = msg.content.match(/function_call:\s*({[\s\S]*?})(?=function_call:|$)/);
+            if (functionCallMatch && functionCallMatch[1]) {
+              let functionCall: any;
+              
+              try {
+                functionCall = JSON.parse(functionCallMatch[1]);
+              } catch (e) {
+                console.error('Error parsing function call JSON:', e);
+                
+                // Try manual extraction if JSON parsing fails
+                const idMatch = functionCallMatch[1].match(/"id"\s*:\s*"([^"]+)"/);
+                const nameMatch = functionCallMatch[1].match(/"name"\s*:\s*"([^"]+)"/);
+                const argsMatch = functionCallMatch[1].match(/"arguments"\s*:\s*({[^}]+}|"[^"]+")/);
+                
+                functionCall = {
+                  id: idMatch?.[1] || generateValidToolCallId(),
+                  name: nameMatch?.[1] || 'unknown_function',
+                  arguments: argsMatch?.[1] || '{}'
+                };
+              }
+              
+              // Convert to proper tool_calls format
+              cleanedMsg.tool_calls = [{
+                id: functionCall.id || generateValidToolCallId(),
+                type: 'function',
+                function: {
+                  name: functionCall.name,
+                  arguments: typeof functionCall.arguments === 'string' ? 
+                    functionCall.arguments : JSON.stringify(functionCall.arguments)
+                }
+              }];
+              
+              // Empty content for tool calls
+              cleanedMsg.content = '';
+              
+              console.log('Converted function_call content to tool_calls for storage:', 
+                cleanedMsg.tool_calls[0].function.name);
+            }
+          } catch (e) {
+            console.error('Error handling function_call in content:', e);
+          }
+        }
+        // Handle tool_calls for assistant messages
+        else if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
+          // Store tool calls with proper format
+          cleanedMsg.tool_calls = msg.tool_calls.map(tc => ({
+            id: tc.id || generateValidToolCallId(),
+            type: 'function',
+            function: {
+              name: tc.name,
+              arguments: typeof tc.arguments === 'string' ? 
+                tc.arguments : JSON.stringify(tc.arguments)
+            }
+          }));
+          
+          // If this is a pure tool call with no content, make sure content is empty string
+          if (!msg.content) {
+            cleanedMsg.content = '';
+          }
+          
+          console.log(`Saving assistant with ${cleanedMsg.tool_calls.length} tool calls: ${
+            cleanedMsg.tool_calls.map((tc: any) => tc.function.name).join(', ')
+          }`);
         }
         
-        // Add tool_calls if present
-        if (msg.tool_calls && msg.tool_calls.length > 0) {
-          cleanedMsg.tool_calls = msg.tool_calls;
+        // Add tool_call_id if present for tool response messages
+        if (msg.tool_call_id) {
+          cleanedMsg.tool_call_id = msg.tool_call_id;
+          console.log(`Saving tool response for call ID: ${msg.tool_call_id}`);
         }
         
         // Add attachments if present
@@ -1620,105 +1747,316 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         return cleanedMsg;
       });
       
-      const response = await fetch(`http://localhost:23816/chats/${chatId}`, {
+      // Determine if this is an edit operation
+      const isEdit = editingMessageIndex !== null;
+      const editIndex = isEdit ? editingMessageIndex : -1;
+      
+      // For append operations, determine which messages are new
+      let messagesToSend = [];
+      
+      if (isEdit) {
+        // When editing, send all messages and mark as edit
+        // The backend will truncate at the edit point and append these messages
+        messagesToSend = messagesToSave;
+        console.log(`Editing message at index ${editIndex}, sending all ${messagesToSend.length} messages`);
+      } else {
+        // For normal operations, determine what's new since last save
+        const lastMsgCount = window.lastSavedMessageCount || 0;
+        const currentMsgCount = deduplicatedMessages.length;
+        
+        if (!window.lastSavedMessageCount) {
+          // First save of this session, send all messages
+          messagesToSend = messagesToSave;
+          console.log(`First save, sending all ${messagesToSend.length} messages`);
+        } else if (currentMsgCount > lastMsgCount) {
+          // Normal append - only send the new messages
+          messagesToSend = messagesToSave.slice(lastMsgCount);
+          console.log(`Appending ${messagesToSend.length} new messages`);
+        } else {
+          // No new messages or message count decreased
+          // This shouldn't happen in append-only mode unless there was an edit
+          // Send the last message to ensure it's up to date
+          messagesToSend = messagesToSave.slice(-1);
+          console.log(`No new messages detected, updating last message`);
+        }
+      }
+      
+      // First message should include chat title if available
+      if (messagesToSend.length > 0 && title) {
+        messagesToSend[0].name = title;
+      }
+      
+      // Save the current count for next comparison
+      window.lastSavedMessageCount = deduplicatedMessages.length;
+      
+      // Prepare the request for our append-only backend
+      const chatData = {
+        messages: messagesToSend,
+        is_edit: isEdit,
+        edit_index: editIndex,
+        overwrite: false // Only use overwrite in special cases
+      };
+      
+      try {
+        // Use AbortController to set a timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+        
+        const saveResponse = await fetch(`http://localhost:23816/chats/${chatId}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          id: chatId,
-          name: title,
-          createdAt: new Date().toISOString(),
-          messages: formattedMessages,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to save chat');
-      }
-      console.log('Chat saved successfully');
+          body: JSON.stringify(chatData),
+          signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (!saveResponse.ok) {
+          throw new Error(`Failed to save chat: ${saveResponse.status} ${saveResponse.statusText}`);
+        }
+        
+        // Parse the response to get message count
+        const saveResult = await saveResponse.json();
+        
+        // Update our saved message count with the actual count from server
+        if (saveResult.message_count) {
+          window.lastSavedMessageCount = saveResult.message_count;
+          console.log(`Updated lastSavedMessageCount to ${saveResult.message_count} from server`);
+        }
+        
+        // Check if our save version is still the most recent
+        if (window.chatSaveVersion === currentSaveVersion) {
+          console.log(`Chat saved successfully (version: ${currentSaveVersion}, operation: ${isEdit ? 'edit' : 'append'})`);
       
       // Reload the chat if requested (important for tool calls)
       if (reloadAfterSave) {
         // Wait a brief moment to ensure the file is written
         setTimeout(() => {
+              // Only reload if our version is still current
+              if (window.chatSaveVersion === currentSaveVersion) {
           loadChat(chatId, true);
+              }
         }, 100);
       }
-      
-      // Only refresh chat list occasionally (every 5 saves)
-      // Track saves with a counter
-      window.chatSaveCounter = (window.chatSaveCounter || 0) + 1;
-      if (window.chatSaveCounter % 5 === 0) {
-        loadChats(); // Refresh the chat list after saving
+        } else {
+          console.log(`Skipping post-save actions - newer save version exists: ${window.chatSaveVersion} > ${currentSaveVersion}`);
+        }
+      } catch (error: any) {
+        if (error.name === 'AbortError') {
+          console.error('Save operation timed out after 10 seconds');
+        } else {
+          console.error('Error in fetch operation during chat save:', error);
+        }
       }
     } catch (error) {
-      console.error('Error saving chat:', error);
+      console.error('Error in saveChat function:', error);
     }
   };
 
   // Load chat data with cache-busting
   const loadChat = async (chatId: string, forceReload = false) => {
+    // Fixed issue: Now we always respect forceReload parameter even during streaming
+    // Don't reload the chat if we're streaming a response, UNLESS a force reload is requested
+    if (isStreamingComplete === false && !forceReload) {
+      console.log('Skipping loadChat due to active streaming');
+      return;
+    }
+    
     try {
-      setIsProcessing(true); // Show loading state
-      console.log(`Loading chat with ID: ${chatId}${forceReload ? ' (forced reload)' : ''}`);
+      // Store current chat ID as a local variable
+      const currentId = chatId;
+      setIsProcessing(true);
       
-      // Add a timestamp to bypass caching
-      const timestamp = Date.now();
-      const response = await fetch(`http://localhost:23816/chats/${chatId}?t=${timestamp}`);
-      if (response.ok) {
-        const chat = await response.json();
-        console.log(`Loaded chat with ${chat.messages ? chat.messages.length : 0} messages`);
-        
-        // Ensure the system message exists
-        let chatMessages = Array.isArray(chat.messages) ? chat.messages : [];
-        
-        // Make sure all messages have the correct format while preserving tool properties
-        chatMessages = chatMessages.map((msg: any) => {
-          const formattedMessage: ExtendedMessage = {
-            role: msg.role || 'user',
-            content: msg.content || '',
-            // Preserve these critical properties for tool calls
-            tool_call_id: msg.tool_call_id,
-            tool_calls: msg.tool_calls,
-            // And attachments for files
-            attachments: msg.attachments
-          };
-          
-          // Clean up undefined properties
-          Object.keys(formattedMessage).forEach(key => {
-            if (formattedMessage[key as keyof ExtendedMessage] === undefined) {
-              delete formattedMessage[key as keyof ExtendedMessage];
-            }
-          });
-          
-          return formattedMessage;
-        });
-        
-        // Add system message if not present
-        if (!chatMessages.some((m: ExtendedMessage) => m.role === 'system')) {
-          chatMessages = [INITIAL_SYSTEM_MESSAGE, ...chatMessages];
+      // Check if we need a full reload or just new messages
+      const shouldFetchAll = forceReload || !messages.length || !window.lastSavedMessageCount;
+      
+      let url = `http://localhost:23816/chats/${chatId}`;
+      
+      // If we already have messages, and it's not a forced reload, use the /latest endpoint
+      if (!shouldFetchAll && window.lastSavedMessageCount) {
+        // Get only messages after our current count
+        url = `http://localhost:23816/chats/${chatId}/latest?after_index=${window.lastSavedMessageCount}`;
+        console.log(`Fetching only new messages after index ${window.lastSavedMessageCount}`);
+      } else if (forceReload) {
+        console.log(`Force reloading all messages for chat ${chatId}`);
+      }
+      
+      console.log(`Loading chat from ${url}`);
+      const response = await fetch(url);
+      
+      if (!response.ok) {
+        if (response.status === 404) {
+          // Chat not found, create a new one
+          const systemMsg: ExtendedMessage = { role: 'system', content: INITIAL_SYSTEM_MESSAGE.content };
+          setMessages([systemMsg]);
+          saveChat(chatId, [systemMsg]);
+          setIsProcessing(false);
+          setEditingMessageIndex(null);
+          setInput('');
+          setAttachedFiles([]);
+          return;
+        }
+        throw new Error(`Failed to load chat: ${response.status} ${response.statusText}`);
+      }
+  
+      const data = await response.json();
+      console.log('Loaded chat data:', data);
+      
+      if (data && data.messages && Array.isArray(data.messages)) {
+        // Update title if available
+        if (data.name && data.name !== 'New Chat') {
+          setChatTitle(data.name);
         }
         
-        console.log(`Processed ${chatMessages.length} messages with tool calls:`, 
-          chatMessages.filter((m: ExtendedMessage) => m.tool_call_id || m.tool_calls).length);
+        // Process the loaded messages
+        const processedMessages = data.messages.map((msg: any) => {
+          // Ensure role exists and is valid
+          if (!msg.role || !['system', 'user', 'assistant', 'tool'].includes(msg.role)) {
+            console.warn(`Invalid message role: ${msg.role}, defaulting to 'user'`);
+            msg.role = 'user';
+          }
+          
+          // Ensure content exists
+          if (msg.content === undefined || msg.content === null) {
+            msg.content = '';
+          }
+          
+          // Create a properly typed message
+          const typedMsg: ExtendedMessage = {
+            role: msg.role as 'system' | 'user' | 'assistant' | 'tool',
+            content: msg.content
+          };
+          
+          // Add tool_call_id if present (for tool response messages)
+          if (msg.tool_call_id) {
+            typedMsg.tool_call_id = msg.tool_call_id;
+          }
+          
+          // Add tool_calls if present (for assistant messages)
+          if (msg.tool_calls && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) {
+            typedMsg.tool_calls = msg.tool_calls.map((tc: any) => {
+              // Ensure function exists
+              if (!tc.function) {
+                console.warn('Missing function in tool call:', tc);
+                tc.function = { name: 'unknown', arguments: '{}' };
+              }
+              
+              return {
+                id: tc.id || generateValidToolCallId(),
+                name: tc.function.name,
+                type: 'function',
+                arguments: tc.function.arguments
+              };
+            });
+          }
+          
+          // Add attachments if present
+          if (msg.attachments && Array.isArray(msg.attachments)) {
+            typedMsg.attachments = msg.attachments;
+          }
+          
+          return typedMsg;
+        });
+
+        // Deduplicate messages after loading
+        const deduplicatedMessages: ExtendedMessage[] = [];
+        const seenMessageKeys = new Set<string>();
         
-        // Set messages and chat title
-        setMessages(chatMessages);
-        setChatTitle(chat.name || '');
+        // Function to generate a unique key for a message
+        const getMessageKey = (msg: ExtendedMessage): string => {
+          // For tool messages, include the tool_call_id to identify uniquely
+          if (msg.role === 'tool' && msg.tool_call_id) {
+            return `tool:${msg.tool_call_id}:${msg.content.substring(0, 50)}`;
+          }
+          // For assistant messages with tool calls, include the tool call IDs
+          else if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
+            const toolCallIds = msg.tool_calls.map(tc => tc.id).join(',');
+            return `assistant:toolcalls:${toolCallIds}`;
+          }
+          // For other messages, use role and content (truncated)
+          else {
+            return `${msg.role}:${typeof msg.content === 'string' ? 
+              msg.content.substring(0, 100) : JSON.stringify(msg.content).substring(0, 100)}`;
+          }
+        };
+        
+        // Only keep unique messages
+        processedMessages.forEach((msg: ExtendedMessage) => {
+          const key = getMessageKey(msg);
+          if (!seenMessageKeys.has(key)) {
+            seenMessageKeys.add(key);
+            deduplicatedMessages.push(msg);
+          } else {
+            console.log(`Skipping duplicate loaded message: ${key}`);
+          }
+        });
+        
+        console.log(`Deduplicated ${processedMessages.length} loaded messages to ${deduplicatedMessages.length} messages`);
+        
+        // If we received no messages but we know there should be some, don't clear the UI
+        if (deduplicatedMessages.length === 0 && messages.length > 1 && !forceReload) {
+          console.warn('Received empty messages array from backend but UI has messages. Keeping current UI state.');
+          return;
+        }
+        
+        // If we're fetching only new messages, append them to existing messages
+        if (!shouldFetchAll && window.lastSavedMessageCount && messages.length > 0) {
+          console.log(`Appending ${deduplicatedMessages.length} new messages to existing messages`);
+          setMessages(prevMessages => [...prevMessages, ...deduplicatedMessages]);
+          
+          // Update our tracking of message count to include the new messages
+          window.lastSavedMessageCount = (window.lastSavedMessageCount || 0) + deduplicatedMessages.length;
       } else {
-        console.error(`Failed to load chat ${chatId}: ${response.status} ${response.statusText}`);
-        // Start with a new chat if there's an error
-        setMessages([INITIAL_SYSTEM_MESSAGE]);
-        setChatTitle('');
+          // For full loads, only replace if we actually got messages
+          if (deduplicatedMessages.length > 0) {
+            // Ensure the first message is a system message for full loads
+            if (deduplicatedMessages[0].role !== 'system') {
+              deduplicatedMessages.unshift({ role: 'system', content: INITIAL_SYSTEM_MESSAGE.content });
+            }
+            
+            // Set the messages completely (for full loads)
+            setMessages(deduplicatedMessages);
+            
+            // Update our tracking of message count for the full load
+            window.lastSavedMessageCount = deduplicatedMessages.length;
+            
+            console.log(`Loaded chat ${chatId} with ${deduplicatedMessages.length} total messages`);
+          } else {
+            // If we got an empty array but requested a full load, initialize with system message
+            console.log('Received empty messages array for full load, initializing with system message');
+            const systemMsg: ExtendedMessage = { role: 'system', content: INITIAL_SYSTEM_MESSAGE.content };
+            setMessages([systemMsg]);
+            window.lastSavedMessageCount = 1;
+          }
+        }
+        
+        // Reset editing state
+        setEditingMessageIndex(null);
+        setInput('');
+        setAttachedFiles([]);
+        
+        console.log(`Loaded chat ${chatId} with ${deduplicatedMessages.length} ${shouldFetchAll ? 'total' : 'new'} messages - total now: ${window.lastSavedMessageCount}`);
+      } else {
+        console.error('Invalid chat data format:', data);
+        // Don't reset messages if we already have some
+        if (messages.length <= 1) {
+          // Initialize with default system message only if we don't have messages
+          const systemMsg: ExtendedMessage = { role: 'system', content: INITIAL_SYSTEM_MESSAGE.content };
+          setMessages([systemMsg]);
+        }
       }
     } catch (error) {
       console.error('Error loading chat:', error);
-      // Start with a new chat if there's an error
-      setMessages([INITIAL_SYSTEM_MESSAGE]);
-      setChatTitle('');
+      // Don't reset messages on error if we already have some
+      if (messages.length <= 1) {
+        // Initialize with default system message only if we don't have messages
+        const systemMsg: ExtendedMessage = { role: 'system', content: INITIAL_SYSTEM_MESSAGE.content };
+        setMessages([systemMsg]);
+      }
     } finally {
-      setIsProcessing(false); // Hide loading state
+      setIsProcessing(false);
     }
   };
 
@@ -1832,24 +2170,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       };
 
       // Create a prompt for the AI to merge the changes
-      const mergePrompt = `You are a code merging expert. You need to analyze and merge code changes intelligently.
-
-${originalContent ? `EXISTING FILE (${currentInsert.filename}):\n\`\`\`\n${originalContent}\n\`\`\`\n` : `The file ${currentInsert.filename} is new and will be created.\n`}
-
-${originalContent ? 'NEW CHANGES:' : 'NEW FILE CONTENT:'}
-\`\`\`
-${currentInsert.content}
-\`\`\`
-
-Task:
-${originalContent ? 
-  '1. If the new changes are a complete file, determine if they should replace the existing file entirely\n2. If the new changes are partial (e.g., a single function), merge them into the appropriate location\n3. Preserve any existing functionality that isn\'t being explicitly replaced' : 
-  '1. This is a new file, so use the provided content directly.'
-}
-4. Ensure the merged code is properly formatted and maintains consistency
-5. Consider the project structure when merging (e.g., for imports)
-
-Return ONLY the final merged code without any explanations. The code should be ready to use as-is.`;
+      const mergePrompt = generatePrompts.codeMerging(currentInsert.filename, originalContent, currentInsert.content);
 
       // Use the chat completions endpoint for merging
       const result = await lmStudio.createChatCompletion({
@@ -1895,24 +2216,7 @@ Return ONLY the final merged code without any explanations. The code should be r
         };
 
         // Create a prompt for the AI to merge the changes
-        const mergePrompt = `You are a code merging expert. You need to analyze and merge code changes intelligently.
-
-${originalContent ? `EXISTING FILE (${currentInsert.filename}):\n\`\`\`\n${originalContent}\n\`\`\`\n` : `The file ${currentInsert.filename} is new and will be created.\n`}
-
-${originalContent ? 'NEW CHANGES:' : 'NEW FILE CONTENT:'}
-\`\`\`
-${currentInsert.content}
-\`\`\`
-
-Task:
-${originalContent ? 
-  '1. If the new changes are a complete file, determine if they should replace the existing file entirely\n2. If the new changes are partial (e.g., a single function), merge them into the appropriate location\n3. Preserve any existing functionality that isn\'t being explicitly replaced' : 
-  '1. This is a new file, so use the provided content directly.'
-}
-4. Ensure the merged code is properly formatted and maintains consistency
-5. Consider the project structure when merging (e.g., for imports)
-
-Return ONLY the final merged code without any explanations. The code should be ready to use as-is.`;
+        const mergePrompt = generatePrompts.codeMerging(currentInsert.filename, originalContent, currentInsert.content);
 
         // Use the lmStudio service for merging
         const result = await lmStudio.createChatCompletion({
@@ -2140,15 +2444,7 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
     'You should be concise, direct, and to the point.\n' +
     'Output text to communicate with the user; all text you output outside of tool use is displayed to the user. Only use tools to complete tasks. Never use tools or code comments as means to communicate with the user.\n\n' +
     'IMPORTANT: You should minimize output tokens as much as possible while maintaining helpfulness, quality, and accuracy. Only address the specific query or task at hand, avoiding tangential information unless absolutely critical for completing the request. If you can answer in 1-3 sentences or a short paragraph, please do.\n' +
-    'IMPORTANT: Keep your responses short. Avoid introductions, conclusions, and explanations. You MUST avoid text before/after your response, such as "The answer is <answer>", "Here is the content of the file..." or "Based on the information provided, the answer is..." or "Here is what I will do next...". Here are some examples to demonstrate appropriate verbosity:\n\n' +
-    '<example>\n' +
-    'user: 2 + 2\n' +
-    'assistant: 4\n' +
-    '</example>\n\n' +
-    '<example>\n' +
-    'user: what is 2+2?\n' +
-    'assistant: 4\n' +
-    '</example>\n';
+    'IMPORTANT: Keep your responses short. Avoid introductions, conclusions, and explanations. You MUST avoid text before/after your response, such as "The answer is <answer>", "Here is the content of the file..." or "Based on the information provided, the answer is..." or "Here is what I will do next...". Here are some examples to demonstrate appropriate verbosity:\n\n'
 
   // Modify handleSubmit to use the correct model based on mode
   const handleSubmit = async (e: React.FormEvent) => {
@@ -2177,7 +2473,8 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
         const updatedMessages = [...prev, userMessage];
         // Save chat history immediately after user message - no throttling
         if (currentChatId) {
-          setTimeout(() => saveChat(currentChatId, updatedMessages), 50);
+          // Don't reload immediately after adding a user message to avoid race conditions
+          setTimeout(() => saveChat(currentChatId, updatedMessages, false), 50);
         }
         return updatedMessages;
       });
@@ -2189,9 +2486,9 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
       abortControllerRef.current = new AbortController();
 
       // Add a temporary message for streaming
+      let updatedMessages: ExtendedMessage[] = [];
       setMessages(prev => {
-        const updatedMessages = [...prev, { role: 'assistant' as const, content: '' }];
-        // We don't save here since it's an empty assistant message that will be updated
+        updatedMessages = [...prev, { role: 'assistant' as const, content: '' }];
         return updatedMessages;
       });
 
@@ -2199,29 +2496,9 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
       const modelConfig = await AIFileService.getModelConfigForPurpose(mode === 'agent' ? 'agent' : 'chat');
       const modelId = modelConfig.modelId;
 
-      // Prepare messages for API
-      const messagesForAPI = messages.map(msg => {
-        if (msg.attachments && msg.attachments.length > 0) {
-          let contentWithAttachments = msg.content;
-          if (contentWithAttachments && contentWithAttachments.trim() !== '') {
-            contentWithAttachments += '\n\n';
-          }
-          msg.attachments.forEach(file => {
-            contentWithAttachments += `File: ${file.name}\n\`\`\`\n${file.content}\n\`\`\`\n\n`;
-          });
-          return { role: msg.role, content: contentWithAttachments };
-        }
-        return { 
-          role: msg.role, 
-          content: msg.content,
-          // Ensure any tool_call_id is properly formatted
-          ...(msg.tool_call_id && {
-            tool_call_id: msg.tool_call_id.length === 9 && /^[a-z0-9]+$/.test(msg.tool_call_id)
-              ? msg.tool_call_id
-              : generateValidToolCallId()
-          }) 
-        };
-      });
+      // Use the normalizeConversationHistory function with the updated messages
+      // This ensures we include the newly added user message
+      const messagesForAPI = normalizeConversationHistory(updatedMessages.slice(0, -1)); // Exclude empty assistant message
 
       // Add additional data for agent mode
       if (mode === 'agent') {
@@ -2371,41 +2648,101 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
         purpose: mode === 'agent' ? 'agent' : 'chat',
         onUpdate: async (content: string) => {
           currentContent = content;
-          console.log("Received content update in handleSubmit:", content.substring(0, 50) + "...");
           
-          setMessages(prev => {
-            const newMessages = [...prev];
-            newMessages[newMessages.length - 1] = {
+          // Check for function calls in streaming content
+          const hasFunctionCall = content.includes('function_call:');
+          let newMessage: ExtendedMessage = {
               role: 'assistant',
               content: content
             };
             
-            // Save chat during streaming only when content changes significantly
+          // If we have a function call, try to extract and properly format it
+          if (hasFunctionCall && mode === 'agent') {
+            try {
+              // Try multiple patterns to extract function calls
+              const functionCallMatch = content.match(/function_call:\s*({[\s\S]*?})(?=function_call:|$)/);
+              
+              if (functionCallMatch && functionCallMatch[1]) {
+                console.log('Detected function call in streaming response:', functionCallMatch[1].substring(0, 50) + '...');
+                
+                try {
+                  // Parse the function call
+                  const functionCallJson = functionCallMatch[1].trim();
+                  const functionCall = JSON.parse(functionCallJson);
+                  
+                  // Ensure we have a valid ID and other required fields
+                  const toolCall = {
+                    id: functionCall.id || generateValidToolCallId(),
+                    name: functionCall.name || '',
+                    arguments: functionCall.arguments || '{}'
+                  };
+                  
+                  if (toolCall.name) {
+                    console.log(`Extracted tool call during streaming: ${toolCall.name} with ID ${toolCall.id}`);
+                    
+                    // Format as a proper tool call message
+                    newMessage = {
+                      role: 'assistant',
+                      content: '',
+                      tool_calls: [{
+                        id: toolCall.id,
+                        name: toolCall.name,
+                        arguments: toolCall.arguments
+                      }]
+                    };
+                    
+                    console.log('Created properly formatted tool_calls structure for streaming response');
+                  }
+                } catch (e) {
+                  console.error('Error parsing function call in streaming response:', e);
+                  // Continue with regular content if parsing fails
+                }
+              }
+            } catch (e) {
+              console.error('Error processing function call in streaming response:', e);
+            }
+          }
+          
+          // Update the messages state with the appropriate format
+          setMessages(prev => {
+            const newMessages = [...prev];
+            newMessages[newMessages.length - 1] = newMessage;
+            
+            // Save chat during streaming with proper tool_calls format
             if (currentChatId && (!window.lastContentLength || 
                 Math.abs(content.length - window.lastContentLength) > 100)) {
               window.lastContentLength = content.length;
-              setTimeout(() => saveChat(currentChatId, newMessages), 100);
+              
+              // Increment the version to ensure we're not overwritten
+              window.chatSaveVersion = (window.chatSaveVersion || 0) + 1;
+              const saveVersion = window.chatSaveVersion;
+              
+              setTimeout(() => {
+                // Only save if our version is still current
+                if ((window.chatSaveVersion || 0) === saveVersion) {
+                  saveChat(currentChatId, newMessages, false);
+                }
+              }, 100);
             }
             
             return newMessages;
           });
 
           // In agent mode, debounce the tool call processing
-          if (mode === 'agent' && content.includes('function_call:')) {
-            console.log("Detected tool call in initial response");
-            
+          if (mode === 'agent' && hasFunctionCall) {
             // Clear any existing timeout
             if (toolCallTimeoutRef) {
               clearTimeout(toolCallTimeoutRef);
             }
             
-            // Set a new timeout to process tool calls after 200ms of no updates
+            // Set a new timeout to process tool calls after 300ms of no updates
             toolCallTimeoutRef = setTimeout(() => {
-              console.log("Processing tool calls after debounce");
-              setIsInToolExecutionChain(true); // Make sure we're in tool execution chain
               processToolCalls(content);
               toolCallTimeoutRef = null;
-            }, 200);
+            }, 300); // Increased timeout for more stability
+          } else if (mode !== 'agent') {
+            // For regular chat mode, process immediately if needed
+            await processToolCalls(content);
           }
         }
       });
@@ -2425,11 +2762,20 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
       } else {
         // If there are no tool calls, save the final AI message
         if (currentChatId) {
-          setMessages(prev => {
-            // Save chat after AI completes response
-            setTimeout(() => saveChat(currentChatId, prev), 50);
-            return prev;
-          });
+          // Ensure we have the final message content before saving
+          const lastMessageIndex = messages.length - 1;
+          const updatedMessages = [...messages];
+          
+          // Make sure the last message has the complete content
+          if (updatedMessages[lastMessageIndex]?.role === 'assistant') {
+            updatedMessages[lastMessageIndex].content = currentContent;
+          }
+          
+          // Save chat with the complete response
+          console.log('Saving chat with complete AI response');
+          setTimeout(() => {
+            saveChat(currentChatId, updatedMessages, true);
+          }, 200); // Slightly longer timeout to ensure all state updates are complete
         }
       }
 
@@ -2445,6 +2791,41 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
           preloadInsertModel();
         }, 3000);
       }
+
+      // Add debug logging to see what's being sent to the LLM API
+      console.log('Preparing API messages, original messages:', 
+        messages.map(m => ({
+          role: m.role,
+          hasToolCalls: !!m.tool_calls,
+          hasToolCallId: !!m.tool_call_id,
+          contentLength: m.content?.length || 0
+        }))
+      );
+
+      console.log('Processed messages for API:', 
+        messagesForAPI.map(m => ({
+          role: m.role,
+          hasToolCalls: !!(m as any).tool_calls,
+          hasToolCallId: !!(m as any).tool_call_id,
+          contentLength: m.content?.length || 0
+        }))
+      );
+
+      // Also add logging to the final API configuration
+      console.log('Final API request structure:', JSON.stringify({
+        model: modelId,
+        messages: messagesForAPI.map(m => ({
+          role: m.role,
+          // Truncate content for readability
+          content: typeof m.content === 'string' ? 
+            (m.content.length > 50 ? m.content.substring(0, 50) + '...' : m.content) : 
+            '<non-string content>',
+          tool_call_id: (m as any).tool_call_id,
+          tool_calls: (m as any).tool_calls ? '<tool calls present>' : undefined
+        })),
+        temperature: modelConfig.temperature || 0.7,
+        hasTools: !!(apiConfig as any).tools
+      }, null, 2));
 
     } catch (error) {
       console.error('Error in handleSubmit:', error);
@@ -2601,30 +2982,19 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
       setAttachedFiles([]);
 
       // Add a temporary message for streaming
-      setMessages(prev => [...prev, { role: 'assistant' as const, content: '' }]);
+      let messagesWithResponse: ExtendedMessage[] = [];
+      setMessages(prev => {
+        messagesWithResponse = [...prev, { role: 'assistant' as const, content: '' }];
+        return messagesWithResponse;
+      });
 
       // Get model configuration based on mode
       const modelConfig = await AIFileService.getModelConfigForPurpose(mode === 'agent' ? 'agent' : 'chat');
       const modelId = modelConfig.modelId;
 
-      // Prepare messages for API - convert attachments to content for LLM
-      const messagesForAPI = updatedMessages.map(msg => {
-        if (msg.attachments && msg.attachments.length > 0) {
-          // Create a copy of the message with attachments included in content
-          let contentWithAttachments = msg.content;
-          
-          if (contentWithAttachments && contentWithAttachments.trim() !== '') {
-            contentWithAttachments += '\n\n';
-          }
-          
-          msg.attachments.forEach((file, index) => {
-            contentWithAttachments += `File: ${file.name}\n\`\`\`\n${file.content}\n\`\`\`\n\n`;
-          });
-          
-          return { role: msg.role, content: contentWithAttachments };
-        }
-        return { role: msg.role, content: msg.content };
-      });
+      // Use the normalizeConversationHistory function to properly handle tool calls
+      // This ensures consistent formatting between normal submission and edits
+      const messagesForAPI = normalizeConversationHistory(messagesWithResponse.slice(0, -1)); // Exclude empty assistant message
       
       // Add tools configuration if in agent mode
       const apiConfig = {
@@ -2861,14 +3231,27 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
 
   // Updated handleToolCall function with user prompt reincorporation
   const handleToolCall = async (functionCall: any) => {
-    const { name, arguments: args } = functionCall;
+    const { name, arguments: args, id: rawId } = functionCall;
     
     try {
       console.log(`Processing tool call: ${name}`, args);
       setIsExecutingTool(true);
       
+      // Ensure we have a valid ID
+      const toolCallId = (rawId && rawId.length === 9 && /^[a-z0-9]+$/.test(rawId))
+        ? rawId
+        : generateValidToolCallId();
+      
+      console.log(`Using tool call ID: ${toolCallId} (validated from ${rawId || 'undefined'})`);
+      
       // Parse arguments if they're a string
-      const parsedArgs = typeof args === 'string' ? JSON.parse(args) : args;
+      let parsedArgs;
+      try {
+        parsedArgs = typeof args === 'string' ? JSON.parse(args) : args;
+      } catch (e) {
+        console.error('Error parsing arguments:', e);
+        parsedArgs = {};
+      }
       
       // Fix relative directory paths for list_directory calls
       if (name === "list_directory" && parsedArgs.directory_path) {
@@ -2894,15 +3277,6 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
         }
       }
       
-      // Ensure ID is in the correct format (9-character alphanumeric)
-      const toolCallId = functionCall.id && functionCall.id.length === 9 && /^[a-z0-9]+$/.test(functionCall.id)
-        ? functionCall.id
-        : generateValidToolCallId();
-      
-      // Get the last user message to reincorporate
-      const lastUserMessage = messages.slice().reverse().find(msg => msg.role === 'user');
-      const userQuery = lastUserMessage?.content || '';
-      
       // Call the ToolService to get real results
       const result = await ToolService.callTool(name, parsedArgs);
       
@@ -2910,21 +3284,22 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
       if (currentChatId) {
         // We don't add the tool result to messages here, we'll do it in processToolCalls
         // But we save the current state to ensure it's persistent
-        saveChat(currentChatId, messages, true);
+        saveChat(currentChatId, messages, false);
       }
       
       // Check if this is an error from the tool service
-      if (result.success === false) {
-        console.warn(`Tool call failed for ${name}:`, result.error || "Unknown error");
+      if (result?.success === false || !result) {
+        const errorMessage = result?.error || "Unknown error";
+        console.warn(`Tool call failed for ${name}:`, errorMessage);
         
         // Instead of returning an error as a tool message, add it as an assistant message
         setMessages(prev => {
-          const errorMessage: ExtendedMessage = {
+          const assistantErrorMessage: ExtendedMessage = {
             role: 'assistant',
-            content: `I tried to ${name.replace(/_/g, ' ')} but encountered an error: ${result.error || "Unknown error"}\n\nLet me try to help you with what I know instead.`
+            content: `I tried to ${name.replace(/_/g, ' ')} but encountered an error: ${errorMessage}\n\nLet me try to help you with what I know instead.`
           };
           
-          const updatedMessages = [...prev, errorMessage];
+          const updatedMessages = [...prev, assistantErrorMessage];
           
           // Save the chat after adding the error message
           if (currentChatId) {
@@ -2938,8 +3313,17 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
         return null;
       }
       
+      // Properly format the tool response
+      const formattedResult: ExtendedMessage = {
+        role: 'tool',
+        content: typeof result.content === 'string' 
+          ? result.content 
+          : JSON.stringify(result.content, null, 2),
+        tool_call_id: toolCallId
+      };
+      
       console.log(`Tool call ${name} completed successfully with ID: ${toolCallId}`);
-      return result;
+      return formattedResult;
     } catch (error) {
       console.error(`Error in handleToolCall for ${name}:`, error);
       
@@ -2973,146 +3357,274 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
     const matches = content.matchAll(functionCallRegex);
     let processedAnyCalls = false;
     
-    console.log("Checking for tool calls in:", content.substring(0, 100) + "...");
+    // Create a process version to track this specific tool processing operation
+    const processVersion = (window.chatSaveVersion || 0) + 1;
+    window.chatSaveVersion = processVersion;
+    
+    console.log(`Processing tool calls (version: ${processVersion}):\n${content.substring(0, 100)}...`);
+    
+    // Track current execution to prevent multiple concurrent tool chains
+    setIsInToolExecutionChain(true);
+    
+    // Skip this processing if already running a tool call
+    if (isExecutingTool) {
+      console.log('Tool already executing, skipping this processing round');
+      return { hasToolCalls: false };
+    }
     
     // First, load the latest chat state before processing any tools
     if (currentChatId) {
       await loadChat(currentChatId, true);
-      console.log("Reloaded chat before processing tool calls");
-    }
-    
-    // Start a polling mechanism to keep loading the latest chat state during tool execution
-    let pollingInterval: number | null = null;
-    
-    if (isInToolExecutionChain) {
-      pollingInterval = setInterval(async () => {
-        if (currentChatId && isInToolExecutionChain) {
-          console.log("Polling: reloading chat during tool execution");
-          await loadChat(currentChatId, true);
-        }
-      }, 1000); // Poll every second
+      console.log(`Reloaded chat before processing tool calls (version: ${processVersion})`);
+      
+      // Check if our version is still current after loading
+      if (window.chatSaveVersion !== processVersion) {
+        console.log(`Abandoning tool call processing - version changed during loading: ${window.chatSaveVersion} != ${processVersion}`);
+        return { hasToolCalls: false };
+      }
     }
     
     try {
-      for (const match of matches) {
+      // Create a set to track tool call IDs that have already been processed
+      const processedToolCallIds = new Set<string>();
+      
+      // Get current messages directly from state to ensure we have the latest data
+      // after the loadChat call above
+      let currentMessages: ExtendedMessage[] = [];
+      setMessages(prev => {
+        currentMessages = [...prev];
+        return prev;
+      });
+      
+      // Allow state update to complete
+      await new Promise(resolve => setTimeout(resolve, 50));
+      
+      // Find tool call IDs that already have responses in the conversation
+      currentMessages.forEach(msg => {
+        if (msg.role === 'tool' && msg.tool_call_id) {
+          processedToolCallIds.add(msg.tool_call_id);
+          console.log(`Found existing tool response for ID: ${msg.tool_call_id}`);
+        }
+      });
+      
+      // Extract all function calls from the content
+      const functionCalls: FunctionCall[] = [];
+      const matchArray = Array.from(content.matchAll(functionCallRegex));
+      
+      // Parse all function calls first
+      for (const match of matchArray) {
         try {
           const functionCallStr = match[1];
           if (!functionCallStr) continue;
           
-          console.log("Found function call:", functionCallStr);
-          
           // Try to parse the function call JSON
           let functionCall: FunctionCall;
           try {
-            functionCall = JSON.parse(functionCallStr);
+            functionCall = JSON.parse(functionCallStr.trim());
           } catch (error) {
             // If JSON parsing fails, try to extract components manually
-            console.log("Attempting to parse function call manually:", functionCallStr);
-            
-            // Extract ID - ensure it's valid or generate a new one
             const idMatch = functionCallStr.match(/"id"\s*:\s*"([^"]+)"/);
-            const rawId = idMatch ? idMatch[1] : '';
-            // Validate the ID format or generate a new one
-            const id = (rawId && rawId.length === 9 && /^[a-z0-9]+$/.test(rawId))
-              ? rawId
-              : generateValidToolCallId();
+            const id = idMatch ? idMatch[1] : generateValidToolCallId();
             
-            // Extract name
             const nameMatch = functionCallStr.match(/"name"\s*:\s*"([^"]+)"/);
             const name = nameMatch ? nameMatch[1] : '';
             
-            // Extract arguments
             const argsMatch = functionCallStr.match(/"arguments"\s*:\s*({[^}]+}|"[^"]+")/);
             let args = argsMatch ? argsMatch[1] : '{}';
             
+            // Clean up string arguments if needed
+            if (args.startsWith('"') && args.endsWith('"')) {
+              try {
+                // Try to parse JSON from string
+                args = JSON.parse(args);
+              } catch (e) {
+                // Keep as is if parsing fails
+              }
+            }
+            
             // Create the function call object
             functionCall = {
-              id,
-              name,
+              id: id,
+              name: name,
               arguments: args
             };
           }
           
-          // If we have a valid function call, process it
+          // Add to function calls array if valid
           if (functionCall.name) {
-            // Ensure ID is in the correct format
+            // Ensure ID has correct format
             if (!functionCall.id || functionCall.id.length !== 9 || !/^[a-z0-9]+$/.test(functionCall.id)) {
               functionCall.id = generateValidToolCallId();
             }
             
-            console.log("Processing tool call:", functionCall.name, "with ID:", functionCall.id);
+            // Only add if this is a new function call
+            if (!processedToolCallIds.has(functionCall.id)) {
+              functionCalls.push(functionCall);
+              console.log(`Added function call to processing queue: ${functionCall.name} (ID: ${functionCall.id})`);
+            } else {
+              console.log(`Skipping already processed function call: ${functionCall.name} (ID: ${functionCall.id})`);
+            }
+          }
+        } catch (error) {
+          console.error("Error parsing function call:", error);
+        }
+      }
+      
+      // Update the assistant message with proper tool_calls first
+      if (functionCalls.length > 0) {
+        console.log(`Updating assistant message with ${functionCalls.length} tool calls (version: ${processVersion})`);
+        
+        // Extract thinking content if present
+        let thinkingContent = '';
+        const lastMsg = currentMessages[currentMessages.length - 1];
+        
+        if (lastMsg && lastMsg.role === 'assistant' && typeof lastMsg.content === 'string') {
+          // Check for <think> blocks in the content
+          const thinkMatch = /<think>([\s\S]*?)<\/think>/g.exec(lastMsg.content);
+          if (thinkMatch && thinkMatch[1]) {
+            thinkingContent = thinkMatch[1];
+            console.log('Extracted thinking content to preserve:', thinkingContent.substring(0, 50) + '...');
+          }
+          
+          // Also check for content before the function_call
+          if (!thinkingContent) {
+            const contentBeforeFunctionCall = content.split('function_call:')[0].trim();
+            if (contentBeforeFunctionCall && contentBeforeFunctionCall.length > 0) {
+              // Clean up any potential HTML tags or 'thinking...' messages
+              const cleanedThinking = contentBeforeFunctionCall
+                .replace(/^Thinking\.\.\./i, '')
+                .replace(/^I'm thinking about this\.\.\./i, '')
+                .trim();
+                
+              if (cleanedThinking) {
+                thinkingContent = cleanedThinking;
+                console.log('Extracted content before function_call:', thinkingContent.substring(0, 50) + '...');
+              }
+            }
+          }
+        }
+        
+        // Update messages with all function calls at once
+        setMessages(prev => {
+          const newMessages = [...prev];
+          const lastAssistantIndex = prev.length - 1;
+          
+          if (lastAssistantIndex >= 0 && newMessages[lastAssistantIndex].role === 'assistant') {
+            // Create the updated assistant message for the tool call
+            let updatedAssistantMessage: ExtendedMessage = {
+              role: 'assistant' as const,
+              content: '', // Clear content since it's a tool call
+              tool_calls: functionCalls.map(fc => ({
+                id: fc.id,
+                name: fc.name,
+                arguments: fc.arguments
+              }))
+            };
             
-            // Reload the chat before handling each tool call
-            if (currentChatId) {
-              await loadChat(currentChatId, true);
-              console.log("Reloaded chat before handling tool call:", functionCall.name);
+            // If we extracted thinking content, create a separate message for it
+            if (thinkingContent) {
+              // Create a separate assistant message with proper think tags
+              const thinkingMessage: ExtendedMessage = {
+                role: 'assistant' as const,
+                content: `${thinkingContent}`
+              };
+              
+              // Replace the current message with thinking content
+              newMessages[lastAssistantIndex] = thinkingMessage;
+              
+              // Add the tool call as a new message
+              newMessages.push(updatedAssistantMessage);
+            } else {
+              // No thinking content, just update with tool calls
+              newMessages[lastAssistantIndex] = updatedAssistantMessage;
             }
             
+            // Save the updated messages immediately
+            if (currentChatId) {
+              window.chatSaveVersion = processVersion;
+              setTimeout(() => saveChat(currentChatId, newMessages, false), 50);
+            }
+          }
+          
+          return newMessages;
+        });
+        
+        // Wait for state to update
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      
+      // Process each tool call sequentially
+      for (const functionCall of functionCalls) {
+        try {
+          // Skip if already processed
+          if (processedToolCallIds.has(functionCall.id)) {
+            console.log(`Skipping duplicate tool call: ${functionCall.name} (ID: ${functionCall.id})`);
+            continue;
+          }
+          
+          // Add to processed set
+          processedToolCallIds.add(functionCall.id);
+          
+          // Set executing flag
+          setIsExecutingTool(true);
+          console.log(`Executing tool: ${functionCall.name} (ID: ${functionCall.id})`);
+          
+          // Execute the tool call
             const result = await handleToolCall(functionCall);
             
-            // If result is null, it means the error was already handled by handleToolCall
+          // If result is null, error was already handled
             if (result) {
               processedAnyCalls = true;
               
-              // Add the tool result to messages for display with correct typing
+            // Add the tool result to messages
               setMessages(prev => {
-                // Use the result directly from ToolService which already has the correct format
-                // with role: 'tool', content, and tool_call_id
-                const newMessage: ExtendedMessage = {
+              const toolMessage: ExtendedMessage = {
                   ...result,
+                role: 'tool',
                   tool_call_id: functionCall.id
                 };
                 
-                const updatedMessages = [...prev, newMessage];
+              const updatedMessages = [...prev, toolMessage];
                 
-                // Save the chat in real-time after adding the tool result
+              // Save chat after adding tool result
                 if (currentChatId) {
-                  setTimeout(() => saveChat(currentChatId, updatedMessages, true), 50);
+                window.chatSaveVersion = (window.chatSaveVersion || 0) + 1;
+                setTimeout(() => saveChat(currentChatId, updatedMessages, true), 100);
                 }
                 
                 return updatedMessages;
               });
               
-              console.log("Added tool result to messages with ID:", functionCall.id);
+            console.log(`Added tool result for ${functionCall.name} (ID: ${functionCall.id})`);
               
-              // Reload the chat again after saving the tool result
-              if (currentChatId) {
-                setTimeout(async () => {
-                  await loadChat(currentChatId, true);
-                  console.log("Reloaded chat after adding tool result");
-                }, 200);
-              }
+            // Wait for state to update
+            await new Promise(resolve => setTimeout(resolve, 150));
             } else {
-              // Error was already handled, but we should still mark this as processed
+            // Error was already handled
               processedAnyCalls = true;
-            }
           }
         } catch (error) {
-          console.error("Error processing function call:", error);
-        }
-      }
+          console.error(`Error executing tool ${functionCall.name}:`, error);
     } finally {
-      // Clean up the polling interval
-      if (pollingInterval) {
-        clearInterval(pollingInterval);
+          // Reset executing flag
+          setIsExecutingTool(false);
       }
     }
-    
+    } finally {
     // Continue the conversation if we processed any tool calls
     if (processedAnyCalls) {
       console.log("Tool calls processed, continuing conversation...");
-      setIsInToolExecutionChain(true);
       
-      // Use setTimeout to ensure state updates have completed
+        // Continue conversation with slight delay
       setTimeout(() => {
         continueLLMConversation();
-      }, 300); // Increased delay to ensure all reloads complete
+        }, 300);
     } else {
-      console.log("No tool calls processed or processed successfully");
+        console.log("No tool calls processed");
       setIsInToolExecutionChain(false);
+      }
     }
     
-    // Return an object with a flag indicating whether any tool calls were processed
     return { hasToolCalls: processedAnyCalls };
   };
   
@@ -3122,23 +3634,44 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
     
     try {
       setIsProcessing(true);
-      console.log("Starting to process conversation continuation");
+      
+      // Create a continuation version to track this specific continuation
+      const continuationVersion = (window.chatSaveVersion || 0) + 1;
+      window.chatSaveVersion = continuationVersion;
+      
+      console.log(`Starting to process conversation continuation (version: ${continuationVersion})`);
       
       // First, make sure we have the most up-to-date chat data
       if (currentChatId) {
-        // Load the chat with fresh data from disk
+        // Load the chat with fresh data from disk with force reload
         await loadChat(currentChatId, true);
-        console.log("Reloaded chat for continuation");
+        console.log(`Reloaded chat for continuation (version: ${continuationVersion})`);
+        
+        // Check if our version is still valid
+        if ((window.chatSaveVersion || 0) !== continuationVersion) {
+          console.log(`Abandoning continuation - version changed during loading: ${window.chatSaveVersion} != ${continuationVersion}`);
+          setIsProcessing(false);
+          setIsInToolExecutionChain(false);
+          return;
+        }
       }
       
       // Don't filter or truncate the messages at all - use ALL messages
       // This ensures we have the complete context with all tool calls and results
-      const relevantMessages = [...messages];
+      // Get a fresh copy of the messages from state to ensure we have the latest data
+      let relevantMessages: ExtendedMessage[] = [];
+      setMessages(prev => {
+        relevantMessages = [...prev];
+        return prev;
+      });
+      
+      // Allow state update to complete
+      await new Promise(resolve => setTimeout(resolve, 50));
       
       console.log(`Including ALL ${relevantMessages.length} messages for context`);
       
       // Get the last user message for the continuation prompt
-      const lastUserMessage = [...messages].reverse().find(msg => msg.role === 'user');
+      const lastUserMessage = [...relevantMessages].reverse().find(msg => msg.role === 'user');
       
       // Add a special system message to ensure continuation
       const continuationPrompt: ExtendedMessage = {
@@ -3148,23 +3681,7 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
       
       // Prepare conversation context that includes everything the model needs
       const conversationContext: Message[] = [
-        // Include all relevant messages without filtering
-        ...relevantMessages.map(msg => {
-          // Ensure tool messages are properly formatted for the API
-          if (msg.role === 'tool') {
-            return {
-              role: msg.role,
-              content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content),
-              tool_call_id: msg.tool_call_id
-            };
-          }
-          return {
-            role: msg.role,
-            content: msg.content,
-            tool_call_id: msg.tool_call_id
-          };
-        }),
-        
+        ...normalizeConversationHistory(relevantMessages),
         // Add the continuation prompt at the end
         continuationPrompt
       ];
@@ -3301,10 +3818,23 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
         });
       }, 30000); // 30 seconds timeout
       
-      // Use streaming API for continuation
-      let assistantResponse = '';
+      // Add the initial empty response message for streaming
+      setMessages(prev => {
+        const newMessages = [...prev, { 
+          role: 'assistant' as const, 
+          content: '' 
+        }];
+        return newMessages;
+      });
       
-      const process = async () => {
+      // Let state update before starting the stream
+      await new Promise(resolve => setTimeout(resolve, 50));
+      
+      let currentContent = '';
+      // Add a debounce timeout reference for tool calls
+      let toolCallTimeoutRef: ReturnType<typeof setTimeout> | null = null;
+      
+      // Use streaming API for continuation
         try {
           await lmStudio.createStreamingChatCompletion({
             model: modelId,
@@ -3316,17 +3846,130 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
             tools: apiConfig.tools,
             tool_choice: apiConfig.tool_choice,
             purpose: 'agent',
-            onUpdate: (content) => {
-              assistantResponse = content;
-              setThinking(content);
+          onUpdate: async (content) => {
+            currentContent = content;
+            
+            // Check for function calls in streaming content
+            const hasFunctionCall = content.includes('function_call:');
+            let newMessage: ExtendedMessage = {
+              role: 'assistant',
+              content: content
+            };
+            
+            // If we have a function call, try to extract and properly format it
+            if (hasFunctionCall) {
+              try {
+                // Try multiple patterns to extract function calls
+                const functionCallMatch = content.match(/function_call:\s*({[\s\S]*?})(?=function_call:|$)/);
+                
+                if (functionCallMatch && functionCallMatch[1]) {
+                  console.log('Detected function call in streaming response:', functionCallMatch[1].substring(0, 50) + '...');
+                  
+                  try {
+                    // Parse the function call
+                    const functionCallJson = functionCallMatch[1].trim();
+                    const functionCall = JSON.parse(functionCallJson);
+                    
+                    // Ensure we have a valid ID and other required fields
+                    const toolCall = {
+                      id: functionCall.id || generateValidToolCallId(),
+                      name: functionCall.name || '',
+                      arguments: functionCall.arguments || '{}'
+                    };
+                    
+                    if (toolCall.name) {
+                      console.log(`Extracted tool call during streaming: ${toolCall.name} with ID ${toolCall.id}`);
+                      
+                      // Format as a proper tool call message
+                      newMessage = {
+                        role: 'assistant',
+                        content: '',
+                        tool_calls: [{
+                          id: toolCall.id,
+                          name: toolCall.name,
+                          arguments: toolCall.arguments
+                        }]
+                      };
+                      
+                      console.log('Created properly formatted tool_calls structure for streaming response');
+                    }
+                  } catch (e) {
+                    console.error('Error parsing function call in streaming response:', e);
+                    // Continue with regular content if parsing fails
+                  }
+                }
+              } catch (e) {
+                console.error('Error processing function call in streaming response:', e);
+              }
+            }
+            
+            // Update the messages state with the streaming content
+            setMessages(prev => {
+              const newMessages = [...prev];
+              // Update the last message with the new content
+              newMessages[newMessages.length - 1] = newMessage;
+              
+              // Save chat during streaming with proper tool_calls format
+              if (currentChatId && (!window.lastContentLength || 
+                  Math.abs(content.length - window.lastContentLength) > 100)) {
+                window.lastContentLength = content.length;
+                
+                // Increment the version to ensure we're not overwritten
+                window.chatSaveVersion = (window.chatSaveVersion || 0) + 1;
+                const saveVersion = window.chatSaveVersion;
+                
+                setTimeout(() => {
+                  // Only save if our version is still current
+                  if ((window.chatSaveVersion || 0) === saveVersion) {
+                    saveChat(currentChatId, newMessages, false);
+                  }
+                }, 100);
+              }
+              
+              return newMessages;
+            });
+            
+            // In agent mode, debounce the tool call processing
+            if (hasFunctionCall) {
+              // Clear any existing timeout
+              if (toolCallTimeoutRef) {
+                clearTimeout(toolCallTimeoutRef);
+              }
+              
+              // Set a new timeout to process tool calls after 300ms of no updates
+              toolCallTimeoutRef = setTimeout(() => {
+                processToolCalls(content);
+                toolCallTimeoutRef = null;
+              }, 300);
+            }
             }
           });
           
           clearTimeout(timeoutId);
-          console.log('Final continuation response:', assistantResponse);
+        console.log('Final continuation response:', currentContent);
+        
+        // Set streaming complete flag
+        setIsStreamingComplete(true);
+        
+        // Process any final tool calls after streaming is complete
+        if (currentContent.includes('function_call:')) {
+          console.log('Processing final tool calls after streaming completion');
+          // Cancel any pending timeout
+          if (toolCallTimeoutRef) {
+            clearTimeout(toolCallTimeoutRef);
+            toolCallTimeoutRef = null;
+          }
+          // Process immediately
+          const toolCallResult = await processToolCalls(currentContent);
           
+          // If no tool calls were processed, reset tool execution chain
+          if (!toolCallResult.hasToolCalls) {
+            setIsInToolExecutionChain(false);
+          }
+        } else {
+          // If there are no function calls, process any code blocks
           // Extract and queue code blocks for auto-insert
-          const codeBlocks = extractCodeBlocks(assistantResponse);
+          const codeBlocks = extractCodeBlocks(currentContent);
           if (codeBlocks.length > 0) {
             setPendingInserts(prev => [
               ...prev,
@@ -3338,42 +3981,44 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
             }, 3000);
           }
           
-          // Process any tool calls in the response
-          const toolCallResult = await processToolCalls(assistantResponse);
-          
-          // If no tool calls were made, add the response as a normal message
-          if (!toolCallResult.hasToolCalls) {
-            setThinking('');
-            addMessage({
-              role: 'assistant',
-              content: assistantResponse
-            });
-            
-            // Reset the tool execution chain state
+          // Reset tool execution chain state when there are no tool calls
             setIsInToolExecutionChain(false);
           }
           
-          setIsProcessing(false);
         } catch (error) {
           console.error('Error in AI continuation:', error);
-          setIsProcessing(false);
           clearTimeout(timeoutId);
           
-          addMessage({
-            role: 'assistant',
-            content: "I apologize, but I'm having trouble continuing our conversation. Let me try to answer based on what I know already."
+        setMessages(prev => {
+          const newMessages = [...prev];
+          // Update the last message with an error message
+          if (newMessages[newMessages.length - 1].role === 'assistant' && 
+              (!newMessages[newMessages.length - 1].content || 
+               newMessages[newMessages.length - 1].content.length < 5)) {
+            newMessages[newMessages.length - 1] = {
+              role: 'assistant' as const,
+              content: "I apologize, but I encountered an error while trying to continue our conversation."
+            };
+          } else {
+            // Add a new message if the last one already has content
+            newMessages.push({
+              role: 'assistant' as const,
+              content: "I apologize, but I encountered an error while trying to continue our conversation."
+            });
+          }
+          return newMessages;
           });
           
           setIsInToolExecutionChain(false);
         }
-      };
       
-      // Start the process
-      process();
+      setIsProcessing(false);
+      setThinking('');
     } catch (error) {
       console.error('Error setting up conversation continuation:', error);
       setIsProcessing(false);
       setIsInToolExecutionChain(false);
+      setThinking('');
       
       addMessage({
         role: 'assistant',
@@ -3472,11 +4117,12 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
     // Handle tool role messages
     if (message.role === 'tool') {
       // Parse tool call content to get details
-      let content = message.content;
+      let content = typeof message.content === 'string' ? message.content : JSON.stringify(message.content);
       let toolName = "Tool";
       const toolCallId = message.tool_call_id || `tool_${index}`;
       const isExpanded = expandedToolCalls.has(toolCallId);
       let toolArgs = null;
+      let shortContent = '';
       
       try {
         // Determine tool type and create appropriate label
@@ -3509,14 +4155,14 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
             let extractedName = null;
             
             // First try to match the "name":"value" pattern
-            const nameMatch = message.content.match(/"name"\s*:\s*"([^"]+)"/);
+            const nameMatch = content.match(/"name"\s*:\s*"([^"]+)"/);
             if (nameMatch && nameMatch[1]) {
               extractedName = nameMatch[1];
             }
             
-            // Also try to match function_call: pattern
+            // Also try to match function_call pattern
             if (!extractedName) {
-              const functionCallMatch = message.content.match(/function_call:\s*\{.*?"name"\s*:\s*"([^"]+)"/s);
+              const functionCallMatch = content.match(/function_call:\s*\{.*?"name"\s*:\s*"([^"]+)"/s);
               if (functionCallMatch && functionCallMatch[1]) {
                 extractedName = functionCallMatch[1];
               }
@@ -3524,7 +4170,7 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
             
             // Also look for simpler pattern like list_directory
             if (!extractedName) {
-              const simpleCallMatch = message.content.match(/\b(list_directory|read_file|web_search|grep_search|codebase_search)\b/);
+              const simpleCallMatch = content.match(/\b(list_directory|read_file|web_search|grep_search|codebase_search)\b/);
               if (simpleCallMatch) {
                 extractedName = simpleCallMatch[1];
               }
@@ -3536,14 +4182,9 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
           } catch (e) {
             // Ignore extraction errors
           }
-        }
-      } catch (e) {
-        // Use default if parsing fails
-        console.error("Error parsing tool result:", e);
       }
       
       // Format content for display
-      let shortContent = '';
       try {
         // Try to clean up the content by removing function call info
         let cleanContent = content;
@@ -3555,7 +4196,13 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
         // If nothing is left, extract useful information from the result
         if (!cleanContent) {
           try {
-            const resultObj = JSON.parse(content);
+              // Try to parse the content as JSON
+              let resultObj;
+              if (typeof content === 'string') {
+                resultObj = JSON.parse(content);
+              } else {
+                resultObj = content;
+              }
             
             // Create a simplified preview for collapsed state
             if (typeof resultObj === 'object') {
@@ -3585,6 +4232,13 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
       } catch (error) {
         // If anything fails, take the first line only
         shortContent = content.split('\n')[0].slice(0, 60) + (content.length > 60 ? '...' : '');
+        }
+      } catch (e) {
+        // Use default if parsing fails
+        console.error("Error parsing tool result:", e);
+        shortContent = typeof content === 'string' ? 
+          content.split('\n')[0].slice(0, 60) + (content.length > 60 ? '...' : '') : 
+          'Unknown tool result';
       }
       
       return (
@@ -3598,20 +4252,44 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
             width: '100%',
             opacity: shouldBeFaded ? 0.5 : 1,
             transition: 'opacity 0.2s ease',
+            marginTop: '4px', // Reduced from default to minimize space after thoughts
           }}
         >
           <div
             className={`message tool`}
             style={{
-              padding: '12px',
+              padding: '8px 12px', // Reduced padding for more compact display
               borderRadius: '8px',
               border: '1px solid var(--border-secondary)',
+              width: '100%', // Add width to prevent overflow
+              boxSizing: 'border-box', // Ensure padding is included in width
+              marginTop: index > 0 && messages[index-1]?.role === 'assistant' && messages[index-1]?.content?.includes('<think>') ? '12px' : '4px', // Add more space if preceded by a thinking block
+              boxShadow: index > 0 && messages[index-1]?.role === 'assistant' && messages[index-1]?.content?.includes('<think>') ? '0 2px 6px rgba(0, 0, 0, 0.1)' : 'none', // Add shadow for better separation after thinking blocks
             }}
           >
-            <div className="tool-header" onClick={() => toggleToolCallExpansion(toolCallId)}>
-              <div className="tool-header-content">
-                <span className="tool-icon">
-                  {toolName === 'read_file' && <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <div className="tool-header" onClick={() => toggleToolCallExpansion(toolCallId)}
+                 style={{
+                   display: 'flex',
+                   justifyContent: 'space-between',
+                   alignItems: 'center',
+                   cursor: 'pointer',
+                   padding: '0', // Removed padding for more compact look
+                 }}>
+              <div className="tool-header-content"
+                     style={{
+                       display: 'flex',
+                       alignItems: 'center',
+                       gap: '6px',
+                     }}>
+                  <span className="tool-icon"
+                        style={{
+                          display: 'inline-flex',
+                          width: '20px',
+                          height: '20px',
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                        }}>
+                    {toolName && toolName === 'read_file' && <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
                     <polyline points="14 2 14 8 20 8"></polyline>
                     <line x1="16" y1="13" x2="8" y2="13"></line>
@@ -3619,56 +4297,150 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
                     <polyline points="10 9 9 9 8 9"></polyline>
                   </svg>}
                   
-                  {toolName === 'list_directory' && <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    {toolName && toolName === 'list_directory' && <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
                   </svg>}
                   
-                  {toolName === 'web_search' && <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    {toolName && toolName === 'web_search' && <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <circle cx="11" cy="11" r="8"></circle>
                     <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                   </svg>}
                   
-                  {!['read_file', 'list_directory', 'web_search'].includes(toolName) && <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    {toolName && !['read_file', 'list_directory', 'web_search'].includes(toolName) && <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
                     <line x1="12" y1="9" x2="12" y2="13"></line>
                     <line x1="12" y1="17" x2="12.01" y2="17"></line>
                   </svg>}
                 </span>
-                Used Tool: {toolName.replace(/_/g, ' ')}
+                  <span style={{ fontSize: '12px' }}>
+                    {(() => {
+                      // Try to extract the path from arguments
+                      let pathInfo = '';
+                      if (toolArgs) {
+                        try {
+                          // For list_directory, extract directory_path
+                          if (toolName === 'list_directory') {
+                            const args = typeof toolArgs === 'string' ? JSON.parse(toolArgs) : toolArgs;
+                            if (args.directory_path) {
+                              // Extract just the last part of the path for cleaner display
+                              const pathParts = args.directory_path.split(/[/\\]/);
+                              const dirName = pathParts[pathParts.length - 1] || pathParts[pathParts.length - 2] || args.directory_path;
+                              pathInfo = dirName;
+                            }
+                          }
+                          // For read_file, extract file_path
+                          else if (toolName === 'read_file') {
+                            const args = typeof toolArgs === 'string' ? JSON.parse(toolArgs) : toolArgs;
+                            if (args.file_path) {
+                              // Extract just the filename for cleaner display
+                              const pathParts = args.file_path.split(/[/\\]/);
+                              const fileName = pathParts[pathParts.length - 1];
+                              pathInfo = fileName;
+                            }
+                          }
+                          // For web_search, extract query
+                          else if (toolName === 'web_search') {
+                            const args = typeof toolArgs === 'string' ? JSON.parse(toolArgs) : toolArgs;
+                            if (args.query || args.search_term) {
+                              pathInfo = args.query || args.search_term;
+                            }
+                          }
+                        } catch (e) {
+                          // Ignore parsing errors
+                        }
+                      }
+
+                      // Generate human-friendly descriptions
+                      if (toolName === 'read_file') {
+                        return `Read file${pathInfo ? `: ${pathInfo}` : ''}`;
+                      } else if (toolName === 'list_directory') {
+                        return `Listed directory${pathInfo ? `: ${pathInfo}` : ''}`;
+                      } else if (toolName === 'web_search') {
+                        return `Searched web${pathInfo ? ` for "${pathInfo}"` : ''}`;
+                      } else if (toolName) {
+                        // Default for other tool types
+                        return toolName.replace(/_/g, ' ') + (shortContent ? `: ${shortContent}` : '');
+                      } else {
+                        return 'Used tool' + (shortContent ? `: ${shortContent}` : '');
+                      }
+                    })()}
+                  </span>
               </div>
               <svg 
-                className={`tool-toggle-icon ${isExpanded ? 'expanded' : ''}`}
                 width="12" 
                 height="12" 
                 viewBox="0 0 24 24" 
                 fill="none" 
                 stroke="currentColor" 
                 strokeWidth="2"
+                style={{
+                  transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                  transition: 'transform 0.2s ease',
+                }}
               >
                 <polyline points="6 9 12 15 18 9"></polyline>
               </svg>
             </div>
 
-            {!isExpanded && (
-              <div className="tool-preview">
-                {shortContent}
+            {!isExpanded && !shortContent && (
+              <div style={{
+                padding: '2px 0',
+                color: 'var(--text-secondary)',
+                fontSize: '12px',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                maxWidth: '100%',
+              }}>
+                {/* Empty div for spacing when no content to show */}
             </div>
           )}
             
             {isExpanded && toolArgs && (
-              <div className="tool-arguments">
-                <span className="tool-arguments-label">Arguments Used:</span>
-                <pre className="tool-arguments-content">{toolArgs}</pre>
+              <div style={{
+                marginTop: '8px',
+                padding: '8px',
+                background: 'var(--bg-tertiary)',
+                borderRadius: '4px',
+                fontSize: '12px',
+                fontFamily: 'var(--font-mono)',
+                whiteSpace: 'pre-wrap',
+                overflowX: 'auto',
+              }}>
+                <div style={{
+                  marginBottom: '4px',
+                  fontWeight: 'bold',
+                  fontSize: '11px',
+                  color: 'var(--text-secondary)',
+                }}>Arguments Used:</div>
+                {toolArgs}
         </div>
             )}
             
             {isExpanded && (
-              <span className="tool-result-label">Result:</span>
-            )}
-            
-            <pre className={`tool-result ${isExpanded ? 'expanded' : 'collapsed'}`}>
+              <>
+                <div style={{
+                  marginTop: '8px',
+                  fontWeight: 'bold',
+                  fontSize: '11px',
+                  color: 'var(--text-secondary)',
+                }}>Result:</div>
+                <pre style={{
+                  marginTop: '4px',
+                  padding: '8px',
+                  background: 'var(--bg-tertiary)',
+                  borderRadius: '4px',
+                  fontSize: '12px',
+                  fontFamily: 'var(--font-mono)',
+                  whiteSpace: 'pre-wrap',
+                  overflowX: 'auto',
+                  maxHeight: isExpanded ? 'none' : '80px',
+                  overflow: isExpanded ? 'auto' : 'hidden',
+                }}>
               {content}
             </pre>
+              </>
+            )}
           </div>
         </div>
       );
@@ -3765,7 +4537,8 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
     setIsProcessing(true);
     
     try {
-      // Force reload the chat from disk
+      // Force reload the chat from disk when switching chats
+      // Remove the conditional that skips loading when messages exist
       await loadChat(currentChatId, true);
       
       // Reset tool execution state
@@ -3925,6 +4698,7 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
           </div>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
+          {/* Remove Refresh Knowledge button since it's always included now */}
           <button
             onClick={onClose}
             className="close-button"
@@ -3951,7 +4725,7 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
           padding: '16px',
           display: 'flex',
           flexDirection: 'column',
-          gap: '16px',
+          gap: '12px', // Changed from 16px to 12px for tighter spacing
         }}
       >
         {messages.length <= 1 ? (

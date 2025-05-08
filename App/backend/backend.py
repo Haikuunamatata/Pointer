@@ -850,18 +850,130 @@ async def get_chat(chat_id: str):
             content={"detail": f"Error reading chat: {str(e)}"}
         )
 
-@app.post("/chats/{chat_id}")
-async def save_chat(chat_id: str, chat: dict):
-    """Save a chat."""
+@app.get("/chats/{chat_id}/latest")
+async def get_latest_chat_messages(chat_id: str, after_index: int = 0):
+    """Get only the latest messages from a chat after a specific index."""
     try:
         chats_dir = Path(os.environ.get('PROGRAMDATA', 'C:\\ProgramData')) / 'Pointer' / 'data' / 'chats'
         chats_dir.mkdir(parents=True, exist_ok=True)
         
         chat_file = chats_dir / f"{chat_id}.json"
-        with open(chat_file, 'w', encoding='utf-8') as f:
-            json.dump(chat, f, indent=2)
         
-        return {'success': True}
+        if not chat_file.exists():
+            return JSONResponse(
+                status_code=404,
+                content={"detail": "Chat not found"}
+            )
+            
+        with open(chat_file, 'r', encoding='utf-8') as f:
+            chat = json.load(f)
+            
+            # Extract only the messages after the specified index
+            if after_index >= 0 and after_index < len(chat.get('messages', [])):
+                chat['messages'] = chat['messages'][after_index:]
+                print(f"Returning {len(chat['messages'])} messages after index {after_index} for chat {chat_id}")
+            else:
+                print(f"Invalid after_index {after_index}, returning all {len(chat.get('messages', []))} messages for chat {chat_id}")
+                
+            return chat
+    except Exception as e:
+        print(f"Error reading chat file {chat_id}: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"detail": f"Error reading chat: {str(e)}"}
+        )
+
+class ChatMessage(BaseModel):
+    """Model for a chat message to be appended to a chat."""
+    messages: List[dict]  # Messages to append
+    is_edit: bool = False  # Flag to indicate if this is an edit
+    edit_index: int = -1   # If is_edit is true, index of the message to replace
+    overwrite: bool = False # If true, completely overwrite the chat (only for migrations or emergency fixes)
+
+@app.post("/chats/{chat_id}")
+async def save_chat(chat_id: str, request: ChatMessage):
+    """
+    Save a chat using an append-only approach.
+    
+    - Normal messages are appended to the end
+    - Edited messages replace the specified message and remove all subsequent messages
+    - Setting overwrite=True will completely replace the chat (only for migrations or emergency fixes)
+    """
+    try:
+        chats_dir = Path(os.environ.get('PROGRAMDATA', 'C:\\ProgramData')) / 'Pointer' / 'data' / 'chats'
+        chats_dir.mkdir(parents=True, exist_ok=True)
+        
+        chat_file = chats_dir / f"{chat_id}.json"
+        
+        # If this is a full overwrite request, simply write the new messages
+        if request.overwrite:
+            chat_data = {
+                "id": chat_id,
+                "name": "Chat",  # Use a default name, frontend should include proper name
+                "createdAt": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),
+                "messages": request.messages
+            }
+            
+            # Check for name in first message
+            if request.messages and len(request.messages) > 0:
+                if 'name' in request.messages[0]:
+                    chat_data["name"] = request.messages[0]["name"]
+            
+            with open(chat_file, 'w', encoding='utf-8') as f:
+                json.dump(chat_data, f, indent=2)
+            
+            print(f"Full overwrite of chat {chat_id} with {len(request.messages)} messages")
+            return {'success': True, 'operation': 'overwrite'}
+        
+        # Load existing chat data if available
+        chat_data = None
+        if chat_file.exists():
+            try:
+                with open(chat_file, 'r', encoding='utf-8') as f:
+                    chat_data = json.load(f)
+            except json.JSONDecodeError:
+                # Handle corrupted file
+                print(f"Error: Chat file {chat_id}.json is corrupted, creating new chat")
+                chat_data = None
+        
+        # If chat doesn't exist or was corrupted, create a new one
+        if not chat_data:
+            chat_data = {
+                "id": chat_id,
+                "name": "New Chat",
+                "createdAt": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),
+                "messages": []
+            }
+        
+        # Handle message editing (replace message at index and truncate)
+        if request.is_edit and request.edit_index >= 0:
+            # Make sure the index is valid
+            if request.edit_index < len(chat_data["messages"]):
+                # Replace the message at the index and remove all subsequent messages
+                chat_data["messages"] = chat_data["messages"][:request.edit_index]
+                chat_data["messages"].extend(request.messages)
+                print(f"Edited message at index {request.edit_index} in chat {chat_id}, truncated to {len(chat_data['messages'])} messages")
+                operation = "edit"
+            else:
+                # Invalid index, just append
+                chat_data["messages"].extend(request.messages)
+                print(f"Invalid edit index {request.edit_index}, appending instead")
+                operation = "append"
+        else:
+            # Regular append operation - only add the new messages
+            chat_data["messages"].extend(request.messages)
+            print(f"Appended {len(request.messages)} messages to chat {chat_id}, total now: {len(chat_data['messages'])}")
+            operation = "append"
+        
+        # Update chat name if provided in the first message
+        if request.messages and len(request.messages) > 0 and 'name' in request.messages[0]:
+            chat_data["name"] = request.messages[0]["name"]
+        
+        # Save the updated chat
+        with open(chat_file, 'w', encoding='utf-8') as f:
+            json.dump(chat_data, f, indent=2)
+        
+        return {'success': True, 'operation': operation, 'message_count': len(chat_data["messages"])}
     except Exception as e:
         print(f"Error saving chat {chat_id}: {e}")
         return JSONResponse(
