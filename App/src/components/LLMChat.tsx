@@ -24,7 +24,8 @@ import {
   getFileExtension,
   generateValidToolCallId,
   generatePrompts,
-  defaultModelConfigs
+  defaultModelConfigs,
+  AFTER_TOOL_CALL_PROMPT
 } from '../config/chatConfig';
 
 // Add TypeScript declarations for window properties
@@ -534,6 +535,160 @@ const MessageRenderer: React.FC<{ message: ExtendedMessage }> = ({ message }) =>
   // If we have an incomplete think, extract the content after <think>
   if (hasIncompleteThink) {
     const parts = messageContent.split('<think>');
+    
+    // If the thinking content is empty, just render the content before the <think> tag
+    if (!parts[1] || !parts[1].trim()) {
+      return (
+        <div className="message-content">
+          {message.attachments && message.attachments.length > 0 && (
+            <div className="message-attachments">
+              <div className="attachments-header">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+                </svg>
+                <span>{message.attachments.length} attached {message.attachments.length === 1 ? 'file' : 'files'}</span>
+              </div>
+              <div className="attachments-list">
+                {message.attachments.map((file, index) => (
+                  <div key={index} className="attachment-item">
+                    <div className="attachment-name">
+                      <span className="attachment-icon">📄</span>
+                      {file.name}
+                    </div>
+                    <button
+                      className="attachment-expand-button"
+                      onClick={() => window.open(`data:text/plain;charset=utf-8,${encodeURIComponent(file.content)}`, '_blank')}
+                      title="View file content"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <polyline points="15 3 21 3 21 9"></polyline>
+                        <polyline points="9 21 3 21 3 15"></polyline>
+                        <line x1="21" y1="3" x2="14" y2="10"></line>
+                        <line x1="3" y1="21" x2="10" y2="14"></line>
+                      </svg>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          <ReactMarkdown
+            components={{
+              p: ({ children, ...props }) => {
+                const hasCodeBlock = React.Children.toArray(children).some(
+                  child => React.isValidElement(child) && child.type === 'code'
+                );
+                return hasCodeBlock ? <div {...props}>{children}</div> : <p {...props}>{children}</p>;
+              },
+              ul: ({ children, ...props }) => (
+                <ul style={{ 
+                  margin: '8px 0',
+                  paddingLeft: '24px',
+                  listStyleType: 'disc'
+                }} {...props}>
+                  {children}
+                </ul>
+              ),
+              ol: ({ children, ...props }) => (
+                <ol style={{ 
+                  margin: '8px 0',
+                  paddingLeft: '24px',
+                  listStyleType: 'decimal'
+                }} {...props}>
+                  {children}
+                </ol>
+              ),
+              li: ({ children, ...props }) => (
+                <li style={{ 
+                  margin: '4px 0',
+                  lineHeight: '1.5'
+                }} {...props}>
+                  {children}
+                </li>
+              ),
+              code({ className, children, ...props }: CodeProps) {
+                let content = String(children).replace(/\n$/, '');
+                
+                // Check if this is a code block (triple backticks) or inline code (single backtick)
+                const isCodeBlock = content.includes('\n') || content.length > 50;
+                
+                if (!isCodeBlock) {
+                  return (
+                    <code
+                      style={{
+                        background: 'var(--bg-code)',
+                        padding: '2px 4px',
+                        borderRadius: '3px',
+                        fontSize: '0.9em',
+                        fontFamily: 'var(--font-mono)',
+                        color: 'var(--inline-code-color, #cc0000)',
+                      }}
+                      {...props}
+                    >
+                      {content}
+                    </code>
+                  );
+                }
+
+                let language = '';
+                let filename = '';
+                
+                if (className) {
+                  const match = /language-(\w+)(?::(.+))?/.exec(className);
+                  if (match) {
+                    language = match[1] || '';
+                    filename = match[2] || '';
+                  }
+                }
+
+                // If no filename was provided in the className, try to extract it from the first line
+                if (!filename) {
+                  const lines = content.split('\n');
+                  const firstLine = lines[0].trim();
+                  
+                  // Extract potential filename from any comment style
+                  // Match HTML comments, regular comments, and other common comment styles
+                  const commentPatterns = [
+                    /^<!--\s*(.*?\.[\w]+)\s*-->/, // HTML comments
+                    /^\/\/\s*(.*?\.[\w]+)\s*$/, // Single line comments
+                    /^#\s*(.*?\.[\w]+)\s*$/, // Hash comments
+                    /^\/\*\s*(.*?\.[\w]+)\s*\*\/$/, // Multi-line comments
+                    /^--\s*(.*?\.[\w]+)\s*$/, // SQL comments
+                    /^%\s*(.*?\.[\w]+)\s*$/, // Matlab/LaTeX comments
+                    /^;\s*(.*?\.[\w]+)\s*$/, // Assembly/Lisp comments
+                  ];
+
+                  for (const pattern of commentPatterns) {
+                    const match = firstLine.match(pattern);
+                    if (match && match[1]) {
+                      const potentialPath = match[1].trim();
+                      // Basic check if it looks like a file path (no spaces)
+                      if (!potentialPath.includes(' ')) {
+                        filename = potentialPath;
+                        // Remove the first line from the content since we're using it as the filename
+                        content = lines.slice(1).join('\n').trim();
+                        break;
+                      }
+                    }
+                  }
+                }
+                
+                return (
+                  <CollapsibleCodeBlock
+                    language={language || 'text'}
+                    filename={filename}
+                    content={content}
+                  />
+                );
+              }
+            }}
+          >
+            {parts[0]}
+          </ReactMarkdown>
+        </div>
+      );
+    }
+    
     return (
       <>
         {/* Render content before <think> tag */}
@@ -855,6 +1010,12 @@ const MessageRenderer: React.FC<{ message: ExtendedMessage }> = ({ message }) =>
         if (part.startsWith('<think>') && part.endsWith('</think>')) {
           // Extract content between think tags
           const thinkContent = part.slice(7, -8); // Remove <think> and </think>
+          
+          // Skip rendering if think content is empty
+          if (!thinkContent.trim()) {
+            return null;
+          }
+          
           // Calculate actual thinking time using the full message as key
           const thinkKey = messageContent;
           const thinkTime = thinkTimes[thinkKey] ? Math.round((Date.now() - thinkTimes[thinkKey]) / 1000) : 0;
@@ -1091,6 +1252,11 @@ const ThinkBlock: React.FC<{ content: string; thinkTime: number }> = ({ content,
 
 // Add this component for handling incomplete think blocks
 const ThinkingBlock: React.FC<{ content: string }> = ({ content }) => {
+  // Skip rendering if content is empty
+  if (!content || !content.trim()) {
+    return null;
+  }
+  
   return (
     <div
       style={{
@@ -1212,7 +1378,6 @@ const AUTO_INSERT_STYLES = `
   /* Add spacing between thinking blocks and subsequent tool messages */
   .think-block-container + div .message.tool {
     margin-top: 12px !important;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1) !important;
   }
 `;
 
@@ -3673,10 +3838,10 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
       // Get the last user message for the continuation prompt
       const lastUserMessage = [...relevantMessages].reverse().find(msg => msg.role === 'user');
       
-      // Add a special system message to ensure continuation
+      // Add the AFTER_TOOL_CALL_PROMPT as the continuation prompt for better tool call handling
       const continuationPrompt: ExtendedMessage = {
-        role: 'system',
-        content: `Be concise and address the original question directly. Provide a complete answer that fully resolves the user's query: "${lastUserMessage?.content || 'the user query'}"` 
+        role: AFTER_TOOL_CALL_PROMPT.role,
+        content: AFTER_TOOL_CALL_PROMPT.content
       };
       
       // Prepare conversation context that includes everything the model needs
@@ -4263,8 +4428,7 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
               border: '1px solid var(--border-secondary)',
               width: '100%', // Add width to prevent overflow
               boxSizing: 'border-box', // Ensure padding is included in width
-              marginTop: index > 0 && messages[index-1]?.role === 'assistant' && messages[index-1]?.content?.includes('<think>') ? '12px' : '4px', // Add more space if preceded by a thinking block
-              boxShadow: index > 0 && messages[index-1]?.role === 'assistant' && messages[index-1]?.content?.includes('<think>') ? '0 2px 6px rgba(0, 0, 0, 0.1)' : 'none', // Add shadow for better separation after thinking blocks
+              //    boxShadow: index > 0 && messages[index-1]?.role === 'assistant' && messages[index-1]?.content?.includes('<think>') ? '0 2px 6px rgba(0, 0, 0, 0.2)' : 'none', // Add shadow for better separation after thinking blocks
             }}
           >
             <div className="tool-header" onClick={() => toggleToolCallExpansion(toolCallId)}

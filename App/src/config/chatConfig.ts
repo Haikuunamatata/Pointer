@@ -62,6 +62,19 @@ Rules:
   attachments: undefined
 };
 
+// Prompt to be added after tool call responses
+export const AFTER_TOOL_CALL_PROMPT: ExtendedMessage = {
+  role: 'system',
+  content: `/no_think Now that you have the tool call results, please provide a clear and concise response to the original query. 
+Remember to:
+1. Interpret the tool results accurately
+2. Connect the findings directly to the user's question
+3. Be specific and precise in your answer
+4. Do not repeat the raw tool output unless specifically asked
+5. If additional tools are needed, use them immediately rather than suggesting the user do so`,
+  attachments: undefined
+};
+
 // Function to determine if tool use should be forced based on a query
 export const shouldForceToolUse = (query: string): boolean => {
   const toolUseIndicators = [
