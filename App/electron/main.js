@@ -234,8 +234,18 @@ const getIconPath = () => {
   const platform = os.platform();
   const logoPath = path.join(__dirname, 'logo.png');
   
-  // On macOS, return the PNG file
-  // On Windows and Linux, still use the PNG - electron-builder will use the correct icon from package.json
+  // On macOS, we need to use the .icns file for the dock icon
+  if (platform === 'darwin') {
+    // For development, use the PNG file and set it as the dock icon
+    if (isDev) {
+      app.dock.setIcon(logoPath);
+      return logoPath;
+    }
+    // For production, use the .icns file from the app bundle
+    return path.join(process.resourcesPath, 'app.icns');
+  }
+  
+  // On Windows and Linux, use the PNG file
   return logoPath;
 };
 

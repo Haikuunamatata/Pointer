@@ -2489,6 +2489,10 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                             <td style={{ padding: '8px', borderBottom: '1px solid var(--border-secondary)' }}>Toggle LLM Chat</td>
                             <td style={{ padding: '8px', borderBottom: '1px solid var(--border-secondary)' }}>Ctrl+I</td>
                           </tr>
+                          <tr>
+                            <td style={{ padding: '8px', borderBottom: '1px solid var(--border-secondary)' }}>Open Settings</td>
+                            <td style={{ padding: '8px', borderBottom: '1px solid var(--border-secondary)' }}>{navigator.platform.indexOf('Mac') > -1 ? '⌘,' : 'Ctrl+,'}</td>
+                          </tr>
                         </tbody>
                       </table>
                     </div>

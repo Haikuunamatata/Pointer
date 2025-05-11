@@ -52,7 +52,8 @@
     "appId": "com.pointer",
     "mac": {
       "category": "public.app-category.developer-tools",
-      "icon": "electron/logo3.png"
+      "icon": "electron/logo.png",
+      "target": ["dmg", "zip"]
     },
     "win": {
       "target": "nsis",

@@ -957,6 +957,9 @@ const App: React.FC = () => {
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'i') {
         e.preventDefault();
         setIsLLMChatVisible(!isLLMChatVisible);
+      } else if ((e.ctrlKey || e.metaKey) && e.key === ',') {
+        e.preventDefault();
+        setIsSettingsModalOpen(true);
       }
     };
 
