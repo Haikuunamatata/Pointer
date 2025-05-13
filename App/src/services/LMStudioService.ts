@@ -3,6 +3,18 @@ import { Message } from '../types';
 import { AIFileService } from './AIFileService';
 import { ToolService } from './ToolService';
 
+// Extend Message type to include tool_calls for internal use in this service
+interface ExtendedMessage extends Message {
+  tool_calls?: Array<{
+    id: string;
+    type: string;
+    function: {
+      name: string;
+      arguments: string;
+    };
+  }>;
+}
+
 interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
@@ -282,6 +294,9 @@ class LMStudioService {
           // Apply limits to prevent oversized payloads
           let trimmedMessages = this.applyMessageLimits(processedMessages);
           
+          // Extra safety check for unresponded tool calls
+          trimmedMessages = this.ensureAllToolCallsHaveResponses(trimmedMessages);
+          
           const requestBody: any = {
             model,
             messages: trimmedMessages,
@@ -341,6 +356,69 @@ class LMStudioService {
       console.error('Error in createStreamingChatCompletion:', error);
       throw error;
     }
+  }
+
+  /**
+   * Ensure all tool calls have responses - this is a final safety check
+   * before sending the request to OpenAI
+   */
+  private ensureAllToolCallsHaveResponses(messages: Message[]): Message[] {
+    // Track tool calls and their responses
+    const toolCallsMap = new Map<string, boolean>();
+    
+    // First identify all tool calls from assistant messages
+    messages.forEach((msg: any) => {
+      if (msg.role === 'assistant' && msg.tool_calls && Array.isArray(msg.tool_calls)) {
+        msg.tool_calls.forEach((tc: any) => {
+          if (tc.id) {
+            toolCallsMap.set(tc.id, false); // Initialize as not having a response
+          }
+        });
+      }
+    });
+    
+    // Then mark which ones have responses
+    messages.forEach((msg: any) => {
+      if (msg.role === 'tool' && msg.tool_call_id && toolCallsMap.has(msg.tool_call_id)) {
+        toolCallsMap.set(msg.tool_call_id, true);
+      }
+    });
+    
+    // Check if any tool calls don't have responses
+    let hasUnrespondedCalls = false;
+    toolCallsMap.forEach((hasResponse, id) => {
+      if (!hasResponse) {
+        console.log(`Final check: Unresponded tool call ID: ${id}`);
+        hasUnrespondedCalls = true;
+      }
+    });
+    
+    // If any unresponded tool calls, we need to fix
+    if (hasUnrespondedCalls) {
+      console.log("Fixing unresponded tool calls - removing assistant messages with unresponded calls");
+      
+      // We'll either modify assistant messages or create new tool responses
+      // Strategy: Remove any assistant message with tool_calls that don't all have responses
+      return messages.filter((msg: any, index: number) => {
+        // Only check assistant messages with tool_calls
+        if (msg.role === 'assistant' && msg.tool_calls && Array.isArray(msg.tool_calls)) {
+          // Check if all tool calls in this message have responses
+          const allHaveResponses = msg.tool_calls.every((tc: any) => 
+            tc.id ? toolCallsMap.get(tc.id) : true
+          );
+          
+          if (!allHaveResponses) {
+            console.log(`Removing assistant message at index ${index} with unresponded tool calls`);
+            return false; // Remove this message
+          }
+        }
+        
+        return true; // Keep all other messages
+      });
+    }
+    
+    // No issues, return original messages
+    return messages;
   }
 
   /**
@@ -416,6 +494,13 @@ class LMStudioService {
       // If read_file is used with directory_path, it's likely meant to be list_directory
       console.log('Detected parameter mismatch: read_file with directory_path');
       fixedToolName = 'list_directory';
+    } else if ((toolName === 'list_dir' || toolName === 'list_directory') && params.file_path) {
+      // If list_directory is used with file_path, it's likely meant to be read_file
+      console.log('Detected parameter mismatch: list_directory with file_path. Converting to read_file.');
+      fixedToolName = 'read_file';
+      fixedParams = {
+        target_file: params.file_path
+      };
     } else if (toolName === 'list_dir' || toolName === 'list_directory') {
       // Make sure list_directory uses directory_path
       if (params.relative_workspace_path && !params.directory_path) {
@@ -500,11 +585,160 @@ class LMStudioService {
       console.log(`Message ${index}: role=${msg.role}, length=${typeof msg.content === 'string' ? msg.content.length : 'non-string'}`);
       if (msg.role === 'tool' && msg.tool_call_id) {
         console.log(`  Tool response to call ID: ${msg.tool_call_id}`);
+        
+        // Enhance specific error message for clearer guidance
+        if (typeof msg.content === 'string' && 
+            msg.content.includes("Error executing tool list_directory: list_directory() got an unexpected keyword argument 'file_path'")) {
+          
+          console.log("Enhancing error message with suggestion to use read_file");
+          
+          // Add helpful suggestion to the error message
+          msg.content = msg.content.replace(
+            "Error executing tool list_directory: list_directory() got an unexpected keyword argument 'file_path'",
+            "Error executing tool list_directory: list_directory() got an unexpected keyword argument 'file_path'. Did you mean to use read_file(file_path) instead? Use list_directory with directory_path or relative_workspace_path."
+          );
+        }
       }
     });
+
+    // Track tool calls and responses to ensure proper structure
+    const toolCallIds = new Set<string>();
+    const toolResponseIds = new Set<string>();
+    const fixedMessages: ExtendedMessage[] = [];
+
+    // First, collect all tool response IDs
+    for (const msg of messages) {
+      if (msg.role === 'tool' && msg.tool_call_id) {
+        toolResponseIds.add(msg.tool_call_id);
+      }
+    }
+
+    // Now process messages and fix issues
+    for (let i = 0; i < messages.length; i++) {
+      const msg = messages[i] as ExtendedMessage;
+      
+      // For assistant messages with tool_calls, ensure each tool_call has a response
+      if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
+        // Filter out tool calls that don't have responses
+        let validToolCalls = msg.tool_calls.filter(toolCall => {
+          if (toolCall.id && !toolResponseIds.has(toolCall.id)) {
+            console.log(`Found assistant message with tool_call ID ${toolCall.id} that has no response. Removing.`);
+            return false;
+          }
+          return true;
+        });
+        
+        // If all tool calls were invalid and filtered out, skip this message
+        if (validToolCalls.length === 0) {
+          console.log('All tool calls were invalid, skipping this assistant message');
+          continue;
+        }
+        
+        // Update the message with only valid tool calls
+        msg.tool_calls = validToolCalls;
+        
+        // Add valid tool call IDs to our tracking set
+        validToolCalls.forEach(tc => {
+          if (tc.id) {
+            toolCallIds.add(tc.id);
+          }
+        });
+        
+        // Add the fixed message
+        fixedMessages.push(msg);
+      }
+      // For tool messages, check if there's a matching tool_call_id
+      else if (msg.role === 'tool' && msg.tool_call_id) {
+        const toolCallId = msg.tool_call_id;
+        
+        // If we don't have a matching tool_call in an assistant message
+        if (!toolCallIds.has(toolCallId)) {
+          console.log(`Found tool message with ID ${toolCallId} without preceding tool_calls message. Adding one.`);
+          
+          // Create a synthetic assistant message with the proper tool_calls
+          // Extract tool name from the tool response message
+          let toolName = 'unknown_function';
+          const toolNameMatch = typeof msg.content === 'string' ? 
+            msg.content.match(/Tool ([a-z_]+) result:/) : null;
+          
+          if (toolNameMatch && toolNameMatch[1]) {
+            toolName = toolNameMatch[1];
+          }
+          
+          // Create the assistant message with tool_calls
+          const assistantMessage: ExtendedMessage = {
+            role: 'assistant',
+            content: '',
+            tool_calls: [{
+              id: toolCallId,
+              type: 'function',
+              function: {
+                name: toolName,
+                arguments: '{}'
+              }
+            }]
+          };
+          
+          // Add the assistant message before the tool message
+          fixedMessages.push(assistantMessage);
+          toolCallIds.add(toolCallId);
+        }
+        
+        // Add the tool message
+        fixedMessages.push(msg);
+      }
+      // For any other message type
+      else {
+        fixedMessages.push(msg);
+      }
+    }
     
-    // Now process the messages
-    const processedMessages = messages.map(msg => {
+    // Now do a final pass to ensure all tool calls have responses
+    const finalMessages: ExtendedMessage[] = [];
+    const seenToolCallIds = new Set<string>();
+    
+    for (let i = 0; i < fixedMessages.length; i++) {
+      const msg = fixedMessages[i];
+      
+      // Add this message to our final list
+      finalMessages.push(msg);
+      
+      // If this is an assistant message with tool_calls
+      if (msg.role === 'assistant' && msg.tool_calls) {
+        // Check if each tool call has a corresponding tool response
+        for (const toolCall of msg.tool_calls) {
+          if (!toolCall.id) continue;
+          
+          // Skip if we've already seen this tool call id
+          if (seenToolCallIds.has(toolCall.id)) continue;
+          seenToolCallIds.add(toolCall.id);
+          
+          // Check if there's a response for this tool call
+          const hasResponse = fixedMessages.some((m, index) => 
+            index > i && m.role === 'tool' && m.tool_call_id === toolCall.id
+          );
+          
+          // If there's no response, add a dummy response
+          if (!hasResponse) {
+            console.log(`Adding dummy tool response for tool call ID: ${toolCall.id}`);
+            
+            const toolName = toolCall.function?.name || 'unknown_function';
+            
+            const dummyResponse: ExtendedMessage = {
+              role: 'tool',
+              content: `Tool ${toolName} result: {"success":false,"error":"No response available for this tool call"}`,
+              tool_call_id: toolCall.id
+            };
+            
+            // Add the dummy response right after the assistant message
+            finalMessages.push(dummyResponse);
+          }
+        }
+      }
+    }
+    
+    // Now process the fixed messages
+    const processedMessages = finalMessages.map(msg => {
       // Skip processing for non-assistant messages
       if (msg.role !== 'assistant') {
         return msg;
@@ -649,7 +883,8 @@ class LMStudioService {
         return {
           role: 'assistant',
           content: cleanedContent,
-          ...(msg.tool_call_id && { tool_call_id: msg.tool_call_id })
+          ...(msg.tool_call_id && { tool_call_id: msg.tool_call_id }),
+          ...(msg.tool_calls && { tool_calls: msg.tool_calls })
         };
       }
       
@@ -741,7 +976,8 @@ class LMStudioService {
       'list_dir': 'list_directory',
       'read_file': 'read_file',
       'web_search': 'web_search',
-      'fetch_webpage': 'fetch_webpage'
+      'fetch_webpage': 'fetch_webpage',
+      'grep_search': 'grep_search'
     };
     
     // Log the tools before processing
@@ -751,6 +987,104 @@ class LMStudioService {
         console.log(`Tool ${index}: ${tool.function.name}`);
       }
     });
+    
+    // First, check if we need to add any missing tools that might be in messages
+    let toolNames = new Set(tools.map(tool => tool.function?.name).filter(Boolean));
+    
+    // Add missing required tools
+    const requiredTools = ['read_file', 'list_directory', 'web_search', 'grep_search'];
+    const missingTools = requiredTools.filter(name => !toolNames.has(name) && !toolNames.has(frontendToBackendMap[name]));
+    
+    if (missingTools.length > 0) {
+      console.log(`Adding missing tools: ${missingTools.join(', ')}`);
+      
+      const additionalTools = missingTools.map(name => {
+        if (name === 'grep_search') {
+          return {
+            type: "function",
+            function: {
+              name: "grep_search",
+              description: "Search for a pattern in files",
+              parameters: {
+                type: "object",
+                properties: {
+                  query: {
+                    type: "string",
+                    description: "The pattern to search for"
+                  },
+                  include_pattern: {
+                    type: "string",
+                    description: "Optional file pattern to include (e.g. '*.ts')"
+                  },
+                  exclude_pattern: {
+                    type: "string",
+                    description: "Optional file pattern to exclude (e.g. 'node_modules')"
+                  }
+                },
+                required: ["query"]
+              }
+            }
+          };
+        } else if (name === 'list_directory' || name === 'list_dir') {
+          return {
+            type: "function",
+            function: {
+              name: "list_directory",
+              description: "List the contents of a directory",
+              parameters: {
+                type: "object",
+                properties: {
+                  directory_path: {
+                    type: "string",
+                    description: "The path to the directory to list"
+                  }
+                },
+                required: ["directory_path"]
+              }
+            }
+          };
+        } else if (name === 'read_file') {
+          return {
+            type: "function",
+            function: {
+              name: "read_file",
+              description: "Read the contents of a file",
+              parameters: {
+                type: "object",
+                properties: {
+                  target_file: {
+                    type: "string",
+                    description: "The path to the file to read"
+                  }
+                },
+                required: ["target_file"]
+              }
+            }
+          };
+        } else if (name === 'web_search') {
+          return {
+            type: "function",
+            function: {
+              name: "web_search",
+              description: "Search the web",
+              parameters: {
+                type: "object",
+                properties: {
+                  search_term: {
+                    type: "string",
+                    description: "The search query"
+                  }
+                },
+                required: ["search_term"]
+              }
+            }
+          };
+        }
+        return null;
+      }).filter(Boolean);
+      
+      tools = [...tools, ...additionalTools];
+    }
     
     return tools.map(tool => {
       if (tool.function && tool.function.name) {
@@ -778,12 +1112,62 @@ class LMStudioService {
    * Log API request with limited verbosity
    */
   private logApiRequest(baseUrl: string, requestBody: any): void {
+    // Add more detailed message inspection for debugging
+    console.log('Detailed message inspection:');
+    const messages = requestBody.messages || [];
+    
+    // Look for assistant messages with tool_calls and matching tool responses
+    const toolCallMap = new Map<string, boolean>();
+    
+    // First collect all tool_call_ids from assistant messages
+    messages.forEach((msg: any, idx: number) => {
+      if (msg.role === 'assistant' && msg.tool_calls) {
+        msg.tool_calls.forEach((tc: any) => {
+          if (tc.id) {
+            toolCallMap.set(tc.id, false); // Mark as not having response yet
+            console.log(`Message ${idx}: Assistant with tool_call_id ${tc.id} (${tc.function?.name || 'unknown'})`);
+          }
+        });
+      }
+    });
+    
+    // Then check for tool messages responding to those IDs
+    messages.forEach((msg: any, idx: number) => {
+      if (msg.role === 'tool' && msg.tool_call_id) {
+        console.log(`Message ${idx}: Tool response to tool_call_id ${msg.tool_call_id}`);
+        if (toolCallMap.has(msg.tool_call_id)) {
+          toolCallMap.set(msg.tool_call_id, true); // Mark as having response
+        } else {
+          console.log(`WARNING: Tool response at index ${idx} refers to non-existent tool_call_id: ${msg.tool_call_id}`);
+        }
+      }
+    });
+    
+    // Check for unresponded tool calls
+    let hasUnrespondedToolCalls = false;
+    toolCallMap.forEach((hasResponse, id) => {
+      if (!hasResponse) {
+        console.log(`ERROR: Unresponded tool_call_id: ${id}`);
+        hasUnrespondedToolCalls = true;
+      }
+    });
+    
+    if (hasUnrespondedToolCalls) {
+      console.log('WARNING: Request has unresponded tool calls, which will cause OpenAI API errors');
+    }
+
+    // Original logging
     console.log('Final API request payload:', JSON.stringify({
       ...requestBody,
       messages: requestBody.messages.map((m: any, i: number) => ({
         index: i,
         role: m.role,
         tool_call_id: m.tool_call_id || undefined,
+        tool_calls: m.tool_calls ? m.tool_calls.map((tc: any) => ({
+          id: tc.id, 
+          name: tc.function?.name,
+          args_preview: tc.function?.arguments?.substring(0, 30) + '...'
+        })) : undefined,
         content_preview: typeof m.content === 'string' ? 
           (m.content.length > 50 ? m.content.substring(0, 50) + '...' : m.content) : 
           '[Non-string content]'

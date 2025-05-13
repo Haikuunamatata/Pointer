@@ -71,7 +71,7 @@ const CodeActionsButton: React.FC<{ content: string; filename: string }> = ({ co
       
       // Get directory path for the file
       const directoryPath = filename.substring(0, filename.lastIndexOf('/'));
-      
+       
       try {
         // Try to read the file
         const response = await fetch(`http://localhost:23816/read-file?path=${encodeURIComponent(filename)}`);
