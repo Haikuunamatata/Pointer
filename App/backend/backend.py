@@ -641,7 +641,7 @@ async def fetch_folder_contents(request: PathRequest):
     return scan_directory(target_path)
 
 @app.get("/read-file")
-async def read_file(path: str, currentDir: str | None = None):
+async def read_file(target_file: str, currentDir: str | None = None):
     """Read a file's contents."""
     if not base_directory:
         raise HTTPException(status_code=400, detail="No directory opened")
@@ -654,7 +654,7 @@ async def read_file(path: str, currentDir: str | None = None):
         normalized_current = os.path.normpath(currentDir).replace('\\', '/') if currentDir else None
         
         # Normalize requested path
-        normalized_path = path.replace('\\', '/')
+        normalized_path = target_file.replace('\\', '/')
 
         # Try multiple path resolutions
         paths_to_try = [
@@ -694,7 +694,7 @@ async def read_file(path: str, currentDir: str | None = None):
         )
 
     except Exception as e:
-        print(f"Error reading file {path}: {str(e)}")
+        print(f"Error reading file {target_file}: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/open-file")

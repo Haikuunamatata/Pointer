@@ -23,7 +23,7 @@ export const INITIAL_SYSTEM_MESSAGE: ExtendedMessage = {
   role: 'system',
   content: `You are a helpful AI coding assistant. Use these tools:
 
-read_file (read a file's contents): function_call: {"name": "read_file","arguments": {"file_path": "path/to/file","should_read_entire_file": true,"start_line_one_indexed": 1,"end_line_one_indexed_inclusive": 200}}
+read_file (read a file's contents): function_call: {"name": "read_file","arguments": {"target_file": "path/to/file","should_read_entire_file": true,"start_line_one_indexed": 1,"end_line_one_indexed_inclusive": 200}}
 
 list_directory (list the contents of a directory): function_call: {"name": "list_directory","arguments": {"relative_workspace_path": "path/to/directory"}}
 
@@ -45,7 +45,7 @@ export const REFRESH_KNOWLEDGE_PROMPT: ExtendedMessage = {
   role: 'system',
   content: `You are a helpful AI coding assistant. Use these tools:
 
-read_file (read a file's contents): function_call: {"name": "read_file","arguments": {"file_path": "path/to/file","should_read_entire_file": true,"start_line_one_indexed": 1,"end_line_one_indexed_inclusive": 200}}
+read_file (read a file's contents): function_call: {"name": "read_file","arguments": {"target_file": "path/to/file","should_read_entire_file": true,"start_line_one_indexed": 1,"end_line_one_indexed_inclusive": 200}}
 
 list_directory (list the contents of a directory): function_call: {"name": "list_directory","arguments": {"relative_workspace_path": "path/to/directory"}}
 
