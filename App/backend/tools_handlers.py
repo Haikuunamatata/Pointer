@@ -10,25 +10,25 @@ from typing import Dict, Any, List, Optional
 from pathlib import Path
 
 
-async def read_file(target_file: str) -> Dict[str, Any]:
+async def read_file(file_path: str) -> Dict[str, Any]:
     """
     Read the contents of a file and return as a dictionary.
     
     Args:
-        target_file: Path to the file to read
+        file_path: Path to the file to read
         
     Returns:
         Dictionary with file content and metadata
     """
     try:
         # Security check: prevent path traversal
-        abs_path = os.path.abspath(target_file)
+        abs_path = os.path.abspath(file_path)
         
         # Check if file exists
         if not os.path.exists(abs_path):
             return {
                 "success": False,
-                "error": f"File not found: {target_file}"
+                "error": f"File not found: {file_path}"
             }
         
         # Get file extension and size
@@ -50,7 +50,7 @@ async def read_file(target_file: str) -> Dict[str, Any]:
             "success": True,
             "content": content,
             "metadata": {
-                "path": target_file,
+                "path": file_path,
                 "size": file_size,
                 "type": file_type,
                 "extension": file_extension
@@ -66,7 +66,7 @@ async def read_file(target_file: str) -> Dict[str, Any]:
             "error": "Invalid JSON format",
             "content": content,
             "metadata": {
-                "path": target_file,
+                "path": file_path,
                 "size": file_size,
                 "type": "text",
                 "extension": file_extension
@@ -78,7 +78,7 @@ async def read_file(target_file: str) -> Dict[str, Any]:
             "success": False,
             "error": "Cannot read binary file as text",
             "metadata": {
-                "path": target_file,
+                "path": file_path,
                 "size": file_size,
                 "type": "binary",
                 "extension": file_extension
@@ -90,7 +90,7 @@ async def read_file(target_file: str) -> Dict[str, Any]:
             "success": False,
             "error": str(e),
             "metadata": {
-                "path": target_file
+                "path": file_path
             }
         }
 
@@ -274,12 +274,12 @@ TOOL_DEFINITIONS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "target_file": {
+                "file_path": {
                     "type": "string",
                     "description": "The path to the file to read"
                 }
             },
-            "required": ["target_file"]
+            "required": ["file_path"]
         }
     },
     {

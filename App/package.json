@@ -31,9 +31,6 @@
     "react-dom": "^18.2.0",
     "react-markdown": "^9.0.3",
     "react-syntax-highlighter": "^15.6.1",
-    "react-virtualized-auto-sizer": "^1.0.26",
-    "react-window": "^1.8.11",
-    "remark-gfm": "^4.0.1",
     "simple-git": "^3.27.0",
     "tcp-port-used": "^1.0.2",
     "uuid": "^11.0.5",
@@ -42,8 +39,6 @@
   "devDependencies": {
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
-    "@types/react-virtualized-auto-sizer": "^1.0.8",
-    "@types/react-window": "^1.8.8",
     "@vitejs/plugin-react": "^4.2.0",
     "concurrently": "^8.2.2",
     "electron": "^28.1.0",
@@ -58,10 +53,7 @@
     "mac": {
       "category": "public.app-category.developer-tools",
       "icon": "electron/logo.png",
-      "target": [
-        "dmg",
-        "zip"
-      ]
+      "target": ["dmg", "zip"]
     },
     "win": {
       "target": "nsis",

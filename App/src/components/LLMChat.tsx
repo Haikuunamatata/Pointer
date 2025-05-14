@@ -1,24 +1,9 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo, memo } from 'react';
-import { useTransition, animated } from 'react-spring';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { FixedSizeList as List, areEqual } from 'react-window';
-import AutoSizer from 'react-virtualized-auto-sizer';
-import { BiX, BiSend, BiPlus, BiTrash, BiCheckSquare, BiSquare, BiPaperclip, BiPlay, BiStop } from 'react-icons/bi';
-import TextareaAutosize from 'react-textarea-autosize';
-import { useAutoAnimate } from '@formkit/auto-animate/react';
-import rehypeRaw from 'rehype-raw';
-import axios from 'axios';
-import { toast } from 'react-toastify';
-import { encode, decode } from 'js-base64';
-import FileSuggestion from './FileSuggestion';
-import { Tooltip } from 'react-tooltip';
-import { v4 as uuidv4 } from 'uuid';
-import { electronAPI } from '../electronAPI';
 import lmStudio from '../services/LMStudioService';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { v4 as uuidv4 } from 'uuid';
 import '../styles/LLMChat.css';
 import { DiffViewer } from './DiffViewer';
 import { FileChangeEventService } from '../services/FileChangeEventService';
@@ -63,18 +48,8 @@ interface LLMChatProps {
   onSelectChat: (chatId: string) => void;
 }
 
-// Add this helper function at the top of the file, before the main component
-function formatDate(date: Date): string {
-  return date.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "numeric"
-  });
-}
-
 // Combined actions button component for code blocks
-const CodeActionsButton = memo(({ content, filename }: { content: string; filename: string }) => {
+const CodeActionsButton: React.FC<{ content: string; filename: string }> = ({ content, filename }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -346,10 +321,10 @@ const CodeActionsButton = memo(({ content, filename }: { content: string; filena
       )}
     </div>
   );
-});
+};
 
 // Update CollapsibleCodeBlock component to use the new combined button
-const CollapsibleCodeBlock = memo(({ language, filename, content }: { language: string; filename?: string; content: string }) => {
+const CollapsibleCodeBlock: React.FC<{ language: string; filename?: string; content: string }> = ({ language, filename, content }) => {
   const [isCollapsed, setIsCollapsed] = useState(true);
   const [isHovered, setIsHovered] = useState(false);
   
@@ -521,7 +496,7 @@ const CollapsibleCodeBlock = memo(({ language, filename, content }: { language: 
       )}
     </div>
   );
-});
+};
 
 // Add this near the top with other component definitions
 interface ThinkTimes {
@@ -536,7 +511,7 @@ interface CodeProps extends React.HTMLAttributes<HTMLElement> {
 }
 
 // Component to render messages with markdown and code syntax highlighting
-const MessageRenderer = memo(({ message }: { message: ExtendedMessage }) => {
+const MessageRenderer: React.FC<{ message: ExtendedMessage }> = ({ message }) => {
   const [thinkTimes] = useState<ThinkTimes>({});
   
   // Handle non-string content
@@ -547,117 +522,6 @@ const MessageRenderer = memo(({ message }: { message: ExtendedMessage }) => {
   // Check if we have an incomplete think block
   const hasIncompleteThink = messageContent.includes('<think>') && 
     !messageContent.includes('</think>');
-
-  // Create memoized markdown components configuration to avoid recreating on every render
-  const markdownComponents = useMemo(() => ({
-    p: ({ children, ...props }: any) => {
-      const hasCodeBlock = React.Children.toArray(children).some(
-        child => React.isValidElement(child) && child.type === 'code'
-      );
-      return hasCodeBlock ? <div {...props}>{children}</div> : <p {...props}>{children}</p>;
-    },
-    ul: ({ children, ...props }: any) => (
-      <ul style={{ 
-        margin: '8px 0',
-        paddingLeft: '24px',
-        listStyleType: 'disc'
-      }} {...props}>
-        {children}
-      </ul>
-    ),
-    ol: ({ children, ...props }: any) => (
-      <ol style={{ 
-        margin: '8px 0',
-        paddingLeft: '24px',
-        listStyleType: 'decimal'
-      }} {...props}>
-        {children}
-      </ol>
-    ),
-    li: ({ children, ...props }: any) => (
-      <li style={{ 
-        margin: '4px 0',
-        lineHeight: '1.5'
-      }} {...props}>
-        {children}
-      </li>
-    ),
-    code({ className, children, ...props }: CodeProps) {
-      let content = String(children).replace(/\n$/, '');
-      
-      // Check if this is a code block (triple backticks) or inline code (single backtick)
-      const isCodeBlock = content.includes('\n') || content.length > 50;
-      
-      if (!isCodeBlock) {
-        return (
-          <code
-            style={{
-              background: 'var(--bg-code)',
-              padding: '2px 4px',
-              borderRadius: '3px',
-              fontSize: '0.9em',
-              fontFamily: 'var(--font-mono)',
-              color: 'var(--inline-code-color, #cc0000)',
-            }}
-            {...props}
-          >
-            {content}
-          </code>
-        );
-      }
-
-      let language = '';
-      let filename = '';
-      
-      if (className) {
-        const match = /language-(\w+)(?::(.+))?/.exec(className);
-        if (match) {
-          language = match[1] || '';
-          filename = match[2] || '';
-        }
-      }
-
-      // If no filename was provided in the className, try to extract it from the first line
-      if (!filename) {
-        const lines = content.split('\n');
-        const firstLine = lines[0].trim();
-        
-        // Extract potential filename from any comment style
-        // Match HTML comments, regular comments, and other common comment styles
-        const commentPatterns = [
-          /^<!--\s*(.*?\.[\w]+)\s*-->/, // HTML comments
-          /^\/\/\s*(.*?\.[\w]+)\s*$/, // Single line comments
-          /^#\s*(.*?\.[\w]+)\s*$/, // Hash comments
-          /^\/\*\s*(.*?\.[\w]+)\s*\*\/$/, // Multi-line comments
-          /^--\s*(.*?\.[\w]+)\s*$/, // SQL comments
-          /^%\s*(.*?\.[\w]+)\s*$/, // Matlab/LaTeX comments
-          /^;\s*(.*?\.[\w]+)\s*$/, // Assembly/Lisp comments
-        ];
-
-        for (const pattern of commentPatterns) {
-          const match = firstLine.match(pattern);
-          if (match && match[1]) {
-            const potentialPath = match[1].trim();
-            // Basic check if it looks like a file path (no spaces)
-            if (!potentialPath.includes(' ')) {
-              filename = potentialPath;
-              // Remove the first line from the content since we're using it as the filename
-              content = lines.slice(1).join('\n').trim();
-              break;
-            }
-          }
-        }
-      }
-      
-      return (
-        <CollapsibleCodeBlock
-          language={language || 'text'}
-          filename={filename}
-          content={content}
-        />
-      );
-    }
-  }), []); // Empty dependency array since nothing inside should change between renders
 
   // Start timing when a think block starts
   useEffect(() => {
@@ -709,8 +573,115 @@ const MessageRenderer = memo(({ message }: { message: ExtendedMessage }) => {
             </div>
           )}
           <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            components={markdownComponents}
+            components={{
+              p: ({ children, ...props }) => {
+                const hasCodeBlock = React.Children.toArray(children).some(
+                  child => React.isValidElement(child) && child.type === 'code'
+                );
+                return hasCodeBlock ? <div {...props}>{children}</div> : <p {...props}>{children}</p>;
+              },
+              ul: ({ children, ...props }) => (
+                <ul style={{ 
+                  margin: '8px 0',
+                  paddingLeft: '24px',
+                  listStyleType: 'disc'
+                }} {...props}>
+                  {children}
+                </ul>
+              ),
+              ol: ({ children, ...props }) => (
+                <ol style={{ 
+                  margin: '8px 0',
+                  paddingLeft: '24px',
+                  listStyleType: 'decimal'
+                }} {...props}>
+                  {children}
+                </ol>
+              ),
+              li: ({ children, ...props }) => (
+                <li style={{ 
+                  margin: '4px 0',
+                  lineHeight: '1.5'
+                }} {...props}>
+                  {children}
+                </li>
+              ),
+              code({ className, children, ...props }: CodeProps) {
+                let content = String(children).replace(/\n$/, '');
+                
+                // Check if this is a code block (triple backticks) or inline code (single backtick)
+                const isCodeBlock = content.includes('\n') || content.length > 50;
+                
+                if (!isCodeBlock) {
+                  return (
+                    <code
+                      style={{
+                        background: 'var(--bg-code)',
+                        padding: '2px 4px',
+                        borderRadius: '3px',
+                        fontSize: '0.9em',
+                        fontFamily: 'var(--font-mono)',
+                        color: 'var(--inline-code-color, #cc0000)',
+                      }}
+                      {...props}
+                    >
+                      {content}
+                    </code>
+                  );
+                }
+
+                let language = '';
+                let filename = '';
+                
+                if (className) {
+                  const match = /language-(\w+)(?::(.+))?/.exec(className);
+                  if (match) {
+                    language = match[1] || '';
+                    filename = match[2] || '';
+                  }
+                }
+
+                // If no filename was provided in the className, try to extract it from the first line
+                if (!filename) {
+                  const lines = content.split('\n');
+                  const firstLine = lines[0].trim();
+                  
+                  // Extract potential filename from any comment style
+                  // Match HTML comments, regular comments, and other common comment styles
+                  const commentPatterns = [
+                    /^<!--\s*(.*?\.[\w]+)\s*-->/, // HTML comments
+                    /^\/\/\s*(.*?\.[\w]+)\s*$/, // Single line comments
+                    /^#\s*(.*?\.[\w]+)\s*$/, // Hash comments
+                    /^\/\*\s*(.*?\.[\w]+)\s*\*\/$/, // Multi-line comments
+                    /^--\s*(.*?\.[\w]+)\s*$/, // SQL comments
+                    /^%\s*(.*?\.[\w]+)\s*$/, // Matlab/LaTeX comments
+                    /^;\s*(.*?\.[\w]+)\s*$/, // Assembly/Lisp comments
+                  ];
+
+                  for (const pattern of commentPatterns) {
+                    const match = firstLine.match(pattern);
+                    if (match && match[1]) {
+                      const potentialPath = match[1].trim();
+                      // Basic check if it looks like a file path (no spaces)
+                      if (!potentialPath.includes(' ')) {
+                        filename = potentialPath;
+                        // Remove the first line from the content since we're using it as the filename
+                        content = lines.slice(1).join('\n').trim();
+                        break;
+                      }
+                    }
+                  }
+                }
+                
+                return (
+                  <CollapsibleCodeBlock
+                    language={language || 'text'}
+                    filename={filename}
+                    content={content}
+                  />
+                );
+              }
+            }}
           >
             {parts[0]}
           </ReactMarkdown>
@@ -756,8 +727,115 @@ const MessageRenderer = memo(({ message }: { message: ExtendedMessage }) => {
               </div>
             )}
             <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              components={markdownComponents}
+              components={{
+                p: ({ children, ...props }) => {
+                  const hasCodeBlock = React.Children.toArray(children).some(
+                    child => React.isValidElement(child) && child.type === 'code'
+                  );
+                  return hasCodeBlock ? <div {...props}>{children}</div> : <p {...props}>{children}</p>;
+                },
+                ul: ({ children, ...props }) => (
+                  <ul style={{ 
+                    margin: '8px 0',
+                    paddingLeft: '24px',
+                    listStyleType: 'disc'
+                  }} {...props}>
+                    {children}
+                  </ul>
+                ),
+                ol: ({ children, ...props }) => (
+                  <ol style={{ 
+                    margin: '8px 0',
+                    paddingLeft: '24px',
+                    listStyleType: 'decimal'
+                  }} {...props}>
+                    {children}
+                  </ol>
+                ),
+                li: ({ children, ...props }) => (
+                  <li style={{ 
+                    margin: '4px 0',
+                    lineHeight: '1.5'
+                  }} {...props}>
+                    {children}
+                  </li>
+                ),
+                code({ className, children, ...props }: CodeProps) {
+                  let content = String(children).replace(/\n$/, '');
+                  
+                  // Check if this is a code block (triple backticks) or inline code (single backtick)
+                  const isCodeBlock = content.includes('\n') || content.length > 50;
+                  
+                  if (!isCodeBlock) {
+                    return (
+                      <code
+                        style={{
+                          background: 'var(--bg-code)',
+                          padding: '2px 4px',
+                          borderRadius: '3px',
+                          fontSize: '0.9em',
+                          fontFamily: 'var(--font-mono)',
+                          color: 'var(--inline-code-color, #cc0000)',
+                        }}
+                        {...props}
+                      >
+                        {content}
+                      </code>
+                    );
+                  }
+
+                  let language = '';
+                  let filename = '';
+                  
+                  if (className) {
+                    const match = /language-(\w+)(?::(.+))?/.exec(className);
+                    if (match) {
+                      language = match[1] || '';
+                      filename = match[2] || '';
+                    }
+                  }
+
+                  // If no filename was provided in the className, try to extract it from the first line
+                  if (!filename) {
+                    const lines = content.split('\n');
+                    const firstLine = lines[0].trim();
+                    
+                    // Extract potential filename from any comment style
+                    // Match HTML comments, regular comments, and other common comment styles
+                    const commentPatterns = [
+                      /^<!--\s*(.*?\.[\w]+)\s*-->/, // HTML comments
+                      /^\/\/\s*(.*?\.[\w]+)\s*$/, // Single line comments
+                      /^#\s*(.*?\.[\w]+)\s*$/, // Hash comments
+                      /^\/\*\s*(.*?\.[\w]+)\s*\*\/$/, // Multi-line comments
+                      /^--\s*(.*?\.[\w]+)\s*$/, // SQL comments
+                      /^%\s*(.*?\.[\w]+)\s*$/, // Matlab/LaTeX comments
+                      /^;\s*(.*?\.[\w]+)\s*$/, // Assembly/Lisp comments
+                    ];
+
+                    for (const pattern of commentPatterns) {
+                      const match = firstLine.match(pattern);
+                      if (match && match[1]) {
+                        const potentialPath = match[1].trim();
+                        // Basic check if it looks like a file path (no spaces)
+                        if (!potentialPath.includes(' ')) {
+                          filename = potentialPath;
+                          // Remove the first line from the content since we're using it as the filename
+                          content = lines.slice(1).join('\n').trim();
+                          break;
+                        }
+                      }
+                    }
+                  }
+                  
+                  return (
+                    <CollapsibleCodeBlock
+                      language={language || 'text'}
+                      filename={filename}
+                      content={content}
+                    />
+                  );
+                }
+              }}
             >
               {parts[0]}
             </ReactMarkdown>
@@ -807,9 +885,117 @@ const MessageRenderer = memo(({ message }: { message: ExtendedMessage }) => {
             </div>
           </div>
         )}
+        
         <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
-          components={markdownComponents}
+          components={{
+            p: ({ children, ...props }) => {
+              const hasCodeBlock = React.Children.toArray(children).some(
+                child => React.isValidElement(child) && child.type === 'code'
+              );
+              return hasCodeBlock ? <div {...props}>{children}</div> : <p {...props}>{children}</p>;
+            },
+            ul: ({ children, ...props }) => (
+              <ul style={{ 
+                margin: '8px 0',
+                paddingLeft: '24px',
+                listStyleType: 'disc'
+              }} {...props}>
+                {children}
+              </ul>
+            ),
+            ol: ({ children, ...props }) => (
+              <ol style={{ 
+                margin: '8px 0',
+                paddingLeft: '24px',
+                listStyleType: 'decimal'
+              }} {...props}>
+                {children}
+              </ol>
+            ),
+            li: ({ children, ...props }) => (
+              <li style={{ 
+                margin: '4px 0',
+                lineHeight: '1.5'
+              }} {...props}>
+                {children}
+              </li>
+            ),
+            code({ className, children, ...props }: CodeProps) {
+              let content = String(children).replace(/\n$/, '');
+              
+              // Check if this is a code block (triple backticks) or inline code (single backtick)
+              const isCodeBlock = content.includes('\n') || content.length > 50;
+              
+              if (!isCodeBlock) {
+                return (
+                  <code
+                    style={{
+                      background: 'var(--bg-code)',
+                      padding: '2px 4px',
+                      borderRadius: '3px',
+                      fontSize: '0.9em',
+                      fontFamily: 'var(--font-mono)',
+                      color: 'var(--inline-code-color, #cc0000)',
+                    }}
+                    {...props}
+                  >
+                    {content}
+                  </code>
+                );
+              }
+
+              let language = '';
+              let filename = '';
+              
+              if (className) {
+                const match = /language-(\w+)(?::(.+))?/.exec(className);
+                if (match) {
+                  language = match[1] || '';
+                  filename = match[2] || '';
+                }
+              }
+
+              // If no filename was provided in the className, try to extract it from the first line
+              if (!filename) {
+                const lines = content.split('\n');
+                const firstLine = lines[0].trim();
+                
+                // Extract potential filename from any comment style
+                // Match HTML comments, regular comments, and other common comment styles
+                const commentPatterns = [
+                  /^<!--\s*(.*?\.[\w]+)\s*-->/, // HTML comments
+                  /^\/\/\s*(.*?\.[\w]+)\s*$/, // Single line comments
+                  /^#\s*(.*?\.[\w]+)\s*$/, // Hash comments
+                  /^\/\*\s*(.*?\.[\w]+)\s*\*\/$/, // Multi-line comments
+                  /^--\s*(.*?\.[\w]+)\s*$/, // SQL comments
+                  /^%\s*(.*?\.[\w]+)\s*$/, // Matlab/LaTeX comments
+                  /^;\s*(.*?\.[\w]+)\s*$/, // Assembly/Lisp comments
+                ];
+
+                for (const pattern of commentPatterns) {
+                  const match = firstLine.match(pattern);
+                  if (match && match[1]) {
+                    const potentialPath = match[1].trim();
+                    // Basic check if it looks like a file path (no spaces)
+                    if (!potentialPath.includes(' ')) {
+                      filename = potentialPath;
+                      // Remove the first line from the content since we're using it as the filename
+                      content = lines.slice(1).join('\n').trim();
+                      break;
+                    }
+                  }
+                }
+              }
+              
+              return (
+                <CollapsibleCodeBlock
+                  language={language || 'text'}
+                  filename={filename}
+                  content={content}
+                />
+              );
+            }
+          }}
         >
           {messageContent}
         </ReactMarkdown>
@@ -874,8 +1060,115 @@ const MessageRenderer = memo(({ message }: { message: ExtendedMessage }) => {
             )}
             
             <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              components={markdownComponents}
+              components={{
+                p: ({ children, ...props }) => {
+                  const hasCodeBlock = React.Children.toArray(children).some(
+                    child => React.isValidElement(child) && child.type === 'code'
+                  );
+                  return hasCodeBlock ? <div {...props}>{children}</div> : <p {...props}>{children}</p>;
+                },
+                ul: ({ children, ...props }) => (
+                  <ul style={{ 
+                    margin: '8px 0',
+                    paddingLeft: '24px',
+                    listStyleType: 'disc'
+                  }} {...props}>
+                    {children}
+                  </ul>
+                ),
+                ol: ({ children, ...props }) => (
+                  <ol style={{ 
+                    margin: '8px 0',
+                    paddingLeft: '24px',
+                    listStyleType: 'decimal'
+                  }} {...props}>
+                    {children}
+                  </ol>
+                ),
+                li: ({ children, ...props }) => (
+                  <li style={{ 
+                    margin: '4px 0',
+                    lineHeight: '1.5'
+                  }} {...props}>
+                    {children}
+                  </li>
+                ),
+                code({ className, children, ...props }: CodeProps) {
+                  let content = String(children).replace(/\n$/, '');
+                  
+                  // Check if this is a code block (triple backticks) or inline code (single backtick)
+                  const isCodeBlock = content.includes('\n') || content.length > 50;
+                  
+                  if (!isCodeBlock) {
+                    return (
+                      <code
+                        style={{
+                          background: 'var(--bg-code)',
+                          padding: '2px 4px',
+                          borderRadius: '3px',
+                          fontSize: '0.9em',
+                          fontFamily: 'var(--font-mono)',
+                          color: 'var(--inline-code-color, #cc0000)',
+                        }}
+                        {...props}
+                      >
+                        {content}
+                      </code>
+                    );
+                  }
+
+                  let language = '';
+                  let filename = '';
+                  
+                  if (className) {
+                    const match = /language-(\w+)(?::(.+))?/.exec(className);
+                    if (match) {
+                      language = match[1] || '';
+                      filename = match[2] || '';
+                    }
+                  }
+
+                  // If no filename was provided in the className, try to extract it from the first line
+                  if (!filename) {
+                    const lines = content.split('\n');
+                    const firstLine = lines[0].trim();
+                    
+                    // Extract potential filename from any comment style
+                    // Match HTML comments, regular comments, and other common comment styles
+                    const commentPatterns = [
+                      /^<!--\s*(.*?\.[\w]+)\s*-->/, // HTML comments
+                      /^\/\/\s*(.*?\.[\w]+)\s*$/, // Single line comments
+                      /^#\s*(.*?\.[\w]+)\s*$/, // Hash comments
+                      /^\/\*\s*(.*?\.[\w]+)\s*\*\/$/, // Multi-line comments
+                      /^--\s*(.*?\.[\w]+)\s*$/, // SQL comments
+                      /^%\s*(.*?\.[\w]+)\s*$/, // Matlab/LaTeX comments
+                      /^;\s*(.*?\.[\w]+)\s*$/, // Assembly/Lisp comments
+                    ];
+
+                    for (const pattern of commentPatterns) {
+                      const match = firstLine.match(pattern);
+                      if (match && match[1]) {
+                        const potentialPath = match[1].trim();
+                        // Basic check if it looks like a file path (no spaces)
+                        if (!potentialPath.includes(' ')) {
+                          filename = potentialPath;
+                          // Remove the first line from the content since we're using it as the filename
+                          content = lines.slice(1).join('\n').trim();
+                          break;
+                        }
+                      }
+                    }
+                  }
+                  
+                  return (
+                    <CollapsibleCodeBlock
+                      language={language || 'text'}
+                      filename={filename}
+                      content={content}
+                    />
+                  );
+                }
+              }}
             >
               {part}
             </ReactMarkdown>
@@ -884,10 +1177,10 @@ const MessageRenderer = memo(({ message }: { message: ExtendedMessage }) => {
       })}
     </>
   );
-});
+};
 
 // Update ThinkBlock component to accept actual think time
-const ThinkBlock = memo(({ content, thinkTime }: { content: string; thinkTime: number }) => {
+const ThinkBlock: React.FC<{ content: string; thinkTime: number }> = ({ content, thinkTime }) => {
   const [isCollapsed, setIsCollapsed] = useState(true);
   const [isHovered, setIsHovered] = useState(false);
 
@@ -955,10 +1248,10 @@ const ThinkBlock = memo(({ content, thinkTime }: { content: string; thinkTime: n
       )}
     </div>
   );
-});
+};
 
 // Add this component for handling incomplete think blocks
-const ThinkingBlock = memo(({ content }: { content: string }) => {
+const ThinkingBlock: React.FC<{ content: string }> = ({ content }) => {
   // Skip rendering if content is empty
   if (!content || !content.trim()) {
     return null;
@@ -1007,7 +1300,7 @@ const ThinkingBlock = memo(({ content }: { content: string }) => {
       }} />
     </div>
   );
-});
+};
 
 // Add this section before the LLMChat component
 const AutoInsertIndicator = ({ count, isProcessing }: { count: number; isProcessing: boolean }) => {
@@ -1098,7 +1391,6 @@ interface FunctionCall {
 interface ToolArgs {
   directory_path?: string;
   file_path?: string;
-  target_file?: string;
   query?: string;
   url?: string;
   [key: string]: any;
@@ -1290,21 +1582,6 @@ const normalizeConversationHistory = (messages: ExtendedMessage[]): Message[] =>
   return [refreshKnowledgeMessage, ...normalizedMessages];
 };
 
-// Create a virtualized message item component
-const MessageItem = memo(({ data, index, style }: { data: { messages: ExtendedMessage[], renderMessage: (message: ExtendedMessage, index: number) => React.ReactNode }, index: number, style: React.CSSProperties }) => {
-  const { messages, renderMessage } = data;
-  const message = messages[index];
-  
-  // Skip system messages in visualization
-  if (message.role === 'system') return null;
-  
-  return (
-    <div style={{ ...style, paddingTop: 8, paddingBottom: 8 }}>
-      {renderMessage(message, index)}
-    </div>
-  );
-}, areEqual);
-
 export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectChat }: LLMChatProps) {
   // Add mode state
   const [mode, setMode] = useState<'chat' | 'agent'>('agent'); // Change to agent by default for testing
@@ -1325,14 +1602,18 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   // Add state to track if insert model has been preloaded
   const [insertModelPreloaded, setInsertModelPreloaded] = useState(false);
 
-  // Changed from Set to Record to fix the dependency array reference
-  const [expandedToolCalls, setExpandedToolCalls] = useState<Record<string, boolean>>({});
+  // Add state for tracking expanded tool calls
+  const [expandedToolCalls, setExpandedToolCalls] = useState<Set<string>>(new Set());
   
   // Toggle expansion state of a tool call
   const toggleToolCallExpansion = useCallback((toolCallId: string) => {
     setExpandedToolCalls(prev => {
-      const newSet = { ...prev };
-      newSet[toolCallId] = !newSet[toolCallId];
+      const newSet = new Set(prev);
+      if (newSet.has(toolCallId)) {
+        newSet.delete(toolCallId);
+      } else {
+        newSet.add(toolCallId);
+      }
       return newSet;
     });
   }, []);
@@ -1479,33 +1760,207 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
 
 
   // Function to save chat
-  const saveChat = useCallback(async (chatId: string, messages: ExtendedMessage[], reloadAfterSave = false) => {
+  const saveChat = async (chatId: string, messages: ExtendedMessage[], reloadAfterSave = false) => {
     try {
-      // Store message count for tracking
-      const messageCount = messages.length;
-      const isEdit = false; // Set appropriately based on context
+      if (messages.length <= 1) return; // Don't save if only system message exists
       
-      // Increment the version to ensure we're not overwritten
+      // Increment the save version to track most recent save
       window.chatSaveVersion = (window.chatSaveVersion || 0) + 1;
       const currentSaveVersion = window.chatSaveVersion;
       
-      // Track save time
+      // Record that we're saving now
       window.lastSaveChatTime = Date.now();
       
-      // Prepare the chat data
-      const chatData = {
-        messages: messages.map(message => {
-          // Strip unnecessary fields to reduce save size
-          const stripped = { ...message };
-          delete (stripped as any).__id;
-          return stripped;
-        }),
-        name: chatTitle || `Chat ${formatDate(new Date())}`,
-        editingMessageIndex: null, // Reset editing state on save
-        version: currentSaveVersion
+      let title = chatTitle;
+      
+      // Filter out continuation system messages before saving
+      const filteredMessages = messages.filter((msg: ExtendedMessage) => {
+        // Keep the first system message (instructions) but filter out continuation prompts
+        if (msg.role === 'system') {
+          const isFirstSystemMessage = messages.findIndex(m => m.role === 'system') === messages.indexOf(msg);
+          const isContinuationPrompt = msg.content.includes("address the original question directly") || 
+                                      msg.content.includes("Be concise and address the original question");
+          return isFirstSystemMessage && !isContinuationPrompt;
+        }
+        return true;
+      });
+      
+      // Deduplicate messages to prevent duplications
+      const deduplicatedMessages: ExtendedMessage[] = [];
+      const seenMessageKeys = new Set<string>();
+      
+      // Function to generate a unique key for a message
+      const getMessageKey = (msg: ExtendedMessage): string => {
+        // For tool messages, include the tool_call_id to identify uniquely
+        if (msg.role === 'tool' && msg.tool_call_id) {
+          return `tool:${msg.tool_call_id}:${msg.content.substring(0, 50)}`;
+        }
+        // For assistant messages with tool calls, include the tool call IDs
+        else if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
+          const toolCallIds = msg.tool_calls.map(tc => tc.id).join(',');
+          return `assistant:toolcalls:${toolCallIds}`;
+        }
+        // For other messages, use role and content (truncated)
+        else {
+          return `${msg.role}:${typeof msg.content === 'string' ? 
+            msg.content.substring(0, 100) : JSON.stringify(msg.content).substring(0, 100)}`;
+        }
       };
       
-      console.log(`Saving chat ${chatId} with ${messages.length} messages (version: ${currentSaveVersion}, operation: ${isEdit ? 'edit' : 'append'})`);
+      // Only keep unique messages
+      filteredMessages.forEach(msg => {
+        const key = getMessageKey(msg);
+        if (!seenMessageKeys.has(key)) {
+          seenMessageKeys.add(key);
+          deduplicatedMessages.push(msg);
+        } else {
+          console.log(`Skipping duplicate message: ${key}`);
+        }
+      });
+      
+      console.log(`Deduplicated ${filteredMessages.length} messages to ${deduplicatedMessages.length} messages`);
+      
+      // Format the messages for the backend
+      const messagesToSave = deduplicatedMessages.map((msg: ExtendedMessage) => {
+        // Create a cleaned version of the message with only the properties we need
+        const cleanedMsg: any = {
+          role: msg.role,
+          content: msg.content || '' // Ensure content is never undefined
+        };
+        
+        // Special case: Check for assistant messages with function_call in content
+        if (msg.role === 'assistant' && typeof msg.content === 'string' && 
+            msg.content.includes('function_call:') && !msg.tool_calls) {
+          try {
+            console.log('Found function_call string in content during save, extracting...');
+            const functionCallMatch = msg.content.match(/function_call:\s*({[\s\S]*?})(?=function_call:|$)/);
+            if (functionCallMatch && functionCallMatch[1]) {
+              let functionCall: any;
+              
+              try {
+                functionCall = JSON.parse(functionCallMatch[1]);
+              } catch (e) {
+                console.error('Error parsing function call JSON:', e);
+                
+                // Try manual extraction if JSON parsing fails
+                const idMatch = functionCallMatch[1].match(/"id"\s*:\s*"([^"]+)"/);
+                const nameMatch = functionCallMatch[1].match(/"name"\s*:\s*"([^"]+)"/);
+                const argsMatch = functionCallMatch[1].match(/"arguments"\s*:\s*({[^}]+}|"[^"]+")/);
+                
+                functionCall = {
+                  id: idMatch?.[1] || generateValidToolCallId(),
+                  name: nameMatch?.[1] || 'unknown_function',
+                  arguments: argsMatch?.[1] || '{}'
+                };
+              }
+              
+              // Convert to proper tool_calls format
+              cleanedMsg.tool_calls = [{
+                id: functionCall.id || generateValidToolCallId(),
+                type: 'function',
+                function: {
+                  name: functionCall.name,
+                  arguments: typeof functionCall.arguments === 'string' ? 
+                    functionCall.arguments : JSON.stringify(functionCall.arguments)
+                }
+              }];
+              
+              // Empty content for tool calls
+              cleanedMsg.content = '';
+              
+              console.log('Converted function_call content to tool_calls for storage:', 
+                cleanedMsg.tool_calls[0].function.name);
+            }
+          } catch (e) {
+            console.error('Error handling function_call in content:', e);
+          }
+        }
+        // Handle tool_calls for assistant messages
+        else if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
+          // Store tool calls with proper format
+          cleanedMsg.tool_calls = msg.tool_calls.map(tc => ({
+            id: tc.id || generateValidToolCallId(),
+            type: 'function',
+            function: {
+              name: tc.name,
+              arguments: typeof tc.arguments === 'string' ? 
+                tc.arguments : JSON.stringify(tc.arguments)
+            }
+          }));
+          
+          // If this is a pure tool call with no content, make sure content is empty string
+          if (!msg.content) {
+            cleanedMsg.content = '';
+          }
+          
+          console.log(`Saving assistant with ${cleanedMsg.tool_calls.length} tool calls: ${
+            cleanedMsg.tool_calls.map((tc: any) => tc.function.name).join(', ')
+          }`);
+        }
+        
+        // Add tool_call_id if present for tool response messages
+        if (msg.tool_call_id) {
+          cleanedMsg.tool_call_id = msg.tool_call_id;
+          console.log(`Saving tool response for call ID: ${msg.tool_call_id}`);
+        }
+        
+        // Add attachments if present
+        if (msg.attachments && msg.attachments.length > 0) {
+          cleanedMsg.attachments = msg.attachments;
+        }
+        
+        return cleanedMsg;
+      });
+      
+      // Determine if this is an edit operation
+      const isEdit = editingMessageIndex !== null;
+      const editIndex = isEdit ? editingMessageIndex : -1;
+      
+      // For append operations, determine which messages are new
+      let messagesToSend = [];
+      
+      if (isEdit) {
+        // When editing, send all messages and mark as edit
+        // The backend will truncate at the edit point and append these messages
+        messagesToSend = messagesToSave;
+        console.log(`Editing message at index ${editIndex}, sending all ${messagesToSend.length} messages`);
+      } else {
+        // For normal operations, determine what's new since last save
+        const lastMsgCount = window.lastSavedMessageCount || 0;
+        const currentMsgCount = deduplicatedMessages.length;
+        
+        if (!window.lastSavedMessageCount) {
+          // First save of this session, send all messages
+          messagesToSend = messagesToSave;
+          console.log(`First save, sending all ${messagesToSend.length} messages`);
+        } else if (currentMsgCount > lastMsgCount) {
+          // Normal append - only send the new messages
+          messagesToSend = messagesToSave.slice(lastMsgCount);
+          console.log(`Appending ${messagesToSend.length} new messages`);
+        } else {
+          // No new messages or message count decreased
+          // This shouldn't happen in append-only mode unless there was an edit
+          // Send the last message to ensure it's up to date
+          messagesToSend = messagesToSave.slice(-1);
+          console.log(`No new messages detected, updating last message`);
+        }
+      }
+      
+      // First message should include chat title if available
+      if (messagesToSend.length > 0 && title) {
+        messagesToSend[0].name = title;
+      }
+      
+      // Save the current count for next comparison
+      window.lastSavedMessageCount = deduplicatedMessages.length;
+      
+      // Prepare the request for our append-only backend
+      const chatData = {
+        messages: messagesToSend,
+        is_edit: isEdit,
+        edit_index: editIndex,
+        overwrite: false // Only use overwrite in special cases
+      };
       
       try {
         // Use AbortController to set a timeout
@@ -1513,10 +1968,10 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
         
         const saveResponse = await fetch(`http://localhost:23816/chats/${chatId}`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
           body: JSON.stringify(chatData),
           signal: controller.signal
         });
@@ -1540,16 +1995,16 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         if (window.chatSaveVersion === currentSaveVersion) {
           console.log(`Chat saved successfully (version: ${currentSaveVersion}, operation: ${isEdit ? 'edit' : 'append'})`);
       
-          // Reload the chat if requested (important for tool calls)
-          if (reloadAfterSave) {
-            // Wait a brief moment to ensure the file is written
-            setTimeout(() => {
+      // Reload the chat if requested (important for tool calls)
+      if (reloadAfterSave) {
+        // Wait a brief moment to ensure the file is written
+        setTimeout(() => {
               // Only reload if our version is still current
               if (window.chatSaveVersion === currentSaveVersion) {
-                loadChat(chatId, true);
+          loadChat(chatId, true);
               }
-            }, 100);
-          }
+        }, 100);
+      }
         } else {
           console.log(`Skipping post-save actions - newer save version exists: ${window.chatSaveVersion} > ${currentSaveVersion}`);
         }
@@ -1563,47 +2018,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
     } catch (error) {
       console.error('Error in saveChat function:', error);
     }
-  }, [chatTitle]);
-
-  // Create a debounced save function to prevent excessive saving during streaming
-  const debouncedSaveChat = useCallback(
-    debounce((chatId: string, messages: ExtendedMessage[], reload: boolean) => {
-      saveChat(chatId, messages, reload);
-    }, 1000), // Delay saving by 1 second after last update
-    [saveChat]
-  );
-
-  // Throttled save function for streaming content to limit saves to once every N characters
-  const throttledStreamingSave = useCallback((chatId: string, messages: ExtendedMessage[]) => {
-    // Only save during streaming if the content length has changed significantly
-    if (chatId && (!window.lastContentLength || 
-        Math.abs(messages[messages.length-1].content.length - (window.lastContentLength || 0)) > 500)) {
-      
-      window.lastContentLength = messages[messages.length-1].content.length;
-      
-      // Increment the version to ensure we're not overwritten
-      window.chatSaveVersion = (window.chatSaveVersion || 0) + 1;
-      const saveVersion = window.chatSaveVersion;
-      
-      // Use the debounced save
-      debouncedSaveChat(chatId, messages, false);
-    }
-  }, [debouncedSaveChat]);
-  
-  // Helper function to implement debounce
-  function debounce<T extends (...args: any[]) => any>(
-    func: T,
-    wait: number
-  ): (...args: Parameters<T>) => void {
-    let timeout: ReturnType<typeof setTimeout> | null = null;
-    
-    return function(...args: Parameters<T>) {
-      if (timeout !== null) {
-        clearTimeout(timeout);
-      }
-      timeout = setTimeout(() => func(...args), wait);
-    };
-  }
+  };
 
   // Load chat data with cache-busting
   const loadChat = async (chatId: string, forceReload = false) => {
@@ -2194,64 +2609,7 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
     'You should be concise, direct, and to the point.\n' +
     'Output text to communicate with the user; all text you output outside of tool use is displayed to the user. Only use tools to complete tasks. Never use tools or code comments as means to communicate with the user.\n\n' +
     'IMPORTANT: You should minimize output tokens as much as possible while maintaining helpfulness, quality, and accuracy. Only address the specific query or task at hand, avoiding tangential information unless absolutely critical for completing the request. If you can answer in 1-3 sentences or a short paragraph, please do.\n' +
-    'IMPORTANT: Keep your responses short. Avoid introductions, conclusions, and explanations. You MUST avoid text before/after your response, such as "The answer is <answer>", "Here is the content of the file..." or "Based on the information provided, the answer is..." or "Here is what I will do next...". Here are some examples to demonstrate appropriate verbosity:\n\n' +
-    
-    '<example>\n' +
-    'user: 2 + 2\n' +
-    'assistant: 4\n' +
-    '</example>\n\n' +
-    
-    '<example>\n' +
-    'user: what is 2+2?\n' +
-    'assistant: 4\n' +
-    '</example>\n\n' +
-    
-    '<example>\n' +
-    'user: is 11 a prime number?\n' +
-    'assistant: true\n' +
-    '</example>\n\n' +
-    
-    '<example>\n' +
-    'user: what command should I run to list files in the current directory?\n' +
-    'assistant: ls\n' +
-    '</example>\n\n' +
-    
-    '<example>\n' +
-    'user: what files are in the directory src/?\n' +
-    'assistant: [runs ls and sees foo.c, bar.c, baz.c]\n' +
-    'user: which file contains the implementation of foo?\n' +
-    'assistant: src/foo.c\n' +
-    '</example>\n\n' +
-    
-    '<example>\n' +
-    'user: what command should I run to watch files in the current directory?\n' +
-    'assistant: [use the ls tool to list the files in the current directory, then read docs/commands in the relevant file to find out how to watch files]\n' +
-    'npm run dev\n' +
-    '</example>\n\n' +
-    
-    '# Proactiveness\n' +
-    'You are allowed to be proactive, but only when the user asks you to do something. You should strive to strike a balance between:\n' +
-    '- Doing the right thing when asked, including taking actions and follow-up actions\n' +
-    '- Not surprising the user with actions you take without asking. For example, if the user asks you how to approach something, you should do your best to answer their question first, and not immediately jump into performing tool calls.\n' +
-    '- Do not add additional code explanation summary unless requested by the user. After editing a file, just stop, rather than providing an explanation of what you did.\n\n' +
-    
-    '# Following conventions\n' +
-    'When making changes to files, first understand the file\'s code conventions. Mimic code style, use existing libraries and utilities, and follow existing patterns.\n' +
-    '- NEVER assume that a given library is available, even if it is well known. Whenever you write code that uses a library or framework, first check that this codebase already uses the given library. For example, you might look at neighboring files, or check the package.json (or cargo.toml, and so on depending on the language).\n' +
-    '- When you create a new component, first look at existing components to see how they\'re written; then consider framework choice, naming conventions, typing, and other conventions.\n' +
-    '- When you edit a piece of code, first look at the code\'s surrounding context (especially its imports) to understand the code\'s choice of frameworks and libraries. Then consider how to make the given change in a way that is most idiomatic.\n\n' +
-    
-    '# Code style\n' +
-    '- Do not add comments to the code you write, unless the user asks you to, or the code is complex and requires additional context.\n\n' +
-    
-    '# User Info\n' +
-    `The user's OS version is win32 10.0.19045. The absolute path of the user's workspace is ${currentWorkingDirectory || "Unknown"}. The user's shell is C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe. \n\n` +
-    
-    'You MUST use the following format when citing code regions or blocks:\n' +
-    '```12:15:app/components/Todo.tsx\n' +
-    '// ... existing code ...\n' +
-    '```\n' +
-    'This is the ONLY acceptable format for code citations. The format is ```startLine:endLine:filepath where startLine and endLine are line numbers.'
+    'IMPORTANT: Keep your responses short. Avoid introductions, conclusions, and explanations. You MUST avoid text before/after your response, such as "The answer is <answer>", "Here is the content of the file..." or "Based on the information provided, the answer is..." or "Here is what I will do next...". Here are some examples to demonstrate appropriate verbosity:\n\n'
 
   // Modify handleSubmit to use the correct model based on mode
   const handleSubmit = async (e: React.FormEvent) => {
@@ -2516,8 +2874,20 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
             newMessages[newMessages.length - 1] = newMessage;
             
             // Save chat during streaming with proper tool_calls format
-            if (currentChatId) {
-              throttledStreamingSave(currentChatId, newMessages);
+            if (currentChatId && (!window.lastContentLength || 
+                Math.abs(content.length - window.lastContentLength) > 100)) {
+              window.lastContentLength = content.length;
+              
+              // Increment the version to ensure we're not overwritten
+              window.chatSaveVersion = (window.chatSaveVersion || 0) + 1;
+              const saveVersion = window.chatSaveVersion;
+              
+              setTimeout(() => {
+                // Only save if our version is still current
+                if ((window.chatSaveVersion || 0) === saveVersion) {
+                  saveChat(currentChatId, newMessages, false);
+                }
+              }, 100);
             }
             
             return newMessages;
@@ -3014,11 +3384,11 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
     
     setMessages(prev => {
       const updatedMessages = [...prev, formattedMessage];
-      // Save chat with debounced save for better performance
-      if (currentChatId) {
+      // Save chat immediately after adding any message, but only if we haven't saved recently
+      if (currentChatId && (!window.lastSaveChatTime || Date.now() - window.lastSaveChatTime > 1000)) {
         // For tool messages, force a reload after saving
         const shouldReload = message.role === 'tool' || !!message.tool_call_id || !!message.tool_calls;
-        debouncedSaveChat(currentChatId, updatedMessages, shouldReload);
+        setTimeout(() => saveChat(currentChatId, updatedMessages, shouldReload), 50);
       }
       return updatedMessages;
     });
@@ -3065,14 +3435,10 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
       
       // Apply similar path resolution to read_file
       if (name === "read_file" && parsedArgs.file_path) {
-        // Convert file_path to target_file for backward compatibility
-        parsedArgs.target_file = parsedArgs.file_path;
-        delete parsedArgs.file_path;
-        
-        if (parsedArgs.target_file.startsWith("./")) {
-          parsedArgs.target_file = (currentWorkingDirectory || "") + 
-            parsedArgs.target_file.substring(1); // Remove the "." but keep the "/"
-          console.log(`Resolved relative file path to: ${parsedArgs.target_file}`);
+        if (parsedArgs.file_path.startsWith("./")) {
+          parsedArgs.file_path = (currentWorkingDirectory || "") + 
+            parsedArgs.file_path.substring(1); // Remove the "." but keep the "/"
+          console.log(`Resolved relative file path to: ${parsedArgs.file_path}`);
         }
       }
       
@@ -3708,9 +4074,21 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
               // Update the last message with the new content
               newMessages[newMessages.length - 1] = newMessage;
               
-              // Save chat during streaming with throttled save
-              if (currentChatId) {
-                throttledStreamingSave(currentChatId, newMessages);
+              // Save chat during streaming with proper tool_calls format
+              if (currentChatId && (!window.lastContentLength || 
+                  Math.abs(content.length - window.lastContentLength) > 100)) {
+                window.lastContentLength = content.length;
+                
+                // Increment the version to ensure we're not overwritten
+                window.chatSaveVersion = (window.chatSaveVersion || 0) + 1;
+                const saveVersion = window.chatSaveVersion;
+                
+                setTimeout(() => {
+                  // Only save if our version is still current
+                  if ((window.chatSaveVersion || 0) === saveVersion) {
+                    saveChat(currentChatId, newMessages, false);
+                  }
+                }, 100);
               }
               
               return newMessages;
@@ -3815,7 +4193,7 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
   };
 
   // Update the message rendering to handle the new message structure
-  const renderMessage = useCallback((message: ExtendedMessage, index: number) => {
+  const renderMessage = (message: ExtendedMessage, index: number) => {
     // Skip system messages
     if (message.role === 'system') return null;
     
@@ -3827,9 +4205,9 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
     
     // If it's a thinking message, render it differently
     if (hasThinkBlocks) {
-      return (
-        <div 
-          key={index} 
+    return (
+      <div 
+        key={index} 
           style={{ 
             width: '100%',
             opacity: shouldBeFaded ? 0.33 : 1,
@@ -3907,7 +4285,7 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
       let content = typeof message.content === 'string' ? message.content : JSON.stringify(message.content);
       let toolName = "Tool";
       const toolCallId = message.tool_call_id || `tool_${index}`;
-      const isExpanded = expandedToolCalls[toolCallId];
+      const isExpanded = expandedToolCalls.has(toolCallId);
       let toolArgs = null;
       let shortContent = '';
       
@@ -4117,10 +4495,9 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
                           // For read_file, extract file_path
                           else if (toolName === 'read_file') {
                             const args = typeof toolArgs === 'string' ? JSON.parse(toolArgs) : toolArgs;
-                            if (args.target_file || args.file_path) {
+                            if (args.file_path) {
                               // Extract just the filename for cleaner display
-                              const filePath = args.target_file || args.file_path;
-                              const pathParts = filePath.split(/[/\\]/);
+                              const pathParts = args.file_path.split(/[/\\]/);
                               const fileName = pathParts[pathParts.length - 1];
                               pathInfo = fileName;
                             }
@@ -4314,23 +4691,7 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
         )}
       </div>
     );
-  }, [editingMessageIndex, input, attachedFiles, handleInputChange, handleCancelEdit, handleSubmitEdit, handleEditMessage, expandedToolCalls]);
-
-  // Create a memoized subset of messages to render 
-  // This is a virtual windowing technique that only renders messages that would be visible
-  const visibleMessages = useMemo(() => {
-    // If we have fewer than 30 messages, render all of them
-    if (messages.length <= 30) return messages;
-    
-    // For very large message histories, only render the most recent ones
-    // and the ones around the current scroll position
-    const lastMessageCount = 20; // Always show the last 20 messages
-    const scrollContextMessages = 10; // Show 10 messages around the current scroll position
-    
-    // Calculate which messages to include based on scroll position
-    // This is a simplified approach - for a complete solution, use a virtualization library
-    return messages.slice(-lastMessageCount);
-  }, [messages]);
+  };
 
   // Add a function to restart the conversation with fresh data
   const restartConversation = async () => {
@@ -4381,84 +4742,18 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
     }
   }, [currentChatId]);
 
-  // Chat container sizing for virtualization
-  const [chatContainerSize, setChatContainerSize] = useState({ width: 0, height: 0 });
-  
-  // Create estimated height cache for messages
-  const messageHeightCache = useMemo(() => {
-    const cache: Record<number, number> = {};
-    
-    // Estimate message heights based on content length and type
-    messages.forEach((message, index) => {
-      if (message.role === 'system') {
-        cache[index] = 0; // System messages aren't displayed
-      } else if (typeof message.content === 'string') {
-        // Estimate based on content length and number of code blocks
-        const codeBlockCount = (message.content.match(/```/g) || []).length / 2;
-        const lineCount = message.content.split('\n').length;
-        const hasAttachments = message.attachments && message.attachments.length > 0;
-        
-        // Base height for message container
-        let estimatedHeight = 60;
-        
-        // Add height for text content (rough estimation)
-        estimatedHeight += Math.min(lineCount * 24, 150);
-        
-        // Add height for code blocks
-        if (codeBlockCount > 0) {
-          estimatedHeight += codeBlockCount * 200; // Estimate each code block as ~200px
-        }
-        
-        // Add height for attachments
-        if (hasAttachments) {
-          estimatedHeight += message.attachments!.length * 50;
-        }
-        
-        cache[index] = estimatedHeight;
-      } else {
-        cache[index] = 100; // Default height for non-string content
-      }
-    });
-    
-    return cache;
-  }, [messages]);
+  if (!isVisible) return null;
 
-  // Calculate average message height for virtualization
-  const averageMessageHeight = useMemo(() => {
-    if (messages.length <= 1) return 100; // Default height
-    
-    const totalHeight = Object.values(messageHeightCache).reduce((sum, height) => sum + height, 0);
-    return Math.max(100, Math.ceil(totalHeight / (messages.length - 1))); // Exclude system message
-  }, [messageHeightCache, messages.length]);
-
-  // Update the message container ref to measure size
-  useEffect(() => {
-    if (chatContainerRef.current) {
-      const resizeObserver = new ResizeObserver(entries => {
-        for (const entry of entries) {
-          const { width, height } = entry.contentRect;
-          setChatContainerSize({ width, height });
-        }
-      });
-      
-      resizeObserver.observe(chatContainerRef.current);
-      return () => resizeObserver.disconnect();
-    }
-  }, []);
-
-  // ... rest of code ...
-
-  // Update the render section for virtualization
   return (
-    <div 
+    <div
       ref={containerRef}
       className="llm-chat"
-      style={{ 
+      style={{
         display: isVisible ? 'flex' : 'none',
         flexDirection: 'column',
-        position: 'fixed', 
+        position: 'fixed',
         top: '32px', // Account for titlebar height
-        right: 0, 
+        right: 0,
         width: `${width}px`,
         height: 'calc(100vh - 54px)', // Subtract titlebar (32px) + statusbar (22px)
         backgroundColor: 'var(--bg-secondary)',
@@ -4514,7 +4809,7 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
                 >
                   <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Recent Chats</span>
                   <button
-                    onClick={handleNewChat}
+                  onClick={handleNewChat}
                     style={{
                       background: 'none',
                       border: 'none',
@@ -4567,6 +4862,7 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
           </div>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
+          {/* Remove Refresh Knowledge button since it's always included now */}
           <button
             onClick={onClose}
             className="close-button"
@@ -4584,15 +4880,16 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
           </button>
         </div>
       </div>
-      
-      {/* Chat Messages with Virtualization */}
-      <div 
+
+      <div
         ref={chatContainerRef}
-        className="chat-messages" 
-        style={{ 
-          flex: 1, 
-          overflow: 'hidden',
-          position: 'relative'
+        style={{
+          flex: 1,
+          overflowY: 'auto',
+          padding: '16px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '12px', // Changed from 16px to 12px for tighter spacing
         }}
       >
         {messages.length <= 1 ? (
@@ -4623,26 +4920,11 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
             </p>
           </div>
         ) : (
-          <AutoSizer>
-            {({ height, width }) => (
-              <List
-                height={height}
-                width={width}
-                itemCount={messages.length - 1} // Skip system message
-                itemSize={averageMessageHeight}
-                itemData={{ 
-                  messages: messages.slice(1), // Skip system message
-                  renderMessage 
-                }}
-                overscanCount={5} // Render 5 extra items above/below viewport
-                initialScrollOffset={(messages.length - 1) * averageMessageHeight} // Start at bottom
-              >
-                {MessageItem}
-              </List>
-            )}
-          </AutoSizer>
+          <>
+            {messages.slice(1).map((message, index) => renderMessage(message, index))}
+          </>
         )}
-        <div ref={messagesEndRef} style={{ height: 0, width: 0 }} />
+        <div ref={messagesEndRef} />
       </div>
 
       {/* Attached Files Section */}
