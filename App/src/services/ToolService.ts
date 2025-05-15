@@ -14,8 +14,9 @@ export class ToolService {
     // Frontend to backend mappings
     'list_dir': 'list_directory',
     'read_file': 'read_file',
-    'write_file': 'write_file',
-    'run_command': 'run_command',
+    'web_search': 'web_search',
+    'grep_search': 'grep_search',
+    'fetch_webpage': 'fetch_webpage',
     
     // Backend to frontend mappings
     'list_directory': 'list_dir',
@@ -67,6 +68,69 @@ export class ToolService {
       return ToolService.mapToolName(toolName, 'to_backend');
     } else {
       return ToolService.mapToolName(toolName, 'to_frontend');
+    }
+  }
+
+  /**
+   * Format a tool response title with better information based on tool type and parameters
+   * @param toolName Name of the tool
+   * @param params Tool parameters used
+   * @param result Tool result
+   * @returns Formatted title with detailed information
+   */
+  private formatToolResultTitle(toolName: string, params: any, result: any): string {
+    try {
+      if (toolName === 'list_directory' || toolName === 'list_dir') {
+        const path = params.directory_path || params.relative_workspace_path || '.';
+        // Count the number of files/directories in the result if available
+        let itemCount = 'unknown';
+        if (result.success && Array.isArray(result.contents)) {
+          itemCount = result.contents.length.toString();
+          const dirCount = result.contents.filter((item: any) => item.type === 'directory').length;
+          const fileCount = result.contents.length - dirCount;
+          return `Directory Listing [${path}]: Found ${dirCount} directories, ${fileCount} files`;
+        }
+        return `Directory Listing [${path}]: ${result.success ? 'Success' : 'Failed'}`;
+      } 
+      else if (toolName === 'read_file') {
+        const path = params.target_file || params.file_path || '';
+        let lineCount = 'unknown';
+        // Try to count lines in the content if available
+        if (result.content) {
+          lineCount = (result.content.match(/\n/g) || []).length + 1;
+          return `File Contents [${path}]: ${lineCount} lines`;
+        }
+        return `File Contents [${path}]: ${result.success ? 'Success' : 'Failed'}`;
+      }
+      else if (toolName === 'grep_search') {
+        const query = params.query || '';
+        const pattern = params.include_pattern || '*';
+        let matchCount = 'unknown';
+        if (result.matches && Array.isArray(result.matches)) {
+          matchCount = result.matches.length;
+          return `Grep Search [${query}]: Found ${matchCount} matches in ${pattern}`;
+        }
+        return `Grep Search [${query}]: ${result.success ? 'Success' : 'Failed'}`;
+      }
+      else if (toolName === 'web_search') {
+        const query = params.search_term || params.query || '';
+        let resultCount = 'unknown';
+        if (result.results && Array.isArray(result.results)) {
+          resultCount = result.results.length;
+          return `Web Search [${query}]: Found ${resultCount} results`;
+        }
+        return `Web Search [${query}]: ${result.success ? 'Success' : 'Failed'}`;
+      }
+      else if (toolName === 'fetch_webpage') {
+        const url = params.url || '';
+        const contentType = result.content_type || 'unknown';
+        return `Webpage Content [${url}]: ${result.success ? 'Success' : 'Failed'} (${contentType})`;
+      }
+      // Default format for other tools
+      return `Tool ${toolName.replace(/_/g, ' ')}: ${result.success === false ? 'Failed' : 'Success'}`;
+    } catch (e) {
+      console.error('Error formatting tool result title:', e);
+      return `Tool ${toolName}: Result`;
     }
   }
 
@@ -126,10 +190,13 @@ export class ToolService {
       // Format the response with consistent tool name for storage
       const storageToolName = toolName; // Keep original name for consistent display
       
+      // Create a detailed title for the tool result
+      const detailedTitle = this.formatToolResultTitle(storageToolName, mappedParams, result);
+      
       // Format the response in a flatter structure that's easier for the LLM to process
       return {
         role: 'tool',
-        content: `Tool ${storageToolName} result: ${JSON.stringify(result, null, 2)}`,
+        content: `${detailedTitle}\n${JSON.stringify(result, null, 2)}`,
         tool_call_id: this.generateToolCallId() // Add a unique ID for this tool call
       };
     } catch (error) {

@@ -27,9 +27,11 @@ read_file (read a file's contents): function_call: {"name": "read_file","argumen
 
 list_directory (list the contents of a directory): function_call: {"name": "list_directory","arguments": {"relative_workspace_path": "path/to/directory"}}
 
-grep_search (search for a pattern in the workspace): function_call: {"name": "grep_search","arguments": {"query": "search pattern","include_pattern": "*.ts","exclude_pattern": "node_modules"}}
+grep_search (search for patterns in files): function_call: {"name": "grep_search","arguments": {"query": "search pattern","include_pattern": "*.ts","exclude_pattern": "node_modules"}}
 
-web_search (search the web): function_call: {"name": "web_search","arguments": {"search_term": "your search query"}}
+web_search (search the web for information): function_call: {"name": "web_search","arguments": {"search_term": "your search query","num_results": 3}}
+
+fetch_webpage (fetch content from a webpage): function_call: {"name": "fetch_webpage","arguments": {"url": "https://example.com"}}
 
 Rules:
 1. Use exact function_call format shown above
@@ -49,9 +51,11 @@ read_file (read a file's contents): function_call: {"name": "read_file","argumen
 
 list_directory (list the contents of a directory): function_call: {"name": "list_directory","arguments": {"relative_workspace_path": "path/to/directory"}}
 
-grep_search (search for a pattern in the workspace): function_call: {"name": "grep_search","arguments": {"query": "search pattern","include_pattern": "*.ts","exclude_pattern": "node_modules"}}
+grep_search (search for patterns in files): function_call: {"name": "grep_search","arguments": {"query": "search pattern","include_pattern": "*.ts","exclude_pattern": "node_modules"}}
 
-web_search (search the web): function_call: {"name": "web_search","arguments": {"search_term": "your search query"}}
+web_search (search the web for information): function_call: {"name": "web_search","arguments": {"search_term": "your search query","num_results": 3}}
+
+fetch_webpage (fetch content from a webpage): function_call: {"name": "fetch_webpage","arguments": {"url": "https://example.com"}}
 
 Rules:
 1. Use exact function_call format shown above
@@ -73,53 +77,6 @@ Remember to:
 4. Do not repeat the raw tool output unless specifically asked
 5. If additional tools are needed, use them immediately rather than suggesting the user do so`,
   attachments: undefined
-};
-
-// Function to determine if tool use should be forced based on a query
-export const shouldForceToolUse = (query: string): boolean => {
-  const toolUseIndicators = [
-    'show me',
-    'look up',
-    'search for',
-    'find',
-    'what is in',
-    'list',
-    'read',
-    'scan',
-    'explore',
-    'check',
-    'directory',
-    'file contents',
-    'show code',
-    'view code',
-    'search code'
-  ];
-  
-  return toolUseIndicators.some(indicator => query.toLowerCase().includes(indicator));
-};
-
-// Function to get the appropriate tool name for a query
-export const getAppropriateToolForQuery = (query: string): string => {
-  const lowerQuery = query.toLowerCase();
-  
-  if (lowerQuery.includes('search web') || lowerQuery.includes('look up online') || lowerQuery.includes('find online')) {
-    return 'web_search';
-  }
-  
-  if (lowerQuery.includes('list') || lowerQuery.includes('directory') || lowerQuery.includes('folder')) {
-    return 'list_directory';
-  }
-  
-  if (lowerQuery.includes('search') || lowerQuery.includes('find') || lowerQuery.includes('grep')) {
-    return 'grep_search';
-  }
-  
-  if (lowerQuery.includes('read') || lowerQuery.includes('file contents') || lowerQuery.includes('show code') || lowerQuery.includes('view code')) {
-    return 'read_file';
-  }
-  
-  // Default to grep_search as a general search tool
-  return 'grep_search';
 };
 
 // Configuration for file extensions based on language

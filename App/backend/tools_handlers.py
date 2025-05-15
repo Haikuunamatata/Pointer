@@ -6,29 +6,41 @@ import os
 import json
 import aiohttp
 import asyncio
-from typing import Dict, Any, List, Optional
+import re
+import subprocess
+from typing import Dict, Any, List
 from pathlib import Path
 
 
-async def read_file(file_path: str) -> Dict[str, Any]:
+async def read_file(file_path: str = None, target_file: str = None) -> Dict[str, Any]:
     """
     Read the contents of a file and return as a dictionary.
     
     Args:
         file_path: Path to the file to read
+        target_file: Alternative path to the file to read (takes precedence over file_path)
         
     Returns:
         Dictionary with file content and metadata
     """
+    # Use target_file if provided, otherwise use file_path
+    actual_path = target_file if target_file is not None else file_path
+    
+    if actual_path is None:
+        return {
+            "success": False,
+            "error": "No file path provided"
+        }
+    
     try:
         # Security check: prevent path traversal
-        abs_path = os.path.abspath(file_path)
+        abs_path = os.path.abspath(actual_path)
         
         # Check if file exists
         if not os.path.exists(abs_path):
             return {
                 "success": False,
-                "error": f"File not found: {file_path}"
+                "error": f"File not found: {actual_path}"
             }
         
         # Get file extension and size
@@ -50,7 +62,7 @@ async def read_file(file_path: str) -> Dict[str, Any]:
             "success": True,
             "content": content,
             "metadata": {
-                "path": file_path,
+                "path": actual_path,
                 "size": file_size,
                 "type": file_type,
                 "extension": file_extension
@@ -66,7 +78,7 @@ async def read_file(file_path: str) -> Dict[str, Any]:
             "error": "Invalid JSON format",
             "content": content,
             "metadata": {
-                "path": file_path,
+                "path": actual_path,
                 "size": file_size,
                 "type": "text",
                 "extension": file_extension
@@ -78,7 +90,7 @@ async def read_file(file_path: str) -> Dict[str, Any]:
             "success": False,
             "error": "Cannot read binary file as text",
             "metadata": {
-                "path": file_path,
+                "path": actual_path,
                 "size": file_size,
                 "type": "binary",
                 "extension": file_extension
@@ -90,7 +102,7 @@ async def read_file(file_path: str) -> Dict[str, Any]:
             "success": False,
             "error": str(e),
             "metadata": {
-                "path": file_path
+                "path": actual_path
             }
         }
 
@@ -142,39 +154,49 @@ async def list_directory(directory_path: str) -> Dict[str, Any]:
         }
 
 
-async def web_search(query: str, num_results: int = 3) -> Dict[str, Any]:
+async def web_search(search_term: str = None, query: str = None, num_results: int = 3) -> Dict[str, Any]:
     """
     Simulated web search for information.
     
     Args:
-        query: Search query
+        search_term: Search query (preferred)
+        query: Alternative search query
         num_results: Number of results to return
         
     Returns:
         Dictionary with search results
     """
+    # Use search_term if provided, otherwise use query
+    actual_query = search_term if search_term is not None else query
+    
+    if actual_query is None:
+        return {
+            "success": False,
+            "error": "No search query provided"
+        }
+    
     # This is a mock implementation - in a production environment,
     # you would connect to a real search API
     mock_results = [
         {
-            "title": f"Result for {query} - Example 1",
-            "url": f"https://example.com/search?q={query.replace(' ', '+')}",
-            "snippet": f"This is a sample search result for the query '{query}'. It demonstrates how the web search tool works."
+            "title": f"Result for {actual_query} - Example 1",
+            "url": f"https://example.com/search?q={actual_query.replace(' ', '+')}",
+            "snippet": f"This is a sample search result for the query '{actual_query}'. It demonstrates how the web search tool works."
         },
         {
-            "title": f"Another result for {query}",
-            "url": f"https://example.org/results?query={query.replace(' ', '+')}",
-            "snippet": f"Another example result for '{query}'. In a real implementation, this would contain actual search results."
+            "title": f"Another result for {actual_query}",
+            "url": f"https://example.org/results?query={actual_query.replace(' ', '+')}",
+            "snippet": f"Another example result for '{actual_query}'. In a real implementation, this would contain actual search results."
         },
         {
-            "title": f"{query} - Documentation",
-            "url": f"https://docs.example.com/{query.replace(' ', '-').lower()}",
-            "snippet": f"Documentation related to {query}. Contains guides, tutorials and reference materials."
+            "title": f"{actual_query} - Documentation",
+            "url": f"https://docs.example.com/{actual_query.replace(' ', '-').lower()}",
+            "snippet": f"Documentation related to {actual_query}. Contains guides, tutorials and reference materials."
         },
         {
-            "title": f"Learn about {query}",
-            "url": f"https://learn.example.edu/topics/{query.replace(' ', '_').lower()}",
-            "snippet": f"Educational resources about {query} with examples and exercises."
+            "title": f"Learn about {actual_query}",
+            "url": f"https://learn.example.edu/topics/{actual_query.replace(' ', '_').lower()}",
+            "snippet": f"Educational resources about {actual_query} with examples and exercises."
         }
     ]
     
@@ -186,7 +208,7 @@ async def web_search(query: str, num_results: int = 3) -> Dict[str, Any]:
     
     return {
         "success": True,
-        "query": query,
+        "query": actual_query,
         "num_results": len(limited_results),
         "results": limited_results
     }
@@ -258,12 +280,99 @@ async def fetch_webpage(url: str) -> Dict[str, Any]:
         }
 
 
+async def grep_search(query: str, include_pattern: str = None, exclude_pattern: str = None, case_sensitive: bool = False) -> Dict[str, Any]:
+    """
+    Search for a pattern in files.
+    
+    Args:
+        query: The pattern to search for
+        include_pattern: Optional file pattern to include (e.g. '*.ts')
+        exclude_pattern: Optional file pattern to exclude (e.g. 'node_modules')
+        case_sensitive: Whether the search should be case sensitive
+        
+    Returns:
+        Dictionary with search results
+    """
+    try:
+        # Build the ripgrep command
+        cmd = ["rg", "--json"]
+        
+        # Add case sensitivity option
+        if not case_sensitive:
+            cmd.append("-i")
+        
+        # Add include pattern if provided
+        if include_pattern:
+            cmd.extend(["-g", include_pattern])
+        
+        # Add exclude pattern if provided
+        if exclude_pattern:
+            cmd.extend(["-g", f"!{exclude_pattern}"])
+        
+        # Limit results to prevent overwhelming response
+        cmd.extend(["--max-count", "50"])
+        
+        # Add the query and search location
+        cmd.append(query)
+        cmd.append(".")
+        
+        # Execute the command
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        
+        stdout, stderr = await process.communicate()
+        
+        # Check for error
+        if process.returncode != 0 and process.returncode != 1:  # rg returns 1 if no matches
+            error_msg = stderr.decode().strip()
+            if not error_msg:
+                error_msg = f"grep search failed with return code {process.returncode}"
+            return {
+                "success": False,
+                "error": error_msg
+            }
+        
+        # Process the results
+        matches = []
+        for line in stdout.decode().splitlines():
+            try:
+                result = json.loads(line)
+                if result.get("type") == "match":
+                    match_data = result.get("data", {})
+                    path = match_data.get("path", {}).get("text", "")
+                    
+                    for match_line in match_data.get("lines", {}).get("text", "").splitlines():
+                        matches.append({
+                            "file": path,
+                            "line": match_line.strip()
+                        })
+            except json.JSONDecodeError:
+                continue
+        
+        return {
+            "success": True,
+            "query": query,
+            "include_pattern": include_pattern,
+            "exclude_pattern": exclude_pattern,
+            "matches": matches
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+
 # Dictionary mapping tool names to handler functions
 TOOL_HANDLERS = {
     "read_file": read_file,
     "list_directory": list_directory,
     "web_search": web_search,
     "fetch_webpage": fetch_webpage,
+    "grep_search": grep_search,
 }
 
 # Tool definitions for API documentation
@@ -277,6 +386,10 @@ TOOL_DEFINITIONS = [
                 "file_path": {
                     "type": "string",
                     "description": "The path to the file to read"
+                },
+                "target_file": {
+                    "type": "string",
+                    "description": "Alternative path to the file to read (takes precedence over file_path)"
                 }
             },
             "required": ["file_path"]
@@ -302,16 +415,20 @@ TOOL_DEFINITIONS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "query": {
+                "search_term": {
                     "type": "string",
                     "description": "The search query"
+                },
+                "query": {
+                    "type": "string",
+                    "description": "Alternative search query (search_term takes precedence)"
                 },
                 "num_results": {
                     "type": "integer",
                     "description": "Number of results to return (default: 3)"
                 }
             },
-            "required": ["query"]
+            "required": ["search_term"]
         }
     },
     {
@@ -326,6 +443,32 @@ TOOL_DEFINITIONS = [
                 }
             },
             "required": ["url"]
+        }
+    },
+    {
+        "name": "grep_search",
+        "description": "Search for a pattern in files",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "The pattern to search for"
+                },
+                "include_pattern": {
+                    "type": "string",
+                    "description": "Optional file pattern to include (e.g. '*.ts')"
+                },
+                "exclude_pattern": {
+                    "type": "string",
+                    "description": "Optional file pattern to exclude (e.g. 'node_modules')"
+                },
+                "case_sensitive": {
+                    "type": "boolean",
+                    "description": "Whether the search should be case sensitive"
+                }
+            },
+            "required": ["query"]
         }
     }
 ]

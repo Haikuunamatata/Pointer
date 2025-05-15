@@ -897,6 +897,7 @@ class LMStudioService {
           'list_directory': 'list_dir',
           'read_file': 'read_file',
           'web_search': 'web_search',
+          'grep_search': 'grep_search',
           'fetch_webpage': 'fetch_webpage'
         };
         
@@ -976,8 +977,8 @@ class LMStudioService {
       'list_dir': 'list_directory',
       'read_file': 'read_file',
       'web_search': 'web_search',
+      'grep_search': 'grep_search',
       'fetch_webpage': 'fetch_webpage',
-      'grep_search': 'grep_search'
     };
     
     // Log the tools before processing
@@ -992,7 +993,7 @@ class LMStudioService {
     let toolNames = new Set(tools.map(tool => tool.function?.name).filter(Boolean));
     
     // Add missing required tools
-    const requiredTools = ['read_file', 'list_directory', 'web_search', 'grep_search'];
+    const requiredTools = ['read_file', 'list_directory', 'web_search', 'grep_search', 'fetch_webpage'];
     const missingTools = requiredTools.filter(name => !toolNames.has(name) && !toolNames.has(frontendToBackendMap[name]));
     
     if (missingTools.length > 0) {
@@ -1019,6 +1020,10 @@ class LMStudioService {
                   exclude_pattern: {
                     type: "string",
                     description: "Optional file pattern to exclude (e.g. 'node_modules')"
+                  },
+                  case_sensitive: {
+                    type: "boolean",
+                    description: "Whether the search should be case sensitive"
                   }
                 },
                 required: ["query"]
@@ -1073,9 +1078,31 @@ class LMStudioService {
                   search_term: {
                     type: "string",
                     description: "The search query"
+                  },
+                  num_results: {
+                    type: "integer",
+                    description: "Number of results to return (default: 3)"
                   }
                 },
                 required: ["search_term"]
+              }
+            }
+          };
+        } else if (name === 'fetch_webpage') {
+          return {
+            type: "function",
+            function: {
+              name: "fetch_webpage",
+              description: "Fetch and extract content from a webpage",
+              parameters: {
+                type: "object",
+                properties: {
+                  url: {
+                    type: "string",
+                    description: "The URL of the webpage to fetch"
+                  }
+                },
+                required: ["url"]
               }
             }
           };

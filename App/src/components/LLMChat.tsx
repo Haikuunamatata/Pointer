@@ -19,8 +19,6 @@ import {
   ExtendedMessage, 
   AttachedFile, 
   ChatSession,
-  shouldForceToolUse,
-  getAppropriateToolForQuery,
   getFileExtension,
   generateValidToolCallId,
   generatePrompts,
@@ -2785,15 +2783,13 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
 
       // Replace "auto" with a configuration that forces tool usage when appropriate
       if (mode === 'agent') {
-        // Update the typecasting to fix the type error
-        apiConfig.tool_choice = shouldForceToolUse(input) 
-          ? {
-              type: "function",
-              function: {
-                name: getAppropriateToolForQuery(input)
-              }
-            } as any // Cast to any to avoid type issues
-          : "auto";
+        // Always use list_directory as the default tool
+        apiConfig.tool_choice = {
+          type: "function",
+          function: {
+            name: "list_directory" // Default to list_directory tool
+          }
+        } as any; // Cast to any to avoid type issues
       }
 
       let currentContent = '';
@@ -4288,8 +4284,19 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
       const isExpanded = expandedToolCalls.has(toolCallId);
       let toolArgs = null;
       let shortContent = '';
+      let detailedTitle = '';
       
       try {
+        // Check if the content has the new detailed title format
+        if (typeof content === 'string') {
+          const firstNewlineIndex = content.indexOf('\n');
+          if (firstNewlineIndex > 0) {
+            // Extract the detailed title and the rest of the content
+            detailedTitle = content.substring(0, firstNewlineIndex).trim();
+            content = content.substring(firstNewlineIndex + 1).trim();
+          }
+        }
+        
         // Determine tool type and create appropriate label
         if (message.tool_call_id) {
           const toolCall = messages
@@ -4335,7 +4342,7 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
             
             // Also look for simpler pattern like list_directory
             if (!extractedName) {
-              const simpleCallMatch = content.match(/\b(list_directory|read_file|web_search|grep_search|codebase_search)\b/);
+              const simpleCallMatch = content.match(/\b(list_directory|read_file)\b/);
               if (simpleCallMatch) {
                 extractedName = simpleCallMatch[1];
               }
@@ -4477,7 +4484,7 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
                   </svg>}
                 </span>
                   <span style={{ fontSize: '12px' }}>
-                    {(() => {
+                    {detailedTitle || (() => {
                       // Try to extract the path from arguments
                       let pathInfo = '';
                       if (toolArgs) {
