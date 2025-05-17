@@ -2609,12 +2609,14 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
     'IMPORTANT: You should minimize output tokens as much as possible while maintaining helpfulness, quality, and accuracy. Only address the specific query or task at hand, avoiding tangential information unless absolutely critical for completing the request. If you can answer in 1-3 sentences or a short paragraph, please do.\n' +
     'IMPORTANT: Keep your responses short. Avoid introductions, conclusions, and explanations. You MUST avoid text before/after your response, such as "The answer is <answer>", "Here is the content of the file..." or "Based on the information provided, the answer is..." or "Here is what I will do next...". Here are some examples to demonstrate appropriate verbosity:\n\n'
 
-  // Modify handleSubmit to use the correct model based on mode
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!input.trim() && !attachedFiles.length) return;
-    if (isProcessing) return;
-
+  // Add a shared function to handle both new and edited messages
+  const processUserMessage = async (
+    content: string, 
+    attachments: AttachedFile[] = [], 
+    editIndex: number | null = null
+  ) => {
+    if ((!content.trim() && attachments.length === 0) || isProcessing) return;
+    
     try {
       setIsProcessing(true);
       setIsStreamingComplete(false); // Reset streaming complete state
@@ -2625,46 +2627,58 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
       // Create the user message
       const userMessage: ExtendedMessage = {
         role: 'user',
-        content: mode === 'agent' ? 
-          `${input}` : 
-          input,
-        attachments: attachedFiles.length > 0 ? [...attachedFiles] : undefined
+        content,
+        attachments: attachments.length > 0 ? [...attachments] : undefined
       };
       
-      // Update messages state and save immediately after adding user message
+      // Update messages state based on whether this is an edit or a new message
+      let updatedMessages: ExtendedMessage[] = [];
+      
       setMessages(prev => {
-        const updatedMessages = [...prev, userMessage];
-        // Save chat history immediately after user message - no throttling
+        if (editIndex !== null) {
+          // Editing an existing message
+          updatedMessages = [...prev];
+          updatedMessages[editIndex] = userMessage;
+          // Remove all messages after the edited message
+          updatedMessages.splice(editIndex + 1);
+        } else {
+          // Adding a new message
+          updatedMessages = [...prev, userMessage];
+        }
+        
+        // Save chat history immediately after adding or editing a user message
         if (currentChatId) {
-          // Don't reload immediately after adding a user message to avoid race conditions
           setTimeout(() => saveChat(currentChatId, updatedMessages, false), 50);
         }
+        
         return updatedMessages;
       });
       
       setInput('');
+      if (editIndex !== null) {
+        setEditingMessageIndex(null);
+      }
       setAttachedFiles([]);
 
       // Create a new AbortController for this request
       abortControllerRef.current = new AbortController();
 
       // Add a temporary message for streaming
-      let updatedMessages: ExtendedMessage[] = [];
+      let messagesWithResponse: ExtendedMessage[] = [];
       setMessages(prev => {
-        updatedMessages = [...prev, { role: 'assistant' as const, content: '' }];
-        return updatedMessages;
+        messagesWithResponse = [...prev, { role: 'assistant' as const, content: '' }];
+        return messagesWithResponse;
       });
 
       // Get model configuration based on mode
       const modelConfig = await AIFileService.getModelConfigForPurpose(mode === 'agent' ? 'agent' : 'chat');
       const modelId = modelConfig.modelId;
 
-      // Use the normalizeConversationHistory function with the updated messages
-      // This ensures we include the newly added user message
-      const messagesForAPI = normalizeConversationHistory(updatedMessages.slice(0, -1)); // Exclude empty assistant message
-
-      // Add additional data for agent mode
-      if (mode === 'agent') {
+      // Use the normalizeConversationHistory function to properly handle tool calls
+      const messagesForAPI = normalizeConversationHistory(messagesWithResponse.slice(0, -1)); // Exclude empty assistant message
+      
+      // Add additional data for agent mode if this is a new message (not an edit)
+      if (mode === 'agent' && editIndex === null) {
         const additionalData = {
           current_file: currentWorkingDirectory ? { path: currentWorkingDirectory } : undefined,
           message_count: messages.length,
@@ -2675,7 +2689,7 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
           content: `<additional_data>${JSON.stringify(additionalData)}</additional_data>`
         });
       }
-
+      
       // Add tools configuration if in agent mode
       const apiConfig = {
         model: modelId,
@@ -2769,21 +2783,9 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
           tool_choice: "auto"
         })
       };
-
-      // Debug log to check if tools are present
-      console.log(`Mode: ${mode}, Tools included: ${mode === 'agent' ? 'yes' : 'no'}`);
-      if (mode === 'agent') {
-        console.log('API Config in agent mode:', JSON.stringify({
-          ...apiConfig,
-          messages: '[Messages included]',
-          tools: apiConfig.tools ? `[${apiConfig.tools.length} tools included]` : 'No tools',
-          tool_choice: apiConfig.tool_choice || 'No tool_choice'
-        }, null, 2));
-      }
-
-      // Replace "auto" with a configuration that forces tool usage when appropriate
-      if (mode === 'agent') {
-        // Always use list_directory as the default tool
+      
+      // For initial messages in agent mode, we use list_directory as default
+      if (mode === 'agent' && editIndex === null) {
         apiConfig.tool_choice = {
           type: "function",
           function: {
@@ -2792,9 +2794,22 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
         } as any; // Cast to any to avoid type issues
       }
 
+      // Debug log
+      const isEdit = editIndex !== null;
+      const logPrefix = isEdit ? 'Edit - ' : '';
+      console.log(`${logPrefix}Mode: ${mode}, Tools included: ${apiConfig.tools ? 'yes' : 'no'}`);
+      if (mode === 'agent') {
+        console.log(`${logPrefix}API Config in agent mode:`, JSON.stringify({
+          ...apiConfig,
+          messages: '[Messages included]',
+          tools: apiConfig.tools ? `[${apiConfig.tools.length} tools included]` : 'No tools',
+          tool_choice: apiConfig.tool_choice || 'No tool_choice'
+        }, null, 2));
+      }
+
       let currentContent = '';
       // Log what we're about to pass to the API
-      console.log('Passing to API:', {
+      console.log(`${logPrefix}Passing to API:`, {
         ...apiConfig,
         messages: '[Messages included]',
         tools: apiConfig.tools ? `[${apiConfig.tools.length} tools included]` : 'No tools',
@@ -2809,116 +2824,38 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
         purpose: mode === 'agent' ? 'agent' : 'chat',
         onUpdate: async (content: string) => {
           currentContent = content;
-          
-          // Check for function calls in streaming content
-          const hasFunctionCall = content.includes('function_call:');
-          let newMessage: ExtendedMessage = {
-              role: 'assistant',
-              content: content
-            };
-            
-          // If we have a function call, try to extract and properly format it
-          if (hasFunctionCall && mode === 'agent') {
-            try {
-              // Try multiple patterns to extract function calls
-              const functionCallMatch = content.match(/function_call:\s*({[\s\S]*?})(?=function_call:|$)/);
-              
-              if (functionCallMatch && functionCallMatch[1]) {
-                console.log('Detected function call in streaming response:', functionCallMatch[1].substring(0, 50) + '...');
-                
-                try {
-                  // Parse the function call
-                  const functionCallJson = functionCallMatch[1].trim();
-                  const functionCall = JSON.parse(functionCallJson);
-                  
-                  // Ensure we have a valid ID and other required fields
-                  const toolCall = {
-                    id: functionCall.id || generateValidToolCallId(),
-                    name: functionCall.name || '',
-                    arguments: functionCall.arguments || '{}'
-                  };
-                  
-                  if (toolCall.name) {
-                    console.log(`Extracted tool call during streaming: ${toolCall.name} with ID ${toolCall.id}`);
-                    
-                    // Format as a proper tool call message
-                    newMessage = {
-                      role: 'assistant',
-                      content: '',
-                      tool_calls: [{
-                        id: toolCall.id,
-                        name: toolCall.name,
-                        arguments: toolCall.arguments
-                      }]
-                    };
-                    
-                    console.log('Created properly formatted tool_calls structure for streaming response');
-                  }
-                } catch (e) {
-                  console.error('Error parsing function call in streaming response:', e);
-                  // Continue with regular content if parsing fails
-                }
-              }
-            } catch (e) {
-              console.error('Error processing function call in streaming response:', e);
-            }
-          }
-          
-          // Update the messages state with the appropriate format
           setMessages(prev => {
             const newMessages = [...prev];
-            newMessages[newMessages.length - 1] = newMessage;
-            
-            // Save chat during streaming with proper tool_calls format
-            if (currentChatId && (!window.lastContentLength || 
-                Math.abs(content.length - window.lastContentLength) > 100)) {
-              window.lastContentLength = content.length;
-              
-              // Increment the version to ensure we're not overwritten
-              window.chatSaveVersion = (window.chatSaveVersion || 0) + 1;
-              const saveVersion = window.chatSaveVersion;
-              
-              setTimeout(() => {
-                // Only save if our version is still current
-                if ((window.chatSaveVersion || 0) === saveVersion) {
-                  saveChat(currentChatId, newMessages, false);
-                }
-              }, 100);
-            }
-            
+            newMessages[newMessages.length - 1] = { 
+              role: 'assistant',
+              content
+            };
             return newMessages;
           });
 
-          // In agent mode, debounce the tool call processing
-          if (mode === 'agent' && hasFunctionCall) {
-            // Clear any existing timeout
-            if (toolCallTimeoutRef) {
-              clearTimeout(toolCallTimeoutRef);
-            }
-            
-            // Set a new timeout to process tool calls after 300ms of no updates
+          // Process tool calls as needed
+          if (mode === 'agent') {
+            // Debounce tool call processing
+            if (toolCallTimeoutRef) clearTimeout(toolCallTimeoutRef);
             toolCallTimeoutRef = setTimeout(() => {
               processToolCalls(content);
               toolCallTimeoutRef = null;
-            }, 300); // Increased timeout for more stability
-          } else if (mode !== 'agent') {
-            // For regular chat mode, process immediately if needed
+            }, 300);
+          } else {
             await processToolCalls(content);
           }
         }
       });
-      
+
       // Ensure we process any final tool calls after streaming is complete
       setIsStreamingComplete(true);
       if (mode === 'agent' && currentContent.includes('function_call:')) {
-        console.log('Processing final tool calls after streaming completion');
         // Cancel any pending timeout
         if (toolCallTimeoutRef) {
           clearTimeout(toolCallTimeoutRef);
           toolCallTimeoutRef = null;
         }
-        // Process immediately
-        setIsInToolExecutionChain(true); // Make sure we're in tool execution chain
+        setIsInToolExecutionChain(true); 
         await processToolCalls(currentContent);
       } else {
         // If there are no tool calls, save the final AI message
@@ -2936,7 +2873,7 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
           console.log('Saving chat with complete AI response');
           setTimeout(() => {
             saveChat(currentChatId, updatedMessages, true);
-          }, 200); // Slightly longer timeout to ensure all state updates are complete
+          }, 200);
         }
       }
 
@@ -2952,44 +2889,9 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
           preloadInsertModel();
         }, 3000);
       }
-
-      // Add debug logging to see what's being sent to the LLM API
-      console.log('Preparing API messages, original messages:', 
-        messages.map(m => ({
-          role: m.role,
-          hasToolCalls: !!m.tool_calls,
-          hasToolCallId: !!m.tool_call_id,
-          contentLength: m.content?.length || 0
-        }))
-      );
-
-      console.log('Processed messages for API:', 
-        messagesForAPI.map(m => ({
-          role: m.role,
-          hasToolCalls: !!(m as any).tool_calls,
-          hasToolCallId: !!(m as any).tool_call_id,
-          contentLength: m.content?.length || 0
-        }))
-      );
-
-      // Also add logging to the final API configuration
-      console.log('Final API request structure:', JSON.stringify({
-        model: modelId,
-        messages: messagesForAPI.map(m => ({
-          role: m.role,
-          // Truncate content for readability
-          content: typeof m.content === 'string' ? 
-            (m.content.length > 50 ? m.content.substring(0, 50) + '...' : m.content) : 
-            '<non-string content>',
-          tool_call_id: (m as any).tool_call_id,
-          tool_calls: (m as any).tool_calls ? '<tool calls present>' : undefined
-        })),
-        temperature: modelConfig.temperature || 0.7,
-        hasTools: !!(apiConfig as any).tools
-      }, null, 2));
-
+      
     } catch (error) {
-      console.error('Error in handleSubmit:', error);
+      console.error(`Error in ${editIndex !== null ? 'handleSubmitEdit' : 'handleSubmit'}:`, error);
       setMessages(prev => [
         ...prev,
         {
@@ -3001,6 +2903,15 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
       setIsProcessing(false);
     }
   };
+
+  // Simplify handleSubmit to use the shared function
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await processUserMessage(input, attachedFiles);
+  };
+  
+  // Replace the existing handleEditMessage, handleCancelEdit, and handleSubmitEdit functions
+  // These lines need to be removed to prevent duplicate declarations
 
   // Cancel ongoing requests
   const handleCancel = () => {
@@ -3108,247 +3019,8 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
   // Function to handle message editing
   const handleSubmitEdit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if ((!input.trim() && attachedFiles.length === 0) || isProcessing || editingMessageIndex === null) return;
-    
-    try {
-      setIsProcessing(true);
-      
-      // Auto-accept any pending changes before sending new message
-      await autoAcceptChanges();
-      
-      // Update the edited message with attachments as a separate field
-      const updatedMessage: ExtendedMessage = { 
-        role: 'user', 
-        content: input,
-        attachments: attachedFiles.length > 0 ? [...attachedFiles] : undefined
-      };
-      
-      const updatedMessages = [...messages];
-      updatedMessages[editingMessageIndex] = updatedMessage;
-      
-      // Remove all messages after the edited message
-      updatedMessages.splice(editingMessageIndex + 1);
-      
-      setMessages(updatedMessages);
-      
-      // Save chat history immediately after editing a message, if we haven't saved recently
-      if (currentChatId && (!window.lastSaveChatTime || Date.now() - window.lastSaveChatTime > 1000)) {
-        setTimeout(() => saveChat(currentChatId, updatedMessages), 50);
-      }
-      
-      setInput('');
-      setEditingMessageIndex(null);
-      // Clear attached files after submitting edit
-      setAttachedFiles([]);
-
-      // Add a temporary message for streaming
-      let messagesWithResponse: ExtendedMessage[] = [];
-      setMessages(prev => {
-        messagesWithResponse = [...prev, { role: 'assistant' as const, content: '' }];
-        return messagesWithResponse;
-      });
-
-      // Get model configuration based on mode
-      const modelConfig = await AIFileService.getModelConfigForPurpose(mode === 'agent' ? 'agent' : 'chat');
-      const modelId = modelConfig.modelId;
-
-      // Use the normalizeConversationHistory function to properly handle tool calls
-      // This ensures consistent formatting between normal submission and edits
-      const messagesForAPI = normalizeConversationHistory(messagesWithResponse.slice(0, -1)); // Exclude empty assistant message
-      
-      // Add tools configuration if in agent mode
-      const apiConfig = {
-        model: modelId,
-        messages: [
-          {
-            role: 'system' as const,
-            content: mode === 'agent' ? agentSystemMessage : chatSystemMessage,
-          },
-          ...messagesForAPI
-        ],
-        temperature: modelConfig.temperature || 0.7,
-        max_tokens: modelConfig.maxTokens || -1,
-        top_p: modelConfig.topP,
-        frequency_penalty: modelConfig.frequencyPenalty,
-        presence_penalty: modelConfig.presencePenalty,
-        ...(mode === 'agent' && {
-          tools: [
-            {
-              type: "function",
-              function: {
-                name: "read_file",
-                description: "Read the contents of a file",
-                parameters: {
-                  type: "object",
-                  properties: {
-                    file_path: {
-                      type: "string",
-                      description: "The path to the file to read"
-                    }
-                  },
-                  required: ["file_path"]
-                }
-              }
-            },
-            {
-              type: "function",
-              function: {
-                name: "list_directory",
-                description: "List the contents of a directory",
-                parameters: {
-                  type: "object",
-                  properties: {
-                    directory_path: {
-                      type: "string",
-                      description: "The path to the directory to list"
-                    }
-                  },
-                  required: ["directory_path"]
-                }
-              }
-            },
-            {
-              type: "function",
-              function: {
-                name: "web_search",
-                description: "Search the web for information",
-                parameters: {
-                  type: "object",
-                  properties: {
-                    query: {
-                      type: "string",
-                      description: "The search query"
-                    },
-                    num_results: {
-                      type: "integer",
-                      description: "Number of results to return (default: 3)"
-                    }
-                  },
-                  required: ["query"]
-                }
-              }
-            },
-            {
-              type: "function",
-              function: {
-                name: "fetch_webpage",
-                description: "Fetch and extract content from a webpage",
-                parameters: {
-                  type: "object",
-                  properties: {
-                    url: {
-                      type: "string",
-                      description: "The URL of the webpage to fetch"
-                    }
-                  },
-                  required: ["url"]
-                }
-              }
-            }
-          ],
-          tool_choice: "auto"
-        })
-      };
-      
-      // Debug log to check if tools are present in edit message handler
-      console.log(`Edit - Mode: ${mode}, Tools included: ${apiConfig.tools ? 'yes' : 'no'}`);
-      if (mode === 'agent') {
-        console.log('Edit - API Config in agent mode:', JSON.stringify(apiConfig, null, 2));
-      }
-
-      // Call the LMStudio API
-      let currentContent = '';
-      // Log what we're about to pass to the API (edit handler)
-      console.log('Edit - Passing to API:', {
-        ...apiConfig,
-        messages: '[Messages included]',
-        tools: apiConfig.tools ? `[${apiConfig.tools.length} tools included]` : 'No tools',
-        tool_choice: apiConfig.tool_choice || 'No tool_choice'
-      });
-      
-      // Add a debounce timeout reference for tool calls
-      let toolCallTimeoutRef: ReturnType<typeof setTimeout> | null = null;
-      
-      await lmStudio.createStreamingChatCompletion({
-        ...apiConfig,
-        purpose: mode === 'agent' ? 'agent' : 'chat',
-        onUpdate: async (content: string) => {
-          currentContent = content;
-          setMessages(prev => {
-            const newMessages = [...prev];
-            newMessages[newMessages.length - 1] = {
-              role: 'assistant',
-              content: content
-            };
-            
-            // Save chat only occasionally during streaming (based on content length changes)
-            if (currentChatId && (!window.lastContentLength || 
-                Math.abs(content.length - window.lastContentLength) > 100)) {
-              window.lastContentLength = content.length;
-              setTimeout(() => saveChat(currentChatId, newMessages), 100);
-            }
-            
-            return newMessages;
-          });
-
-          // In agent mode, debounce the tool call processing
-          if (mode === 'agent' && content.includes('function_call:')) {
-            // Clear any existing timeout
-            if (toolCallTimeoutRef) {
-              clearTimeout(toolCallTimeoutRef);
-            }
-            
-            // Set a new timeout to process tool calls after 200ms of no updates
-            toolCallTimeoutRef = setTimeout(() => {
-              processToolCalls(content);
-              toolCallTimeoutRef = null;
-            }, 200);
-          } else if (mode !== 'agent') {
-            // For regular chat mode, process immediately
-            await processToolCalls(content);
-          }
-        }
-      });
-      
-      // Ensure we process any final tool calls after streaming is complete
-      setIsStreamingComplete(true);
-      if (mode === 'agent' && currentContent.includes('function_call:')) {
-        console.log('Processing final tool calls after streaming completion');
-        // Cancel any pending timeout
-        if (toolCallTimeoutRef) {
-          clearTimeout(toolCallTimeoutRef);
-          toolCallTimeoutRef = null;
-        }
-        // Process immediately
-        await processToolCalls(currentContent);
-      }
-      
-      // After the response is complete, extract code blocks and queue them for auto-insert
-      const codeBlocks = extractCodeBlocks(currentContent);
-      if (codeBlocks.length > 0) {
-        setPendingInserts(prev => [
-          ...prev,
-          ...codeBlocks.map(block => ({ filename: block.filename, content: block.content }))
-        ]);
-        
-        setTimeout(() => {
-          preloadInsertModel();
-        }, 3000);
-      }
-      
-    } catch (error) {
-      console.error('Error in handleSubmitEdit:', error);
-      setMessages(prev => [
-        ...prev,
-        {
-          role: 'assistant',
-          content: 'I apologize, but I encountered an error processing your request. Please try again.'
-        }
-      ]);
-    } finally {
-      setIsProcessing(false);
-    }
+    if (editingMessageIndex === null) return;
+    await processUserMessage(input, attachedFiles, editingMessageIndex);
   };
 
   // Add styles for the auto-insert spinner animation

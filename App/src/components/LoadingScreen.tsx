@@ -1,6 +1,6 @@
 import React from 'react';
 import '../styles/LoadingScreen.css';
-import logoImage from '../assets/logo.png';
+import loadingGif from '../assets/loading.gif';
 
 interface LoadingScreenProps {
   message?: string;
@@ -10,10 +10,9 @@ const LoadingScreen: React.FC<LoadingScreenProps> = ({ message = 'Establishing c
   return (
     <div className="loading-screen">
       <div className="loading-content">
-        <div className="logo-container">
-          <img src={logoImage} alt="Logo" className="logo" />
+        <div className="animation-container">
+          <img src={loadingGif} alt="Loading" className="loading-animation" />
         </div>
-        <div className="spinner"></div>
         <div className="loading-message">{message}</div>
       </div>
     </div>
