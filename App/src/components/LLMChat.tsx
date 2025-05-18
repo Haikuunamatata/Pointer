@@ -1762,12 +1762,25 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
     try {
       if (messages.length <= 1) return; // Don't save if only system message exists
       
+      // Check if we've just saved recently - debounce saves that are too frequent
+      // But still save for important triggers (like after user message, before/after tools)
+      const now = Date.now();
+      const lastSaveTime = window.lastSaveChatTime || 0;
+      const timeSinceLastSave = now - lastSaveTime;
+      
+      // Skip if we saved very recently (within 100ms) unless reloadAfterSave is true
+      // which indicates an important save trigger (like tool completion or response end)
+      if (timeSinceLastSave < 100 && !reloadAfterSave) {
+        console.log(`Skipping save - too soon after previous save (${timeSinceLastSave}ms)`);
+        return;
+      }
+      
       // Increment the save version to track most recent save
       window.chatSaveVersion = (window.chatSaveVersion || 0) + 1;
       const currentSaveVersion = window.chatSaveVersion;
       
       // Record that we're saving now
-      window.lastSaveChatTime = Date.now();
+      window.lastSaveChatTime = now;
       
       let title = chatTitle;
       
@@ -2648,7 +2661,7 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
         
         // Save chat history immediately after adding or editing a user message
         if (currentChatId) {
-          setTimeout(() => saveChat(currentChatId, updatedMessages, false), 50);
+          saveChat(currentChatId, updatedMessages, false);
         }
         
         return updatedMessages;
@@ -2871,9 +2884,7 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
           
           // Save chat with the complete response
           console.log('Saving chat with complete AI response');
-          setTimeout(() => {
-            saveChat(currentChatId, updatedMessages, true);
-          }, 200);
+          saveChat(currentChatId, updatedMessages, true);
         }
       }
 
@@ -2969,6 +2980,32 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
     loadChats();
   }, []);
 
+  // Define the saveBeforeToolExecution function
+  const saveBeforeToolExecution = useCallback(async () => {
+    if (currentChatId && messages.length > 1) {
+      console.log('Saving chat before tool execution (external trigger)');
+      await saveChat(currentChatId, messages, false);
+      return true;
+    }
+    return false;
+  }, [currentChatId, messages, saveChat]);
+
+  // Expose the saveBeforeToolExecution method to the DOM
+  useEffect(() => {
+    const chatElement = document.querySelector('[data-chat-container="true"]');
+    if (chatElement) {
+      (chatElement as any).saveBeforeToolExecution = saveBeforeToolExecution;
+    }
+
+    return () => {
+      // Clean up when component unmounts
+      const chatElement = document.querySelector('[data-chat-container="true"]');
+      if (chatElement) {
+        (chatElement as any).saveBeforeToolExecution = undefined;
+      }
+    };
+  }, [saveBeforeToolExecution]);
+
   // Remove useEffect for debounced saving as we now save immediately after each change
   // We'll still keep a minimal useEffect to save for any scenario where messages change but not through our direct actions
   useEffect(() => {
@@ -3056,7 +3093,7 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
       if (currentChatId && (!window.lastSaveChatTime || Date.now() - window.lastSaveChatTime > 1000)) {
         // For tool messages, force a reload after saving
         const shouldReload = message.role === 'tool' || !!message.tool_call_id || !!message.tool_calls;
-        setTimeout(() => saveChat(currentChatId, updatedMessages, shouldReload), 50);
+        saveChat(currentChatId, updatedMessages, shouldReload);
       }
       return updatedMessages;
     });
@@ -3136,7 +3173,7 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
           
           // Save the chat after adding the error message
           if (currentChatId) {
-            setTimeout(() => saveChat(currentChatId, updatedMessages, true), 50);
+            saveChat(currentChatId, updatedMessages, true);
           }
           
           return updatedMessages;
@@ -3171,7 +3208,7 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
         
         // Save the chat after adding the error message
         if (currentChatId) {
-          setTimeout(() => saveChat(currentChatId, updatedMessages, true), 50);
+          saveChat(currentChatId, updatedMessages, true);
         }
         
         return updatedMessages;
@@ -3231,6 +3268,11 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
       
       // Allow state update to complete
       await new Promise(resolve => setTimeout(resolve, 50));
+      
+      // Save chat before processing tool calls (new trigger)
+      if (currentChatId) {
+        saveChat(currentChatId, currentMessages, false);
+      }
       
       // Find tool call IDs that already have responses in the conversation
       currentMessages.forEach(msg => {
@@ -3375,7 +3417,7 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
             // Save the updated messages immediately
             if (currentChatId) {
               window.chatSaveVersion = processVersion;
-              setTimeout(() => saveChat(currentChatId, newMessages, false), 50);
+              saveChat(currentChatId, newMessages, false);
             }
           }
           
@@ -3422,7 +3464,7 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
               // Save chat after adding tool result
                 if (currentChatId) {
                 window.chatSaveVersion = (window.chatSaveVersion || 0) + 1;
-                setTimeout(() => saveChat(currentChatId, updatedMessages, true), 100);
+                saveChat(currentChatId, updatedMessages, true);
                 }
                 
                 return updatedMessages;
@@ -4424,10 +4466,11 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
   if (!isVisible) return null;
 
   return (
-    <div
+    <div 
       ref={containerRef}
       className="llm-chat"
-      style={{
+      data-chat-container="true"
+      style={{ 
         display: isVisible ? 'flex' : 'none',
         flexDirection: 'column',
         position: 'fixed',

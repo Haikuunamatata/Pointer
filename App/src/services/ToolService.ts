@@ -135,6 +135,41 @@ export class ToolService {
   }
 
   /**
+   * Save the current chat state
+   * This is called before making a tool call to ensure the chat is preserved
+   */
+  private async saveCurrentChat(): Promise<void> {
+    // No longer disabled - actively save chat before tool execution
+    // Try multiple selectors to find the chat component
+    const selectors = [
+      '.llm-chat-container',
+      '.chat-container',
+      '[data-chat-container]'
+    ];
+    
+    let chatComponent = null;
+    for (const selector of selectors) {
+      const component = document.querySelector(selector) as any;
+      if (component && component.saveBeforeToolExecution) {
+        chatComponent = component;
+        break;
+      }
+    }
+    
+    if (chatComponent && chatComponent.saveBeforeToolExecution) {
+      try {
+        await chatComponent.saveBeforeToolExecution();
+        console.log('Successfully saved chat before tool execution');
+      } catch (error) {
+        console.error('Failed to save chat before tool execution:', error);
+      }
+    } else {
+      console.log('Chat component not available for saving before tool execution');
+      // Continue with tool execution even if we can't save the chat
+    }
+  }
+
+  /**
    * Call a tool with parameters
    * @param toolName Name of the tool to call
    * @param params Tool parameters
@@ -145,15 +180,21 @@ export class ToolService {
       // Use the setToolExecutionState static method for tracking
       ToolService.setToolExecutionState(true);
       
-      console.log(`Calling tool ${toolName} with params:`, params);
+      // First, sanitize the tool name to prevent duplications
+      const sanitizedToolName = this.sanitizeToolName(toolName);
+      
+      // Save chat before tool execution
+      await this.saveCurrentChat();
+      
+      console.log(`Calling tool ${sanitizedToolName} with params:`, params);
       
       // Determine if the tool name is already in backend format
-      let backendToolName = toolName;
+      let backendToolName = sanitizedToolName;
       
       // Only map the tool name if it's in frontend format
-      if (toolName === 'list_dir') {
+      if (sanitizedToolName === 'list_dir') {
         backendToolName = 'list_directory';
-        console.log(`Mapped frontend tool name ${toolName} to backend tool name ${backendToolName}`);
+        console.log(`Mapped frontend tool name ${sanitizedToolName} to backend tool name ${backendToolName}`);
       } else {
         console.log(`Using tool name as-is: ${backendToolName}`);
       }
@@ -181,14 +222,14 @@ export class ToolService {
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to call tool: ${toolName} - Status: ${response.status}`);
+        throw new Error(`Failed to call tool: ${sanitizedToolName} - Status: ${response.status}`);
       }
 
       const result = await response.json();
-      console.log(`Tool ${toolName} result:`, result);
+      console.log(`Tool ${sanitizedToolName} result:`, result);
       
       // Format the response with consistent tool name for storage
-      const storageToolName = toolName; // Keep original name for consistent display
+      const storageToolName = sanitizedToolName; // Keep original name for consistent display
       
       // Create a detailed title for the tool result
       const detailedTitle = this.formatToolResultTitle(storageToolName, mappedParams, result);
@@ -202,9 +243,11 @@ export class ToolService {
     } catch (error) {
       console.error(`Tool call failed: ${(error as Error).message}`);
       
+      // Use the sanitized name for consistency in error messages too
+      const errorToolName = this.sanitizeToolName(toolName);
       return { 
         role: 'tool',
-        content: `Error from ${toolName}: ${(error as Error).message}`,
+        content: `Error from ${errorToolName}: ${(error as Error).message}`,
         tool_call_id: this.generateToolCallId() // Add a unique ID for this tool call
       };
     } finally {
@@ -214,12 +257,33 @@ export class ToolService {
   }
 
   /**
-   * Save the current chat state (DISABLED to prevent file toggling)
-   * This is called before making a tool call to ensure the chat is preserved
+   * Sanitize tool name to prevent duplications
+   * @param toolName The original tool name that might have duplications
+   * @returns Sanitized tool name
    */
-  private async saveCurrentChat(): Promise<void> {
-    // REMOVED automatic chat saving to prevent file toggling
-    // Chat saving is now handled only after tool execution is complete
+  private sanitizeToolName(toolName: string): string {
+    // Check for duplicated tool names
+    if (toolName.includes('list_dir') && toolName.includes('list_directory')) {
+      console.warn('Found duplicated tool name pattern:', toolName);
+      return 'list_dir'; // Return normalized name
+    }
+    
+    // Check for other common duplications
+    const duplicatePatterns = [
+      { check: /list_directory.*list_directory/i, replace: 'list_directory' },
+      { check: /list_dir.*list_dir/i, replace: 'list_dir' },
+      { check: /read_file.*read_file/i, replace: 'read_file' },
+      { check: /grep_search.*grep_search/i, replace: 'grep_search' }
+    ];
+    
+    for (const pattern of duplicatePatterns) {
+      if (pattern.check.test(toolName)) {
+        console.warn('Found duplicated tool name pattern:', toolName);
+        return pattern.replace;
+      }
+    }
+    
+    return toolName;
   }
 
   /**
