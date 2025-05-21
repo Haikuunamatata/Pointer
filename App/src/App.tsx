@@ -1,11 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import * as monaco from 'monaco-editor';
-import FileExplorer from './components/FileExplorer';
-import Tabs from './components/Tabs';
-import Resizable from './components/Resizable';
-import { FileSystemItem, FileSystemState } from './types';
-import { FileSystemService } from './services/FileSystemService';
-import { RecentProjectsMenu } from './components/RecentProjectsMenu';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';import * as monaco from 'monaco-editor';import FileExplorer from './components/FileExplorer';import Tabs from './components/Tabs';import Resizable from './components/Resizable';import { FileSystemItem, FileSystemState } from './types';import { FileSystemService } from './services/FileSystemService';import { RecentProjectsMenu } from './components/RecentProjectsMenu';import debounce from 'lodash/debounce';
 import EditorGrid from './components/EditorGrid';
 import { initializeLanguageSupport, getLanguageFromFileName } from './utils/languageUtils';
 import { LLMChat } from './components/LLMChat';
@@ -60,28 +53,7 @@ const topBarButtonStyle = {
   borderRadius: '3px',
 } as const;
 
-// Add this near the top of App.tsx, after the imports
-declare global {
-  interface Window {
-    getCurrentFile: () => { path: string; } | null;
-    editor?: monaco.editor.IStandaloneCodeEditor;
-    reloadFileContent?: (fileId: string) => Promise<void>;
-    fileSystem?: Record<string, FileSystemItem>;
-    applyCustomTheme?: () => void;
-    loadSettings?: () => Promise<void>;
-    loadAllSettings?: () => Promise<void>;
-    appSettings?: {
-      theme?: {
-        customColors?: {
-          customFileExtensions?: Record<string, string>;
-        };
-      };
-    };
-    editorSettings?: {
-      autoAcceptGhostText: boolean;
-    };
-  }
-}
+// Add this near the top of App.tsx, after the importsdeclare global {  interface Window {    getCurrentFile: () => { path: string; } | null;    editor?: monaco.editor.IStandaloneCodeEditor;    reloadFileContent?: (fileId: string) => Promise<void>;    fileSystem?: Record<string, FileSystemItem>;    applyCustomTheme?: () => void;    loadSettings?: () => Promise<void>;    loadAllSettings?: () => Promise<void>;    cursorUpdateTimeout?: number;    appSettings?: {      theme?: {        customColors?: {          customFileExtensions?: Record<string, string>;        };      };    };    editorSettings?: {      autoAcceptGhostText: boolean;    };  }}
 
 const App: React.FC = () => {
   const editorRef = useRef<HTMLDivElement>(null);
@@ -150,6 +122,35 @@ const App: React.FC = () => {
 
   // Add state for cursor position
   const [cursorPosition, setCursorPosition] = useState({ line: 1, column: 1 });
+  
+  // Add debounced function to update cursor position on the server
+  const updateCursorPositionOnServer = useCallback(
+    debounce(async (filePath: string, line: number, column: number) => {
+      try {
+        // Only update if we have a valid file path
+        if (filePath) {
+          const response = await fetch('http://localhost:23816/ide-state/update-cursor', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              file_path: filePath,
+              line,
+              column
+            })
+          });
+          
+          if (!response.ok) {
+            console.warn('Failed to update cursor position on server');
+          }
+        }
+      } catch (error) {
+        console.error('Error updating cursor position:', error);
+      }
+    }, 500), // Debounce for 500ms to avoid too many requests
+    []
+  );
 
   // Add state for grid layout
   const [isGridLayout, setIsGridLayout] = useState(false);
@@ -367,19 +368,7 @@ const App: React.FC = () => {
     loadChats();
   }, []);
 
-  // Add effect to track cursor position
-  useEffect(() => {
-    if (editor.current) {
-      const disposable = editor.current.onDidChangeCursorPosition((e) => {
-        const position = e.position;
-        setCursorPosition({
-          line: position.lineNumber,
-          column: position.column,
-        });
-      });
-      return () => disposable.dispose();
-    }
-  }, [editor.current]);
+    // Add effect to track cursor position and update the server  useEffect(() => {    if (editor.current) {      const disposable = editor.current.onDidChangeCursorPosition((e) => {        const position = e.position;        setCursorPosition({          line: position.lineNumber,          column: position.column,        });                // Update the server with cursor position        if (fileSystem.currentFileId && fileSystem.items[fileSystem.currentFileId]) {          const currentFile = fileSystem.items[fileSystem.currentFileId];          // Only update for actual files (not welcome screen)          if (currentFile.type === 'file' && currentFile.path) {            try {              // Debounce this operation by using setTimeout              const filePath = currentFile.path;              const line = position.lineNumber;              const column = position.column;                            // Use a simple debounce to avoid too many requests              if (window.cursorUpdateTimeout) {                clearTimeout(window.cursorUpdateTimeout);              }                            window.cursorUpdateTimeout = setTimeout(async () => {                try {                  const response = await fetch('http://localhost:23816/ide-state/update-cursor', {                    method: 'POST',                    headers: {                      'Content-Type': 'application/json',                    },                    body: JSON.stringify({                      file_path: filePath,                      line,                      column                    })                  });                                    if (!response.ok) {                    console.warn('Failed to update cursor position on server');                  }                } catch (error) {                  console.error('Error updating cursor position:', error);                }              }, 500); // 500ms debounce            } catch (error) {              console.error('Error preparing cursor position update:', error);            }          }        }      });      return () => disposable.dispose();    }  }, [editor.current, fileSystem.currentFileId, fileSystem.items]);
 
   useEffect(() => {
     if (editorRef.current) {

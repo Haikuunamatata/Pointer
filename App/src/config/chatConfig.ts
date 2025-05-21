@@ -11,6 +11,8 @@ export interface AttachedFile {
 export interface ExtendedMessage extends Message {
   attachments?: AttachedFile[];
   tool_call_id?: string;
+  id?: string; // Unique message identifier
+  messageId?: number; // Sequential unique ID to track messages
   tool_calls?: Array<{
     id: string;
     name: string;

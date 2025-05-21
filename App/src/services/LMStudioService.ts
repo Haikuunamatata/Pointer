@@ -71,6 +71,7 @@ interface CompletionResponse {
 
 class LMStudioService {
   // Gets the full API endpoint for a specific purpose
+  private lastToolCallExtraction: number = 0; // Track the last time we extracted a tool call
   private async getApiEndpoint(purpose: 'chat' | 'insert' | 'autocompletion' | 'summary' | 'agent'): Promise<string> {
     try {
       const modelConfig = await AIFileService.getModelConfigForPurpose(purpose);
@@ -1319,11 +1320,18 @@ class LMStudioService {
         
         // After processing all lines, check for function calls in the accumulated content
         if (!processingToolCall && !partialToolCall && detectFunctionCallInText(accumulatedContent)) {
-          processingToolCall = true;
-          console.log('Detected function call marker in accumulated content');
-          const extracted = this.extractAndFlushFunctionCall(accumulatedContent, onUpdate);
-          if (extracted) {
-            processingToolCall = false;
+          // Don't process tool calls too frequently - use a timestamp check to debounce
+          const now = Date.now();
+          if (!this.lastToolCallExtraction || (now - this.lastToolCallExtraction) > 1000) {
+            processingToolCall = true;
+            console.log('Detected function call marker in accumulated content');
+            this.lastToolCallExtraction = now;
+            const extracted = this.extractAndFlushFunctionCall(accumulatedContent, onUpdate);
+            if (extracted) {
+              processingToolCall = false;
+            }
+          } else {
+            console.log('Skipping function call detection, processed too recently:', now - this.lastToolCallExtraction, 'ms ago');
           }
         }
       }

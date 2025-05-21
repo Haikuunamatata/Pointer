@@ -247,4 +247,5 @@ export interface ExtendedMessage extends Message {
   id?: string;
   timestamp?: string;
   tool_call_id?: string;
+  messageId?: number; // Sequential unique ID to track messages
 } 

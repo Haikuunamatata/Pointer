@@ -29,12 +29,13 @@ import {
 // Add TypeScript declarations for window properties
 declare global {
   interface Window {
-    lastSaveChatTime?: number;
-    chatSaveCounter?: number;
-    lastContentLength?: number;
-    chatSaveVersion?: number; // Track the version of saves to prevent old overwrites
-    lastSavedMessageCount?: number; // Track the number of messages saved
-  }
+  lastSaveChatTime?: number;
+  chatSaveCounter?: number;
+  lastContentLength?: number;
+  chatSaveVersion?: number; // Track the version of saves to prevent old overwrites
+  lastSavedMessageCount?: number; // Track the number of messages saved
+  highestMessageId?: number; // Track the highest message ID we've seen
+}
 }
 
 // LLMChat props
@@ -1287,7 +1288,7 @@ const ThinkingBlock: React.FC<{ content: string }> = ({ content }) => {
       </div>
       <div style={{ paddingLeft: '22px' }}>{content}</div>
       
-      {/* Spacer div to create more separation after thinking blocks */}
+      {/* Spacer div to create more separation after thinking blocks and subsequent tool messages */}
       <div style={{
         position: 'absolute',
         height: '10px',
@@ -1586,6 +1587,14 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   
   // Update the initial state and types to use ExtendedMessage
   const [messages, setMessages] = useState<ExtendedMessage[]>([INITIAL_SYSTEM_MESSAGE]);
+  const [currentMessageId, setCurrentMessageId] = useState<number>(1); // Track current message ID
+  
+  // Function to get the next message ID and increment the counter
+  const getNextMessageId = () => {
+    const nextId = currentMessageId;
+    setCurrentMessageId(prevId => prevId + 1);
+    return nextId;
+  };
   const [input, setInput] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [width, setWidth] = useState(700);
@@ -1762,18 +1771,20 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
     try {
       if (messages.length <= 1) return; // Don't save if only system message exists
       
-      // Check if we've just saved recently - debounce saves that are too frequent
-      // But still save for important triggers (like after user message, before/after tools)
+      // For important save operations (user messages, AI completions, tool calls), always save
+      // regardless of timing
       const now = Date.now();
       const lastSaveTime = window.lastSaveChatTime || 0;
       const timeSinceLastSave = now - lastSaveTime;
       
-      // Skip if we saved very recently (within 100ms) unless reloadAfterSave is true
-      // which indicates an important save trigger (like tool completion or response end)
+      // Skip very frequent saves only for streaming incremental updates
+      // For important operations (reloadAfterSave=true), always save
       if (timeSinceLastSave < 100 && !reloadAfterSave) {
-        console.log(`Skipping save - too soon after previous save (${timeSinceLastSave}ms)`);
+        console.log(`Skipping incremental save - too soon after previous save (${timeSinceLastSave}ms)`);
         return;
       }
+      
+      console.log(`Saving chat with ${reloadAfterSave ? 'reload' : 'no reload'} - operation type: ${reloadAfterSave ? 'critical' : 'incremental'}`);
       
       // Increment the save version to track most recent save
       window.chatSaveVersion = (window.chatSaveVersion || 0) + 1;
@@ -1798,10 +1809,15 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       
       // Deduplicate messages to prevent duplications
       const deduplicatedMessages: ExtendedMessage[] = [];
-      const seenMessageKeys = new Set<string>();
+      const processedMessageIds = new Set<number>();
       
       // Function to generate a unique key for a message
       const getMessageKey = (msg: ExtendedMessage): string => {
+        // If message has ID, use it as the primary identifier
+        if (msg.messageId !== undefined) {
+          return `id:${msg.messageId}`;
+        }
+        
         // For tool messages, include the tool_call_id to identify uniquely
         if (msg.role === 'tool' && msg.tool_call_id) {
           return `tool:${msg.tool_call_id}:${msg.content.substring(0, 50)}`;
@@ -1818,33 +1834,54 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         }
       };
       
-      // Only keep unique messages
-      filteredMessages.forEach(msg => {
-        const key = getMessageKey(msg);
-        if (!seenMessageKeys.has(key)) {
-          seenMessageKeys.add(key);
-          deduplicatedMessages.push(msg);
-        } else {
-          console.log(`Skipping duplicate message: ${key}`);
+      // Deduplicate messages: prioritize using message IDs for deduplication
+      if (filteredMessages.length > 0) {
+        // Always add the first message
+        deduplicatedMessages.push(filteredMessages[0]);
+        if (filteredMessages[0].messageId !== undefined) {
+          processedMessageIds.add(filteredMessages[0].messageId);
         }
-      });
+        
+        for (let i = 1; i < filteredMessages.length; i++) {
+          const currentMsg = filteredMessages[i];
+          
+          // If message has ID, use it for deduplication
+          if (currentMsg.messageId !== undefined) {
+            if (!processedMessageIds.has(currentMsg.messageId)) {
+              deduplicatedMessages.push(currentMsg);
+              processedMessageIds.add(currentMsg.messageId);
+              console.log(`Added message with ID: ${currentMsg.messageId}`);
+            } else {
+              console.log(`Skipping duplicate message with ID: ${currentMsg.messageId}`);
+            }
+            continue;
+          }
+          
+          // For messages without ID, use the old comparison logic
+          const prevMsg = deduplicatedMessages[deduplicatedMessages.length - 1];
+          if (currentMsg.role === prevMsg.role && getMessageKey(currentMsg) === getMessageKey(prevMsg)) {
+            console.log(`Skipping duplicate message (identical to previous and same role): ${getMessageKey(currentMsg)}`);
+          } else {
+            deduplicatedMessages.push(currentMsg);
+          }
+        }
+      }
       
       console.log(`Deduplicated ${filteredMessages.length} messages to ${deduplicatedMessages.length} messages`);
       
-      // Format the messages for the backend
       const messagesToSave = deduplicatedMessages.map((msg: ExtendedMessage) => {
-        // Create a cleaned version of the message with only the properties we need
         const cleanedMsg: any = {
           role: msg.role,
-          content: msg.content || '' // Ensure content is never undefined
+          content: msg.content || '',
+          // Preserve messageId if it exists
+          ...(msg.messageId !== undefined && { messageId: msg.messageId })
         };
         
-        // Special case: Check for assistant messages with function_call in content
         if (msg.role === 'assistant' && typeof msg.content === 'string' && 
             msg.content.includes('function_call:') && !msg.tool_calls) {
           try {
             console.log('Found function_call string in content during save, extracting...');
-            const functionCallMatch = msg.content.match(/function_call:\s*({[\s\S]*?})(?=function_call:|$)/);
+            const functionCallMatch = msg.content.match(/function_call:\\s*({[\\s\\S]*?})(?=function_call:|$)/);
             if (functionCallMatch && functionCallMatch[1]) {
               let functionCall: any;
               
@@ -2005,17 +2042,19 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         // Check if our save version is still the most recent
         if (window.chatSaveVersion === currentSaveVersion) {
           console.log(`Chat saved successfully (version: ${currentSaveVersion}, operation: ${isEdit ? 'edit' : 'append'})`);
-      
-      // Reload the chat if requested (important for tool calls)
-      if (reloadAfterSave) {
-        // Wait a brief moment to ensure the file is written
-        setTimeout(() => {
+          
+          // Only reload in specific situations (tool calls, errors) to prevent flickering
+          if (reloadAfterSave) {
+            // Wait a brief moment to ensure the file is written
+            setTimeout(() => {
               // Only reload if our version is still current
               if (window.chatSaveVersion === currentSaveVersion) {
-          loadChat(chatId, true);
+                console.log(`Reloading chat after critical save operation`);
+                // Use a gentler reload that preserves scroll position and prevents flickering
+                loadChat(chatId, true);
               }
-        }, 100);
-      }
+            }, 200); // Slightly longer delay to reduce visual disruption
+          }
         } else {
           console.log(`Skipping post-save actions - newer save version exists: ${window.chatSaveVersion} > ${currentSaveVersion}`);
         }
@@ -2105,6 +2144,11 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
             content: msg.content
           };
           
+          // Preserve message ID if present
+          if (msg.messageId !== undefined) {
+            typedMsg.messageId = msg.messageId;
+          }
+          
           // Add tool_call_id if present (for tool response messages)
           if (msg.tool_call_id) {
             typedMsg.tool_call_id = msg.tool_call_id;
@@ -2166,6 +2210,14 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
             deduplicatedMessages.push(msg);
           } else {
             console.log(`Skipping duplicate loaded message: ${key}`);
+          }
+          
+          // Check for message ID and update counter if needed
+          if (msg.messageId !== undefined) {
+            if (msg.messageId >= currentMessageId) {
+              setCurrentMessageId(msg.messageId + 1);
+              console.log(`Updated message ID counter to ${msg.messageId + 1} based on loaded message`);
+            }
           }
         });
         
@@ -2637,12 +2689,15 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
       // Auto-accept any pending changes before sending new message
       await autoAcceptChanges();
       
-      // Create the user message
+      // Create the user message with ID
       const userMessage: ExtendedMessage = {
+        messageId: getNextMessageId(),
         role: 'user',
         content,
         attachments: attachments.length > 0 ? [...attachments] : undefined
       };
+      
+      console.log(`Created user message with ID: ${userMessage.messageId}`);
       
       // Update messages state based on whether this is an edit or a new message
       let updatedMessages: ExtendedMessage[] = [];
@@ -2655,12 +2710,13 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
           // Remove all messages after the edited message
           updatedMessages.splice(editIndex + 1);
         } else {
-          // Adding a new message
+          // Adding a new message - just append, don't reload the chat
           updatedMessages = [...prev, userMessage];
         }
         
         // Save chat history immediately after adding or editing a user message
         if (currentChatId) {
+          // Don't reload after user messages - causes flickering
           saveChat(currentChatId, updatedMessages, false);
         }
         
@@ -2676,10 +2732,16 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
       // Create a new AbortController for this request
       abortControllerRef.current = new AbortController();
 
-      // Add a temporary message for streaming
+      // Add a temporary message for streaming with ID
       let messagesWithResponse: ExtendedMessage[] = [];
       setMessages(prev => {
-        messagesWithResponse = [...prev, { role: 'assistant' as const, content: '' }];
+        const assistantMessageId = getNextMessageId();
+        console.log(`Created empty assistant message with ID: ${assistantMessageId}`);
+        messagesWithResponse = [...prev, { 
+          role: 'assistant' as const, 
+          content: '',
+          messageId: assistantMessageId
+        }];
         return messagesWithResponse;
       });
 
@@ -2871,21 +2933,24 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
         setIsInToolExecutionChain(true); 
         await processToolCalls(currentContent);
       } else {
-        // If there are no tool calls, save the final AI message
-        if (currentChatId) {
-          // Ensure we have the final message content before saving
-          const lastMessageIndex = messages.length - 1;
-          const updatedMessages = [...messages];
-          
-          // Make sure the last message has the complete content
-          if (updatedMessages[lastMessageIndex]?.role === 'assistant') {
-            updatedMessages[lastMessageIndex].content = currentContent;
-          }
-          
-          // Save chat with the complete response
-          console.log('Saving chat with complete AI response');
-          saveChat(currentChatId, updatedMessages, true);
+              // Whether there are tool calls or not, always save the final AI message
+      if (currentChatId) {
+        // Ensure we have the final message content before saving
+        const lastMessageIndex = messages.length - 1;
+        const updatedMessages = [...messages];
+        
+        // Make sure the last message has the complete content
+        if (updatedMessages[lastMessageIndex]?.role === 'assistant') {
+          updatedMessages[lastMessageIndex].content = currentContent;
         }
+        
+        // Save chat with the complete response but avoid reloading to prevent flickering
+        // Only reload if we expect there to be tool calls
+        const containsToolCalls = currentContent.includes('function_call:') || 
+                                 currentContent.includes('<function_calls>');
+        console.log('Saving chat with complete AI response');
+        await saveChat(currentChatId, updatedMessages, containsToolCalls);
+      }
       }
 
       // Extract and queue code blocks for auto-insert
@@ -2921,9 +2986,6 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
     await processUserMessage(input, attachedFiles);
   };
   
-  // Replace the existing handleEditMessage, handleCancelEdit, and handleSubmitEdit functions
-  // These lines need to be removed to prevent duplicate declarations
-
   // Cancel ongoing requests
   const handleCancel = () => {
     if (abortControllerRef.current) {
@@ -3078,8 +3140,9 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
   const addMessage = (message: ExtendedMessage) => {
     console.log(`Adding message with role ${message.role}${message.tool_call_id ? ` and tool_call_id ${message.tool_call_id}` : ''}`);
     
-    // Ensure the message has all required properties
+    // Ensure the message has all required properties including a messageId
     const formattedMessage: ExtendedMessage = {
+      messageId: message.messageId || getNextMessageId(), // Use existing ID or generate a new one
       role: message.role,
       content: message.content || '',
       ...(message.tool_call_id && { tool_call_id: message.tool_call_id }),
@@ -3087,14 +3150,26 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
       ...(message.attachments && message.attachments.length > 0 && { attachments: message.attachments })
     };
     
+    console.log(`Message assigned ID: ${formattedMessage.messageId}`);
+    
     setMessages(prev => {
       const updatedMessages = [...prev, formattedMessage];
-      // Save chat immediately after adding any message, but only if we haven't saved recently
-      if (currentChatId && (!window.lastSaveChatTime || Date.now() - window.lastSaveChatTime > 1000)) {
-        // For tool messages, force a reload after saving
-        const shouldReload = message.role === 'tool' || !!message.tool_call_id || !!message.tool_calls;
-        saveChat(currentChatId, updatedMessages, shouldReload);
+      
+      // Always save the chat after adding a message
+      if (currentChatId) {
+        // Only reload after tool messages to avoid flickering
+        // Other message types are saved without reloading
+        const needsReload = 
+          message.role === 'tool' || 
+          !!message.tool_call_id || 
+          !!message.tool_calls;
+          
+        // Use a short timeout to let the state update before saving
+        setTimeout(() => {
+          saveChat(currentChatId, updatedMessages, needsReload);
+        }, 50);
       }
+      
       return updatedMessages;
     });
   };
@@ -3220,6 +3295,8 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
     }
   };
 
+
+
   // Update the processToolCalls function for proper ID handling
   const processToolCalls = async (content: string): Promise<{ hasToolCalls: boolean }> => {
     // First try to find function calls using regex
@@ -3242,24 +3319,14 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
       return { hasToolCalls: false };
     }
     
-    // First, load the latest chat state before processing any tools
-    if (currentChatId) {
-      await loadChat(currentChatId, true);
-      console.log(`Reloaded chat before processing tool calls (version: ${processVersion})`);
-      
-      // Check if our version is still current after loading
-      if (window.chatSaveVersion !== processVersion) {
-        console.log(`Abandoning tool call processing - version changed during loading: ${window.chatSaveVersion} != ${processVersion}`);
-        return { hasToolCalls: false };
-      }
-    }
+    // Save chat before processing tools (without checking user messages)
+    await saveBeforeToolExecution();
     
     try {
       // Create a set to track tool call IDs that have already been processed
       const processedToolCallIds = new Set<string>();
       
       // Get current messages directly from state to ensure we have the latest data
-      // after the loadChat call above
       let currentMessages: ExtendedMessage[] = [];
       setMessages(prev => {
         currentMessages = [...prev];
@@ -3268,11 +3335,6 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
       
       // Allow state update to complete
       await new Promise(resolve => setTimeout(resolve, 50));
-      
-      // Save chat before processing tool calls (new trigger)
-      if (currentChatId) {
-        saveChat(currentChatId, currentMessages, false);
-      }
       
       // Find tool call IDs that already have responses in the conversation
       currentMessages.forEach(msg => {
@@ -3825,6 +3887,33 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
         
         // Set streaming complete flag
         setIsStreamingComplete(true);
+        
+        // Save the chat with final content
+        if (currentChatId) {
+          console.log('AI response completed - saving final chat state');
+          
+          // Get current messages to ensure we have the latest state
+          let currentMessages: ExtendedMessage[] = [];
+          setMessages(prev => {
+            currentMessages = [...prev];
+            
+            // Update the last message with the complete content
+            if (currentMessages.length > 0 && currentMessages[currentMessages.length - 1].role === 'assistant') {
+              currentMessages[currentMessages.length - 1].content = currentContent;
+            }
+            
+            return currentMessages;
+          });
+          
+          // Let the state update
+          await new Promise(resolve => setTimeout(resolve, 50));
+          
+          // Save chat without reload to prevent flickering
+          // Only reload if the message contains tool calls
+          const containsToolCalls = currentContent.includes('function_call:') || 
+                                   currentContent.includes('<function_calls>');
+          await saveChat(currentChatId, currentMessages, containsToolCalls);
+        }
         
         // Process any final tool calls after streaming is complete
         if (currentContent.includes('function_call:')) {
@@ -4460,8 +4549,8 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
   useEffect(() => {
     if (currentChatId) {
       restartConversation();
-    }
-  }, [currentChatId]);
+          }
+    }, [currentChatId]);
 
   if (!isVisible) return null;
 

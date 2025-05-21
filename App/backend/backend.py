@@ -890,6 +890,27 @@ class ChatMessage(BaseModel):
     edit_index: int = -1   # If is_edit is true, index of the message to replace
     overwrite: bool = False # If true, completely overwrite the chat (only for migrations or emergency fixes)
 
+def is_partial_message(msg1, msg2):
+    """Check if msg1 is a partial/incomplete version of msg2"""
+    # Only compare assistant messages without tool calls
+    if (msg1.get("role") != "assistant" or msg2.get("role") != "assistant" or
+        msg1.get("tool_calls") or msg2.get("tool_calls")):
+        return False
+    
+    content1 = msg1.get("content", "")
+    content2 = msg2.get("content", "")
+    
+    # If content1 is a substring of content2, it's a partial message
+    if content1 and content2 and content1 != content2 and content1 in content2:
+        return True
+        
+    # Special case for think blocks - if both start with <think> and one is longer
+    if (content1.startswith("<think>") and content2.startswith("<think>") and 
+        len(content2) > len(content1)):
+        return True
+    
+    return False
+
 @app.post("/chats/{chat_id}")
 async def save_chat(chat_id: str, request: ChatMessage):
     """
@@ -960,14 +981,117 @@ async def save_chat(chat_id: str, request: ChatMessage):
                 print(f"Invalid edit index {request.edit_index}, appending instead")
                 operation = "append"
         else:
-            # Regular append operation - only add the new messages
-            chat_data["messages"].extend(request.messages)
-            print(f"Appended {len(request.messages)} messages to chat {chat_id}, total now: {len(chat_data['messages'])}")
+            # Check for duplicate tool responses before appending
+            new_messages = []
+            existing_tool_call_ids = set()
+            
+            # First, collect existing tool call IDs
+            for msg in chat_data["messages"]:
+                if msg.get("role") == "tool" and "tool_call_id" in msg:
+                    existing_tool_call_ids.add(msg["tool_call_id"])
+            
+            # Only add new messages that aren't duplicate tool responses
+            for msg in request.messages:
+                # For tool responses, check if we already have it by tool_call_id
+                if msg.get("role") == "tool" and "tool_call_id" in msg:
+                    if msg["tool_call_id"] in existing_tool_call_ids:
+                        print(f"Skipping duplicate tool response for ID {msg['tool_call_id']}")
+                        continue
+                    existing_tool_call_ids.add(msg["tool_call_id"])
+                
+                # For other message types, or if it's a new tool response, add it
+                new_messages.append(msg)
+            
+            # Before appending, check for replaceable partial messages
+            # Handle incremental assistant messages directly during saving
+            if new_messages and len(new_messages) == 1 and new_messages[0].get("role") == "assistant" and not new_messages[0].get("tool_calls"):
+                new_content = new_messages[0].get("content", "")
+                replaced = False
+                
+                # Look for partial messages to replace
+                for i in range(len(chat_data["messages"]) - 1, -1, -1):
+                    existing_msg = chat_data["messages"][i]
+                    
+                    # Only check recent assistant messages without tool calls
+                    if existing_msg.get("role") == "assistant" and not existing_msg.get("tool_calls"):
+                        existing_content = existing_msg.get("content", "")
+                        
+                        # If the existing message is a partial version of the new one
+                        # or new message is a continuation of the existing one
+                        if is_partial_message(existing_msg, new_messages[0]):
+                            
+                            # Replace the existing message with the new one
+                            chat_data["messages"][i] = new_messages[0]
+                            print(f"Replaced partial assistant message at index {i} with more complete version")
+                            replaced = True
+                            break
+                
+                # Only append if we didn't replace an existing message
+                if not replaced:
+                    chat_data["messages"].extend(new_messages)
+                    print(f"Appended {len(new_messages)} new messages to chat {chat_id}")
+            else:
+                # Regular append for non-assistant messages or multiple messages
+                chat_data["messages"].extend(new_messages)
+                print(f"Appended {len(new_messages)} messages to chat {chat_id}, total now: {len(chat_data['messages'])}")
+            
             operation = "append"
         
         # Update chat name if provided in the first message
         if request.messages and len(request.messages) > 0 and 'name' in request.messages[0]:
             chat_data["name"] = request.messages[0]["name"]
+        
+        # Deduplicate assistant messages with identical or partial content
+        # This is now our fallback mechanism if the saving process didn't catch all partials
+        deduplicated_messages = []
+        i = 0
+
+        while i < len(chat_data["messages"]):
+            current_msg = chat_data["messages"][i]
+            
+            # Always keep non-assistant messages or assistant messages with tool calls
+            if current_msg.get("role") != "assistant" or current_msg.get("tool_calls"):
+                deduplicated_messages.append(current_msg)
+                i += 1
+                continue
+            
+            # For assistant messages, find the most complete version
+            most_complete_idx = i
+            most_complete_msg = current_msg
+            
+            # Look ahead for more complete versions of this message
+            j = i + 1
+            while j < len(chat_data["messages"]):
+                next_msg = chat_data["messages"][j]
+                
+                # If the next message is a more complete version of our current message
+                if is_partial_message(most_complete_msg, next_msg):
+                    most_complete_idx = j
+                    most_complete_msg = next_msg
+                # If our current message is a more complete version of the next message
+                elif is_partial_message(next_msg, most_complete_msg):
+                    # Skip this message when we get to it
+                    pass
+                else:
+                    # Not related messages
+                    j += 1
+                    continue
+                    
+                j += 1
+            
+            # If we found a more complete version, skip to that message
+            if most_complete_idx > i:
+                print(f"Skipping partial message at index {i}, using more complete version at {most_complete_idx}")
+                i = most_complete_idx
+            
+            # Add the most complete message
+            deduplicated_messages.append(most_complete_msg)
+            i += 1
+
+        print(f"After deduplication: {len(deduplicated_messages)} messages")
+
+        # Update the chat data with deduplicated messages
+        chat_data["messages"] = deduplicated_messages
         
         # Save the updated chat
         with open(chat_file, 'w', encoding='utf-8') as f:
