@@ -142,4 +142,75 @@ export function getLanguageFromFilename(filename: string): string {
   };
   
   return extensionToLanguage[extension] || extension || 'plaintext';
-} 
+}
+
+/**
+ * Utility functions for text processing
+ */
+
+/**
+ * Remove <think> and </think> tags and their content from text
+ * @param text - The text to clean
+ * @returns The text with thinking blocks removed
+ */
+export const stripThinkTags = (text: string): string => {
+  // Remove <think>...</think> blocks (case insensitive, handles multiline)
+  return text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+};
+
+/**
+ * Extract code blocks with filenames from message content, excluding those in thinking blocks
+ * @param content - The message content to parse
+ * @returns Array of code blocks with language, filename, and cleaned content
+ */
+export const extractCodeBlocks = (content: string) => {
+  const codeBlockRegex = /```(\w+):([^\n]+)\n([\s\S]*?)```/g;
+  const codeBlocks: {language: string; filename: string; content: string}[] = [];
+  
+  // First, find all thinking blocks to exclude code blocks within them
+  const thinkBlockRegex = /<think>[\s\S]*?<\/think>/gi;
+  const thinkBlocks: Array<{start: number; end: number}> = [];
+  
+  let thinkMatch;
+  while ((thinkMatch = thinkBlockRegex.exec(content)) !== null) {
+    thinkBlocks.push({
+      start: thinkMatch.index,
+      end: thinkMatch.index + thinkMatch[0].length
+    });
+  }
+  
+  // Function to check if a position is within any thinking block
+  const isInThinkBlock = (position: number) => {
+    return thinkBlocks.some(block => position >= block.start && position <= block.end);
+  };
+  
+  let match;
+  while ((match = codeBlockRegex.exec(content)) !== null) {
+    const [fullMatch, language, filename, code] = match;
+    const matchStart = match.index;
+    
+    // Skip this code block if it's within a thinking block
+    if (isInThinkBlock(matchStart)) {
+      console.log(`Skipping code block for ${filename} as it's within a thinking block`);
+      continue;
+    }
+    
+    if (filename && code) {
+      // Strip any think tags from the code content
+      const cleanedCode = stripThinkTags(code);
+      
+      // Only add the code block if there's actual content after cleaning
+      if (cleanedCode.trim()) {
+        codeBlocks.push({
+          language,
+          filename,
+          content: cleanedCode
+        });
+      } else {
+        console.log(`Skipping code block for ${filename} as it contains only thinking content`);
+      }
+    }
+  }
+  
+  return codeBlocks;
+}; 

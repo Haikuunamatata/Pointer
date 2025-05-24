@@ -25,6 +25,7 @@ import {
   defaultModelConfigs,
   AFTER_TOOL_CALL_PROMPT
 } from '../config/chatConfig';
+import { stripThinkTags, extractCodeBlocks } from '../utils/textUtils';
 
 // Add TypeScript declarations for window properties
 declare global {
@@ -52,12 +53,6 @@ const CodeActionsButton: React.FC<{ content: string; filename: string }> = ({ co
   const [isOpen, setIsOpen] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [copied, setCopied] = useState(false);
-
-  // Function to remove <think> and </think> tags and their content
-  const stripThinkTags = (text: string): string => {
-    // Remove <think>...</think> blocks (case insensitive, handles multiline)
-    return text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
-  };
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(content);
@@ -1620,6 +1615,10 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   const [autoInsertInProgress, setAutoInsertInProgress] = useState(false);
   // Add state to track if insert model has been preloaded
   const [insertModelPreloaded, setInsertModelPreloaded] = useState(false);
+  // Add state for auto-insert setting
+  const [autoInsertEnabled, setAutoInsertEnabled] = useState(true);
+  // Add state to track processed code blocks to avoid duplicates during streaming
+  const [processedCodeBlocks, setProcessedCodeBlocks] = useState<Set<string>>(new Set());
 
   // Add state for tracking expanded tool calls
   const [expandedToolCalls, setExpandedToolCalls] = useState<Set<string>>(new Set());
@@ -2330,15 +2329,53 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
     const codeBlockRegex = /```(\w+):([^\n]+)\n([\s\S]*?)```/g;
     const codeBlocks: {language: string; filename: string; content: string}[] = [];
     
+    // First, find all thinking blocks to exclude code blocks within them
+    const thinkBlockRegex = /<think>[\s\S]*?<\/think>/gi;
+    const thinkBlocks: Array<{start: number; end: number}> = [];
+    
+    let thinkMatch;
+    while ((thinkMatch = thinkBlockRegex.exec(content)) !== null) {
+      thinkBlocks.push({
+        start: thinkMatch.index,
+        end: thinkMatch.index + thinkMatch[0].length
+      });
+    }
+    
+    // Function to check if a position is within any thinking block
+    const isInThinkBlock = (position: number) => {
+      return thinkBlocks.some(block => position >= block.start && position <= block.end);
+    };
+    
+    // Function to strip think tags from code content
+    const stripThinkTags = (codeContent: string): string => {
+      return codeContent.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+    };
+    
     let match;
     while ((match = codeBlockRegex.exec(content)) !== null) {
-      const [_, language, filename, code] = match;
+      const [fullMatch, language, filename, code] = match;
+      const matchStart = match.index;
+      
+      // Skip this code block if it's within a thinking block
+      if (isInThinkBlock(matchStart)) {
+        console.log(`Skipping code block for ${filename} as it's within a thinking block`);
+        continue;
+      }
+      
       if (filename && code) {
-        codeBlocks.push({
-          language,
-          filename,
-          content: code
-        });
+        // Strip any think tags from the code content
+        const cleanedCode = stripThinkTags(code);
+        
+        // Only add the code block if there's actual content after cleaning
+        if (cleanedCode.trim()) {
+          codeBlocks.push({
+            language,
+            filename,
+            content: cleanedCode
+          });
+        } else {
+          console.log(`Skipping code block for ${filename} as it contains only thinking content`);
+        }
       }
     }
     
@@ -2371,6 +2408,9 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         if (response.ok) {
           originalContent = await response.text();
         } else {
+          // File doesn't exist - create it directly without AI merging
+          console.log(`File ${currentInsert.filename} doesn't exist, creating directly`);
+          
           // If file doesn't exist, check if we need to create directories
           if (directoryPath) {
             // Try to create the directory structure
@@ -2390,15 +2430,26 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
             }
           }
           
-          // For non-existing files, we'll use empty content
-          originalContent = '';
+          // Create the file directly with the cleaned content
+          const cleanedContent = stripThinkTags(currentInsert.content);
+          FileChangeEventService.emitChange(currentInsert.filename, '', cleanedContent);
+          
+          // Remove the processed insert from the queue
+          setPendingInserts(prev => prev.slice(1));
+          setAutoInsertInProgress(false);
+          return;
         }
       } catch (error) {
         console.error('Error reading file:', error);
-        // For errors, use empty content
-        originalContent = '';
+        // For errors, create the file directly
+        const cleanedContent = stripThinkTags(currentInsert.content);
+        FileChangeEventService.emitChange(currentInsert.filename, '', cleanedContent);
+        setPendingInserts(prev => prev.slice(1));
+        setAutoInsertInProgress(false);
+        return;
       }
 
+      // If we reach here, the file exists and we need AI merging
       // Get model ID for insert purpose
       const insertModelId = await AIFileService.getModelIdForPurpose('insert');
       
@@ -2430,7 +2481,10 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         stream: false
       });
 
-      const mergedContent = result.choices[0].message.content.trim();
+      let mergedContent = result.choices[0].message.content.trim();
+      
+      // Strip <think> tags from the merged content before showing in diff viewer
+      mergedContent = stripThinkTags(mergedContent);
 
       // Use the FileChangeEventService to trigger the diff viewer
       FileChangeEventService.emitChange(currentInsert.filename, originalContent, mergedContent);
@@ -2476,7 +2530,10 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
           stream: false
         });
 
-        const mergedContent = result.choices[0].message.content.trim();
+        let mergedContent = result.choices[0].message.content.trim();
+        
+        // Strip <think> tags from the merged content before showing in diff viewer
+        mergedContent = stripThinkTags(mergedContent);
 
         // Use the FileChangeEventService to trigger the diff viewer
         FileChangeEventService.emitChange(currentInsert.filename, originalContent, mergedContent);
@@ -2493,6 +2550,32 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
     }
   };
 
+  // Function to detect and process complete code blocks during streaming
+  const processStreamingCodeBlocks = (content: string) => {
+    if (!autoInsertEnabled) return;
+    
+    // Extract code blocks from the current content
+    const codeBlocks = extractCodeBlocks(content);
+    
+    // Process only new code blocks that haven't been processed yet
+    codeBlocks.forEach(block => {
+      const blockId = `${block.filename}:${block.content.slice(0, 50)}`; // Use filename + content snippet as ID
+      
+      if (!processedCodeBlocks.has(blockId)) {
+        console.log(`Processing new code block during streaming: ${block.filename}`);
+        
+        // Mark as processed
+        setProcessedCodeBlocks(prev => new Set(prev).add(blockId));
+        
+        // Add to pending inserts
+        setPendingInserts(prev => [
+          ...prev,
+          { filename: block.filename, content: block.content }
+        ]);
+      }
+    });
+  };
+
   // Auto-accept all pending changes
   const autoAcceptChanges = async () => {
     try {
@@ -2506,14 +2589,14 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   // Run auto-insert whenever pendingInserts changes
   useEffect(() => {
     // Add a delay to prevent immediate loading of insertion model when page loads
-    if (pendingInserts.length > 0) {
+    if (pendingInserts.length > 0 && autoInsertEnabled) {
       const timer = setTimeout(() => {
         processAutoInsert();
       }, 2000); // 2 second delay
       
       return () => clearTimeout(timer);
     }
-  }, [pendingInserts, autoInsertInProgress]);
+  }, [pendingInserts, autoInsertInProgress, autoInsertEnabled]);
 
   // Function to handle file attachment via dialog
   const handleFileAttachment = async () => {
@@ -2757,6 +2840,9 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
         return messagesWithResponse;
       });
 
+      // Clear processed code blocks for the new response
+      setProcessedCodeBlocks(new Set());
+
       // Get model configuration based on mode
       const modelConfig = await AIFileService.getModelConfigForPurpose(mode === 'agent' ? 'agent' : 'chat');
       const modelId = modelConfig.modelId;
@@ -2920,6 +3006,9 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
             return newMessages;
           });
 
+          // Process code blocks in real-time during streaming
+          processStreamingCodeBlocks(content);
+
           // Process tool calls as needed
           if (mode === 'agent') {
             // Debounce tool call processing
@@ -2967,7 +3056,7 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
 
       // Extract and queue code blocks for auto-insert
       const codeBlocks = extractCodeBlocks(currentContent);
-      if (codeBlocks.length > 0) {
+      if (codeBlocks.length > 0 && autoInsertEnabled) {
         setPendingInserts(prev => [
           ...prev,
           ...codeBlocks.map(block => ({ filename: block.filename, content: block.content }))
@@ -3052,6 +3141,23 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
   // Load chats on component mount
   useEffect(() => {
     loadChats();
+  }, []);
+
+  // Load auto-insert setting from editor settings
+  useEffect(() => {
+    const loadAutoInsertSetting = async () => {
+      try {
+        const response = await fetch('http://localhost:23816/read-file?path=settings/editor.json');
+        if (response.ok) {
+          const editorSettings = JSON.parse(await response.text());
+          setAutoInsertEnabled(editorSettings.autoInsertCodeBlocks !== false); // Default to true if not set
+        }
+      } catch (error) {
+        console.log('Could not load auto-insert setting, using default (enabled)');
+      }
+    };
+    
+    loadAutoInsertSetting();
   }, []);
 
   // Define the saveBeforeToolExecution function
@@ -3946,7 +4052,7 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
           // If there are no function calls, process any code blocks
           // Extract and queue code blocks for auto-insert
           const codeBlocks = extractCodeBlocks(currentContent);
-          if (codeBlocks.length > 0) {
+          if (codeBlocks.length > 0 && autoInsertEnabled) {
             setPendingInserts(prev => [
               ...prev,
               ...codeBlocks.map(block => ({ filename: block.filename, content: block.content }))
@@ -4954,10 +5060,12 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
       </form>
 
       {/* Auto-insert indicator */}
+      {autoInsertEnabled && (
       <AutoInsertIndicator 
         count={pendingInserts.length} 
         isProcessing={autoInsertInProgress} 
       />
+      )}
     </div>
   );
 } 
