@@ -697,9 +697,9 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
   };
 
   useEffect(() => {
-    window.loadAllSettings = loadAllSettings;
+    window.loadSettings = loadAllSettings;
     return () => {
-      delete window.loadAllSettings;
+      delete window.loadSettings;
     };
   }, []);
 
@@ -1399,7 +1399,7 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                                 borderRadius: '4px',
                                 color: 'var(--text-primary)',
                               }}
-                              placeholder={modelConfigs[activeTab].modelProvider === 'openai' ? 'https://api.openai.com/v1' : 'http://localhost:11434/v1'}
+                              placeholder={modelConfigs[activeTab].modelProvider === 'openai' ? 'https://api.openai.com/v1' : 'http://localhost:1234/v1'}
                             />
                           </div>
                         </div>

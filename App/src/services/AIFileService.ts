@@ -576,10 +576,10 @@ Return ONLY the final formatted code without any explanations. The code should b
             },
             {
               role: "user",
-              content: `Based on the following content of the file "${filePath}", provide a brief 1-2 sentence description of what this file does or contains. Be technical and precise.
+              content: `/no_think Based on the following content of the file "${filePath}", provide a brief 1-2 sentence description of what this file does or contains. Be technical and precise.
 
 File Content:
-${content.length > 8000 ? content.substring(0, 8000) + "\n[truncated]" : content}`
+${content.length > 32000 ? content.substring(0, 32000) + "\n[truncated]" : content}`
             }
           ],
           temperature: 0.7,
@@ -664,7 +664,7 @@ ${content.length > 8000 ? content.substring(0, 8000) + "\n[truncated]" : content
   // Get the complete model configuration for the given purpose
   static async getModelConfigForPurpose(purpose: 'chat' | 'insert' | 'autocompletion' | 'summary' | 'agent'): Promise<any> {
     try {
-      const defaultEndpoint = 'http://localhost:11434/v1';
+      const defaultEndpoint = 'http://localhost:1234/v1';
       let apiEndpoint = defaultEndpoint;
       let modelId = await this.getModelIdForPurpose(purpose);
       
@@ -715,7 +715,7 @@ ${content.length > 8000 ? content.substring(0, 8000) + "\n[truncated]" : content
       console.error(`Error loading model configuration for ${purpose}:`, error);
       return {
         modelId: 'deepseek-coder-v2-lite-instruct',
-        apiEndpoint: 'http://localhost:11434/v1',
+        apiEndpoint: 'http://localhost:1234/v1',
         fallbackEndpoints: [
           // should be user configurable soon
         ]
@@ -736,10 +736,7 @@ ${content.length > 8000 ? content.substring(0, 8000) + "\n[truncated]" : content
       
       // List of fallback endpoints to try in order
       const fallbackEndpoints = [
-        apiEndpoint, // Try the configured endpoint first
-        'http://localhost:11434/v1', // Default Ollama endpoint
-        'http://localhost:1234/v1',  // Alternative port
-        'http://127.0.0.1:11434/v1', // Try with IP instead of localhost
+        apiEndpoint
       ];
       
       // Try each endpoint until one works
@@ -774,10 +771,10 @@ ${content.length > 8000 ? content.substring(0, 8000) + "\n[truncated]" : content
                   },
                   {
                     role: "user",
-                    content: `Based on the following content of the file "${filePath}", provide a brief 1-2 sentence summary of what this file does or contains. Be technical and precise.
+                    content: `/no_think Based on the following content of the file "${filePath}", provide a brief 1-2 sentence summary of what this file does or contains. Be technical and precise.
 
 File Content:
-${content.length > 8000 ? content.substring(0, 8000) + "\n[truncated]" : content}`
+${content.length > 32000 ? content.substring(0, 32000) + "\n[truncated]" : content}`
                   }
                 ],
                 temperature: 0.7,
@@ -965,9 +962,6 @@ ${content.length > 8000 ? content.substring(0, 8000) + "\n[truncated]" : content
       // List of fallback endpoints to try in order (same as file summary)
       const fallbackEndpoints = [
         apiEndpoint, // Try the configured endpoint first
-        'http://localhost:11434/v1', // Default Ollama endpoint
-        'http://localhost:1234/v1',  // Alternative port
-        'http://127.0.0.1:11434/v1', // Try with IP instead of localhost
       ];
       
       // Detect if helper functions are included
@@ -992,7 +986,7 @@ ${content.length > 8000 ? content.substring(0, 8000) + "\n[truncated]" : content
           
           try {
             // Create a better prompt that handles helper functions
-            let promptContent = `Explain the function "${functionName}" in the file "${filePath}". Provide a concise explanation of what this function does, its parameters, and what it returns.`;
+            let promptContent = `/no_think Explain the function "${functionName}" in the file "${filePath}". Provide a concise explanation of what this function does, its parameters, and what it returns.`;
             
             // If helper functions are included, add specific instructions
             if (helperFunctionsIncluded) {

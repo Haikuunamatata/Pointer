@@ -1511,6 +1511,7 @@ const App: React.FC = () => {
               onTabClose={handleTabClose}
               isGridLayout={isGridLayout}
               onToggleGrid={() => setIsGridLayout(prev => !prev)}
+              setSaveStatus={setSaveStatus}
             />
           </div>
 

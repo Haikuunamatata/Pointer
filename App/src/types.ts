@@ -49,6 +49,7 @@ export interface EditorSettings {
   formatOnSave: boolean;
   formatOnPaste: boolean;
   autoSave: boolean;
+  autoSaveDelay: number; // Auto-save delay in milliseconds (default: 1000)
   autoAcceptGhostText: boolean;
 }
 

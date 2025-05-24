@@ -22,15 +22,22 @@ declare global {
   }
 }
 
+// Function to remove <think> and </think> tags and their content
+const stripThinkTags = (text: string): string => {
+  // Remove <think>...</think> blocks (case insensitive, handles multiline)
+  return text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+};
+
 interface EditorPaneProps {
   fileId: string;
   file: FileSystemItem;
   onEditorReady: (editor: monaco.editor.IStandaloneCodeEditor) => void;
+  setSaveStatus?: (status: 'saving' | 'saved' | 'error' | null) => void;
 }
 
 // No longer needed as we're using the generic Modal component
 
-const EditorPane: React.FC<EditorPaneProps> = ({ fileId, file, onEditorReady }) => {
+const EditorPane: React.FC<EditorPaneProps> = ({ fileId, file, onEditorReady, setSaveStatus }) => {
   const editorRef = useRef<HTMLDivElement>(null);
   const editor = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const contentRef = useRef<string>('');
@@ -51,6 +58,8 @@ const EditorPane: React.FC<EditorPaneProps> = ({ fileId, file, onEditorReady }) 
   const [completionEnabled, setCompletionEnabled] = useState(true);
   // Add auto-save timeout ref
   const autoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Add separate timeout ref for function detection
+  const functionDetectionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Track if content has changed since last save
   const contentChangedRef = useRef<boolean>(false);
   // Add tracking for function decorations
@@ -283,10 +292,16 @@ const EditorPane: React.FC<EditorPaneProps> = ({ fileId, file, onEditorReady }) 
         }
 
         // Set up auto-save timeout
-        autoSaveTimeoutRef.current = setTimeout(() => {
-          autoSaveTimeoutRef.current = null;
-          saveCurrentFile();
-        }, 100); // 100ms delay as specified
+        if (fileId && fileId !== 'welcome') {
+          console.log(`Setting up auto-save for file: ${fileId}, path: ${file?.path}`);
+          autoSaveTimeoutRef.current = setTimeout(() => {
+            console.log(`Auto-save timeout fired for file: ${fileId}`);
+            autoSaveTimeoutRef.current = null;
+            saveCurrentFile();
+          }, 1000); // Fixed 1 second delay for auto-save
+        } else {
+          console.log(`Skipping auto-save setup - fileId: ${fileId}, welcome file or no fileId`);
+        }
       });
     }
 
@@ -320,6 +335,9 @@ const EditorPane: React.FC<EditorPaneProps> = ({ fileId, file, onEditorReady }) 
       }
       if (autoSaveTimeoutRef.current) {
         clearTimeout(autoSaveTimeoutRef.current);
+      }
+      if (functionDetectionTimeoutRef.current) {
+        clearTimeout(functionDetectionTimeoutRef.current);
       }
       // Try to save once more before unmounting
       saveCurrentFile();
@@ -724,50 +742,52 @@ DO NOT include the [CURSOR] marker in your response. Provide ONLY the completion
           messages: [
             {
               role: 'system',
-              content: 'You are a code completion assistant. Provide short, contextually relevant code completions. Response should be just the completion text without explanation or markdown.'
+              content: 'You are a code completion assistant. Provide ONLY the code changes without any explanation or markdown. The response should be the exact code to insert.'
             },
             {
               role: 'user',
               content: contextPrompt
             }
           ],
-          temperature: 0.2, // Lower temperature for more focused completions
+          temperature: 0.1, // Lowered from 0.3 for more focused responses
         });
 
         const aiContent = response.choices[0]?.message?.content;
         if (aiContent) {
-          // Extract the first line or a reasonable suggestion from the AI content
-          let suggestion = aiContent.trim();
+          // Clean up the response
+          let cleanedResponse = aiContent.trim();
+          
+          // Strip <think> tags from AI response
+          cleanedResponse = stripThinkTags(cleanedResponse);
           
           // Remove markdown code blocks if present
-          suggestion = suggestion.replace(/```[\w]*\n/g, '').replace(/```/g, '');
-          
-          // If the suggestion is prefixed with the language name, remove it
-          suggestion = suggestion.replace(/^(javascript|typescript|python|html|css|java|c\+\+|c#|go|rust|php|ruby|swift|kotlin|scala)\s+/i, '');
+          cleanedResponse = cleanedResponse.replace(/```[\w]*\n/g, '').replace(/```/g, '');
+          // Remove any language identifiers
+          cleanedResponse = cleanedResponse.replace(/^(javascript|typescript|python|html|css|java|c\+\+|c#|go|rust|php|ruby|swift|kotlin|scala)\s+/i, '');
           
           // Remove any [CURSOR] markers
-          suggestion = suggestion.replace('[CURSOR]', '');
+          cleanedResponse = cleanedResponse.replace('[CURSOR]', '');
           
           // Context-aware filtering based on where we are in the code
-          if (codeContext === 'function' && suggestion.includes('import ')) {
+          if (codeContext === 'function' && cleanedResponse.includes('import ')) {
             console.log("Filtering out inappropriate import in function context");
-            suggestion = '';
-          } else if (codeContext !== 'import' && suggestion.trim().startsWith('from ') && suggestion.includes(' import ')) {
+            cleanedResponse = '';
+          } else if (codeContext !== 'import' && cleanedResponse.trim().startsWith('from ') && cleanedResponse.includes(' import ')) {
             console.log("Filtering out inappropriate import outside import section");
-            suggestion = '';
+            cleanedResponse = '';
           }
           
-          // If suggestion is not empty after cleaning, show it as ghost text
-          if (suggestion.trim()) {
-            console.log("Showing ghost text suggestion:", suggestion);
+          // If cleanedResponse is not empty after cleaning, show it as ghost text
+          if (cleanedResponse.trim()) {
+            console.log("Showing ghost text suggestion:", cleanedResponse);
             
             // Additional Python-specific filtering
             if (language === 'python') {
               // If we're not in an import section but the suggestion starts with an import,
               // don't show it as ghost text
               if (codeContext !== 'import' && 
-                 (suggestion.trim().startsWith('from ') || 
-                  suggestion.trim().startsWith('import '))) {
+                 (cleanedResponse.trim().startsWith('from ') || 
+                  cleanedResponse.trim().startsWith('import '))) {
                 console.log("Blocking inappropriate import in Python context:", codeContext);
                 return;
               }
@@ -775,15 +795,15 @@ DO NOT include the [CURSOR] marker in your response. Provide ONLY the completion
               // If we're inside a function body, make sure we don't suggest non-indented code
               if (codeContext === 'function' && 
                   lineContent.startsWith(' ') && 
-                  !suggestion.startsWith(' ') && 
-                  suggestion.trim().length > 0) {
+                  !cleanedResponse.startsWith(' ') && 
+                  cleanedResponse.trim().length > 0) {
                 // Add proper indentation to match the current line
                 const currentIndent = lineContent.length - lineContent.trimStart().length;
-                suggestion = ' '.repeat(currentIndent) + suggestion.trimStart();
+                cleanedResponse = ' '.repeat(currentIndent) + cleanedResponse.trimStart();
               }
             }
             
-            showGhostText(suggestion);
+            showGhostText(cleanedResponse);
           } else {
             console.log("No valid suggestion to show after filtering");
           }
@@ -1064,13 +1084,17 @@ DO NOT include the [CURSOR] marker in your response. Provide ONLY the completion
             content: contextPrompt
           }
         ],
-        temperature: 0.3,
+        temperature: 0.1, // Lowered from 0.3 for more focused responses
       });
 
       const aiContent = response.choices[0]?.message?.content;
       if (aiContent) {
         // Clean up the response
         let cleanedResponse = aiContent.trim();
+        
+        // Strip <think> tags from AI response
+        cleanedResponse = stripThinkTags(cleanedResponse);
+        
         // Remove markdown code blocks if present
         cleanedResponse = cleanedResponse.replace(/```[\w]*\n/g, '').replace(/```/g, '');
         // Remove any language identifiers
@@ -1114,20 +1138,48 @@ DO NOT include the [CURSOR] marker in your response. Provide ONLY the completion
 
   // Function to save the current file
   const saveCurrentFile = async () => {
-    if (!editor.current || !contentChangedRef.current || !fileId || fileId === 'welcome') return;
+    console.log(`saveCurrentFile called - editor: ${!!editor.current}, contentChanged: ${contentChangedRef.current}, fileId: ${fileId}, file.path: ${file?.path}`);
+    
+    if (!editor.current || !contentChangedRef.current || !fileId || fileId === 'welcome') {
+      console.log(`saveCurrentFile early return - editor: ${!!editor.current}, contentChanged: ${contentChangedRef.current}, fileId: ${fileId}, welcome check: ${fileId === 'welcome'}`);
+      return;
+    }
+    
+    setSaveStatus?.('saving');
     
     try {
       const content = editor.current.getValue();
+      console.log(`Attempting to save file: ${file?.path}, content length: ${content.length}`);
       
       // Only save if file path is valid and content has changed
       if (file?.path && contentChangedRef.current) {
         console.log(`Auto-saving file: ${file.path}`);
-        await FileSystemService.saveFile(fileId, content);
-        contentChangedRef.current = false;
-        console.log(`File saved: ${file.path}`);
+        const result = await FileSystemService.saveFile(fileId, content);
+        
+        if (result.success) {
+          contentChangedRef.current = false;
+          setSaveStatus?.('saved');
+          console.log(`File auto-saved successfully: ${file.path}`);
+          
+          // Clear the saved status after 2 seconds
+          setTimeout(() => {
+            setSaveStatus?.(null);
+          }, 2000);
+        } else {
+          console.error(`Save failed:`, result);
+          throw new Error(result.error || 'Save failed');
+        }
+      } else {
+        console.log(`Skipping save - file.path: ${file?.path}, contentChanged: ${contentChangedRef.current}`);
       }
     } catch (error) {
       console.error('Error auto-saving file:', error);
+      setSaveStatus?.('error');
+      
+      // Clear error status after 3 seconds
+      setTimeout(() => {
+        setSaveStatus?.(null);
+      }, 3000);
     }
   };
 
@@ -1140,12 +1192,12 @@ DO NOT include the [CURSOR] marker in your response. Provide ONLY the completion
     if (!model) return;
     
     const disposable = model.onDidChangeContent(() => {
-      if (autoSaveTimeoutRef.current) {
-        clearTimeout(autoSaveTimeoutRef.current);
+      if (functionDetectionTimeoutRef.current) {
+        clearTimeout(functionDetectionTimeoutRef.current);
       }
       
       // Set up a new timeout to detect functions after content changes
-      autoSaveTimeoutRef.current = setTimeout(() => {
+      functionDetectionTimeoutRef.current = setTimeout(() => {
         detectFunctionsAndAddExplainButtons();
       }, 500); // Add some delay to avoid too frequent updates
     });
@@ -1747,150 +1799,65 @@ DO NOT include the [CURSOR] marker in your response. Provide ONLY the completion
     );
   };
 
-  return (
-    <div style={{ height: '100%', position: 'relative' }}>
-      <div
-        ref={editorRef}
-        style={{
-          width: '100%',
-          height: '100%',
-          backgroundColor: 'var(--editor-bg, var(--bg-primary))',
-        }}
-      />
-      {/* Prompt input and other UI components */}
-      {showPromptInput && (
-        <div className="prompt-overlay">
-          <div className="prompt-header">
-            <h3>AI Code Assistant</h3>
-            <button 
-              className="close-button"
-              onClick={() => {
-                setShowPromptInput(false);
-                setPrompt('');
-                setAiResponse('');
-                setShowResponsePreview(false);
-                setShowDiff(false);
-              }}
-            >
-              ×
-            </button>
-          </div>
-          
-          <form onSubmit={handlePromptSubmit}>
-            <div className="prompt-input-container">
-              <textarea
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                placeholder="Describe what you want to do with your code..."
-                autoFocus
-                disabled={isLoading}
-              />
-              {isLoading && (
-                <div className="loading-indicator">
-                  <div className="spinner"></div>
-                  <span>Generating response...</span>
-                </div>
-              )}
-            </div>
-            
-            {showResponsePreview && (
-              <div className="response-preview">
-                <div className="preview-header">
-                  <h4>Preview Changes</h4>
-                  <div className="preview-actions">
-                    <button
-                      type="button"
-                      className="toggle-diff-button"
-                      onClick={() => setShowDiff(!showDiff)}
-                    >
-                      {showDiff ? 'Hide Diff' : 'Show Diff'}
-                    </button>
-                  </div>
-                </div>
-                
-                {showDiff ? (
-                  <div className="diff-viewer">
-                    <div className="diff-header">
-                      <span className="diff-label">Original</span>
-                      <span className="diff-label">Changes</span>
-                    </div>
-                    <div className="diff-content">
-                      <div className="diff-original">
-                        <pre><code>{originalContent}</code></pre>
-                      </div>
-                      <div className="diff-changes">
-                        <pre><code>{originalContent + aiResponse}</code></pre>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="response-content">
-                    <pre>
-                      <code>{aiResponse}</code>
-                    </pre>
-                  </div>
-                )}
-                
-                <div className="response-actions">
-                  <button
-                    type="button"
-                    className="insert-button"
-                    onClick={handleInsertResponse}
-                  >
-                    Insert After Cursor
-                  </button>
-                  <button
-                    type="button"
-                    className="regenerate-button"
-                    onClick={handlePromptSubmit}
-                    disabled={isLoading}
-                  >
-                    Regenerate
-                  </button>
-                </div>
-              </div>
-            )}
-            
-            {!showResponsePreview && (
-              <div className="prompt-actions">
-                <button
-                  type="button"
-                  className="cancel-button"
-                  onClick={() => {
-                    setShowPromptInput(false);
-                    setPrompt('');
-                    setAiResponse('');
-                    setShowResponsePreview(false);
-                    setShowDiff(false);
-                  }}
-                  disabled={isLoading}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="submit-button"
-                  disabled={isLoading || !prompt.trim()}
-                >
-                  Generate
-                </button>
-              </div>
-            )}
-          </form>
-        </div>
-      )}
-      {/* Function explanation dialog */}
-      {functionExplanationDialog.isOpen && (
-        <Modal
-          isOpen={functionExplanationDialog.isOpen}
-          onClose={() => setFunctionExplanationDialog(prev => ({ ...prev, isOpen: false }))}
-          title={`Function: ${functionExplanationDialog.functionName}`}
-          content={renderExplanationContent()}
-          isStreaming={functionExplanationDialog.isStreaming}
-        />
-      )}
-    </div>
-  );
+  // Load auto-save settings from user preferences
+  // Auto-save is enabled by default with 1 second delay
+
+  // Update the file type detection
+  useEffect(() => {
+    if (file?.name) {
+      // Determine file type based on extension
+      if (isImageFile(file.name)) {
+        setFileType('image');
+      } else if (isPdfFile(file.name)) {
+        setFileType('pdf');
+      } else if (isDatabaseFile(file.name)) {
+        setFileType('database');
+      } else if (isBinaryFile(file.name)) {
+        setFileType('binary');
+      } else {
+        setFileType('text');
+      }
+    }
+  }, [file?.name]);
+
+  // Render the editor with save status indicator
+  if (fileType === 'text') {
+    return (
+      <div style={{ position: 'relative', height: '100%', width: '100%' }}>
+        <div ref={editorRef} style={{ height: '100%', width: '100%' }} />
+        
+        {/* Add the spinner animation styles */}
+        <style>
+          {`
+            @keyframes spin {
+              0% { transform: rotate(0deg); }
+              100% { transform: rotate(360deg); }
+            }
+          `}
+        </style>
+
+        {/* AI Prompt Modal */}
+        {showPromptInput && (
+          <Modal
+            isOpen={showPromptInput}
+            onClose={() => {
+              setShowPromptInput(false);
+              setPrompt('');
+              setAiResponse('');
+              setShowResponsePreview(false);
+              setShowDiff(false);
+            }}
+            title="AI Assistant"
+          >
+            {renderExplanationContent()}
+          </Modal>
+        )}
+      </div>
+    );
+  } else {
+    // Render FileViewer for non-text files
+    return <FileViewer file={file} />;
+  }
 };
 
 interface EditorGridProps {
@@ -1901,6 +1868,7 @@ interface EditorGridProps {
   onTabClose: (fileId: string) => void;
   isGridLayout?: boolean;
   onToggleGrid?: () => void;
+  setSaveStatus?: (status: 'saving' | 'saved' | 'error' | null) => void;
 }
 
 interface EditorLayout {
@@ -1944,6 +1912,7 @@ const EditorGrid: React.FC<EditorGridProps> = ({
   onTabClose,
   isGridLayout = false,
   onToggleGrid,
+  setSaveStatus,
 }) => {
   const [layouts, setLayouts] = useState<EditorLayout[]>([]);
   const [draggingLayout, setDraggingLayout] = useState<EditorLayout | null>(null);
@@ -2105,6 +2074,7 @@ const EditorGrid: React.FC<EditorGridProps> = ({
                   fileId={layout.fileId}
                   file={items[layout.fileId]}
                   onEditorReady={onEditorChange}
+                  setSaveStatus={setSaveStatus}
                 />
               ) : (
                 <div style={{
@@ -2128,4 +2098,4 @@ const EditorGrid: React.FC<EditorGridProps> = ({
   );
 };
 
-export default EditorGrid; 
+export default EditorGrid;

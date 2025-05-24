@@ -35,12 +35,29 @@ web_search (search the web for information): function_call: {"name": "web_search
 
 fetch_webpage (fetch content from a webpage): function_call: {"name": "fetch_webpage","arguments": {"url": "https://example.com"}}
 
+Code Block Format:
+To create a file, use one of these formats to specify the filename:
+
+Format 1 - Language with filename after colon:
+\`\`\`typescript:src/components/MyComponent.tsx
+// Your code here
+\`\`\`
+
+Format 2 - Filename in first line comment:
+\`\`\`typescript
+// src/components/MyComponent.tsx
+// Your code here
+\`\`\`
+
+This enables the "Insert" button that allows users to merge your code changes into their files.
+
 Rules:
 1. Use exact function_call format shown above
 2. Never guess about code - verify with tools
 3. Start with list_directory for new codebases
 4. Chain tools when needed
-5. Complete all responses fully`,
+5. Complete all responses fully
+6. Always specify filenames in code blocks when providing file content`,
   attachments: undefined
 };
 
@@ -59,12 +76,29 @@ web_search (search the web for information): function_call: {"name": "web_search
 
 fetch_webpage (fetch content from a webpage): function_call: {"name": "fetch_webpage","arguments": {"url": "https://example.com"}}
 
+Code Block Format:
+When providing code, use one of these formats to specify the filename:
+
+Format 1 - Language with filename after colon:
+\`\`\`typescript:src/components/MyComponent.tsx
+// Your code here
+\`\`\`
+
+Format 2 - Filename in first line comment:
+\`\`\`typescript
+// src/components/MyComponent.tsx
+// Your code here
+\`\`\`
+
+This enables the "Insert" button that allows users to merge your code changes into their files.
+
 Rules:
 1. Use exact function_call format shown above
 2. Never guess about code - verify with tools
 3. Start with list_directory for new codebases
 4. Chain tools when needed
-5. Complete all responses fully`,
+5. Complete all responses fully
+6. Always specify filenames in code blocks when providing file content`,
   attachments: undefined
 };
 
@@ -132,7 +166,7 @@ Title:`;
   
   // Prompt for code merging
   codeMerging: (filename: string, originalContent: string, newContent: string): string => {
-    return `You are a code merging expert. You need to analyze and merge code changes intelligently.
+    return `/no_think You are a code merging expert. You need to analyze and merge code changes intelligently.
 
 ${originalContent ? `EXISTING FILE (${filename}):\n\`\`\`\n${originalContent}\n\`\`\`\n` : `The file ${filename} is new and will be created.\n`}
 

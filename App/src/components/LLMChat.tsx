@@ -53,6 +53,12 @@ const CodeActionsButton: React.FC<{ content: string; filename: string }> = ({ co
   const [isProcessing, setIsProcessing] = useState(false);
   const [copied, setCopied] = useState(false);
 
+  // Function to remove <think> and </think> tags and their content
+  const stripThinkTags = (text: string): string => {
+    // Remove <think>...</think> blocks (case insensitive, handles multiline)
+    return text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+  };
+
   const handleCopy = async () => {
     await navigator.clipboard.writeText(content);
     setCopied(true);
@@ -132,11 +138,14 @@ const CodeActionsButton: React.FC<{ content: string; filename: string }> = ({ co
           }
         ],
         temperature: insertModelConfig.temperature || 0.2,
-        max_tokens: insertModelConfig.maxTokens || -1,
+        ...(insertModelConfig.maxTokens && insertModelConfig.maxTokens > 0 ? { max_tokens: insertModelConfig.maxTokens } : {}),
         stream: false
       });
 
-      const mergedContent = result.choices[0].message.content.trim();
+      let mergedContent = result.choices[0].message.content.trim();
+      
+      // Strip <think> tags from the merged content before showing in diff viewer
+      mergedContent = stripThinkTags(mergedContent);
 
       // Use the FileChangeEventService to trigger the diff viewer
       FileChangeEventService.emitChange(filename, originalContent, mergedContent);
@@ -175,11 +184,14 @@ const CodeActionsButton: React.FC<{ content: string; filename: string }> = ({ co
             }
           ],
           temperature: modelConfig.temperature || 0.3,
-          max_tokens: modelConfig.maxTokens || -1,
+          ...(modelConfig.maxTokens && modelConfig.maxTokens > 0 ? { max_tokens: modelConfig.maxTokens } : {}),
           stream: false
         });
 
-        const mergedContent = result.choices[0].message.content.trim();
+        let mergedContent = result.choices[0].message.content.trim();
+        
+        // Strip <think> tags from the merged content before showing in diff viewer
+        mergedContent = stripThinkTags(mergedContent);
 
         // Use the FileChangeEventService to trigger the diff viewer
         FileChangeEventService.emitChange(filename, originalContent, mergedContent);
@@ -2414,7 +2426,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
           }
         ],
         temperature: insertModelConfig.temperature || 0.2,
-        max_tokens: insertModelConfig.maxTokens || -1,
+        ...(insertModelConfig.maxTokens && insertModelConfig.maxTokens > 0 ? { max_tokens: insertModelConfig.maxTokens } : {}),
         stream: false
       });
 
@@ -2460,7 +2472,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
             }
           ],
           temperature: modelConfig.temperature || 0.3,
-          max_tokens: modelConfig.maxTokens || -1,
+          ...(modelConfig.maxTokens && modelConfig.maxTokens > 0 ? { max_tokens: modelConfig.maxTokens } : {}),
           stream: false
         });
 
@@ -2776,7 +2788,7 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
           ...messagesForAPI
         ],
         temperature: modelConfig.temperature || 0.7,
-        max_tokens: modelConfig.maxTokens || -1,
+        ...(modelConfig.maxTokens && modelConfig.maxTokens > 0 ? { max_tokens: modelConfig.maxTokens } : {}),
         top_p: modelConfig.topP,
         frequency_penalty: modelConfig.frequencyPenalty,
         presence_penalty: modelConfig.presencePenalty,
@@ -3652,7 +3664,7 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
         model: modelId,
         messages: conversationContext,
         temperature: modelConfig.temperature || 0.7,
-        max_tokens: modelConfig.maxTokens || -1,
+        ...(modelConfig.maxTokens && modelConfig.maxTokens > 0 ? { max_tokens: modelConfig.maxTokens } : {}),
         top_p: modelConfig.topP,
         frequency_penalty: modelConfig.frequencyPenalty,
         presence_penalty: modelConfig.presencePenalty,
