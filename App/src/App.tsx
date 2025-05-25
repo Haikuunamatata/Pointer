@@ -159,7 +159,16 @@ const App: React.FC = () => {
   const [isLLMChatVisible, setIsLLMChatVisible] = useState(true);
 
   // Add state for chat width
-  const [width, setWidth] = useState(300);
+  const [width, setWidth] = useState(() => {
+    const savedWidth = localStorage.getItem('chatWidth');
+    if (savedWidth) {
+      const parsedWidth = parseInt(savedWidth, 10);
+      if (parsedWidth >= 250 && parsedWidth <= 1200) {
+        return parsedWidth;
+      }
+    }
+    return 700; // Default width to match chat component
+  });
 
   // Add this inside the App component, near other state declarations
   const [isChatListVisible, setIsChatListVisible] = useState(false);

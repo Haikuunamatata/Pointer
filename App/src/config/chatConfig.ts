@@ -35,8 +35,10 @@ web_search (search the web for information): function_call: {"name": "web_search
 
 fetch_webpage (fetch content from a webpage): function_call: {"name": "fetch_webpage","arguments": {"url": "https://example.com"}}
 
+run_terminal_cmd (execute a terminal/console command): function_call: {"name": "run_terminal_cmd","arguments": {"command": "command to execute"}}
+
 Code Block Format:
-To create a file, use one of these formats to specify the filename:
+To create a file, use one of these formats to specify the filename & autosave the file:
 
 Format 1 - Language with filename after colon:
 \`\`\`typescript:src/components/MyComponent.tsx
@@ -76,8 +78,10 @@ web_search (search the web for information): function_call: {"name": "web_search
 
 fetch_webpage (fetch content from a webpage): function_call: {"name": "fetch_webpage","arguments": {"url": "https://example.com"}}
 
+run_terminal_cmd (execute a terminal/console command): function_call: {"name": "run_terminal_cmd","arguments": {"command": "command to execute"}}
+
 Code Block Format:
-When providing code, use one of these formats to specify the filename:
+When providing code, use one of these formats to specify the filename & autosave the file:
 
 Format 1 - Language with filename after colon:
 \`\`\`typescript:src/components/MyComponent.tsx

@@ -899,7 +899,8 @@ class LMStudioService {
           'read_file': 'read_file',
           'web_search': 'web_search',
           'grep_search': 'grep_search',
-          'fetch_webpage': 'fetch_webpage'
+          'fetch_webpage': 'fetch_webpage',
+          'run_terminal_cmd': 'run_terminal_cmd',
         };
         
         // Extract tool name from content
@@ -980,6 +981,7 @@ class LMStudioService {
       'web_search': 'web_search',
       'grep_search': 'grep_search',
       'fetch_webpage': 'fetch_webpage',
+      'run_terminal_cmd': 'run_terminal_cmd',
     };
     
     // Log the tools before processing
@@ -994,7 +996,7 @@ class LMStudioService {
     let toolNames = new Set(tools.map(tool => tool.function?.name).filter(Boolean));
     
     // Add missing required tools
-    const requiredTools = ['read_file', 'list_directory', 'web_search', 'grep_search', 'fetch_webpage'];
+    const requiredTools = ['read_file', 'list_directory', 'web_search', 'grep_search', 'fetch_webpage', 'run_terminal_cmd'];
     const missingTools = requiredTools.filter(name => !toolNames.has(name) && !toolNames.has(frontendToBackendMap[name]));
     
     if (missingTools.length > 0) {
@@ -1104,6 +1106,32 @@ class LMStudioService {
                   }
                 },
                 required: ["url"]
+              }
+            }
+          };
+        } else if (name === 'run_terminal_cmd') {
+          return {
+            type: "function",
+            function: {
+              name: "run_terminal_cmd",
+              description: "Execute a terminal/console command and return the output. IMPORTANT: You MUST provide the 'command' parameter with the actual shell command to execute (e.g., 'ls -la', 'npm run build', 'git status'). This tool runs the command in a shell and returns stdout, stderr, and exit code.",
+              parameters: {
+                type: "object",
+                properties: {
+                  command: {
+                    type: "string",
+                    description: "REQUIRED: The actual shell command to execute. Examples: 'ls -la', 'npm install', 'python --version', 'git status'. Do not include shell operators like '&&' unless necessary."
+                  },
+                  working_directory: {
+                    type: "string",
+                    description: "Optional: The directory path where the command should be executed. If not provided, uses current working directory."
+                  },
+                  timeout: {
+                    type: "integer",
+                    description: "Optional: Maximum seconds to wait for command completion (default: 30). Use higher values for long-running commands."
+                  }
+                },
+                required: ["command"]
               }
             }
           };
@@ -1366,7 +1394,7 @@ class LMStudioService {
         }
       },
       {
-        pattern: /function_call\s*:\s*\{.*?"name"\s*:\s*"([^"]+)".*?"arguments"\s*:\s*"([^"]+)"/s,
+        pattern: /function_call\s*:\s*\{.*?"name"\s*:\s*"([^"]+)"\s*,\s*"arguments"\s*:\s*({[\s\S]*?})\s*\}\s*$/m,
         extractor: (match: RegExpMatchArray) => ({
           id: `function-call-${Date.now()}`,
           type: 'function',
@@ -1381,7 +1409,7 @@ class LMStudioService {
     for (const {pattern, extractor} of patterns) {
       const match = content.match(pattern);
       if (match) {
-        console.log(`Found function call with pattern ${pattern}:`, match[0]);
+        console.log(`Found function call with pattern ${pattern}:`, match[1]);
         const toolCall = extractor(match);
         if (toolCall) {
           console.log('Extracted tool call:', toolCall);

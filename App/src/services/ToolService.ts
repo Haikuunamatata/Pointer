@@ -17,6 +17,7 @@ export class ToolService {
     'web_search': 'web_search',
     'grep_search': 'grep_search',
     'fetch_webpage': 'fetch_webpage',
+    'run_terminal_cmd': 'run_terminal_cmd',
     
     // Backend to frontend mappings
     'list_directory': 'list_dir',
@@ -125,6 +126,12 @@ export class ToolService {
         const url = params.url || '';
         const contentType = result.content_type || 'unknown';
         return `Webpage Content [${url}]: ${result.success ? 'Success' : 'Failed'} (${contentType})`;
+      }
+      else if (toolName === 'run_terminal_cmd') {
+        const command = params.command || '';
+        const exitCode = result.return_code !== undefined ? result.return_code : 'unknown';
+        const executionTime = result.execution_time ? `${result.execution_time}s` : 'unknown';
+        return `Terminal Command [${command}]: ${result.success ? 'Success' : 'Failed'} (exit code: ${exitCode}, time: ${executionTime})`;
       }
       // Default format for other tools
       return `Tool ${toolName.replace(/_/g, ' ')}: ${result.success === false ? 'Failed' : 'Success'}`;

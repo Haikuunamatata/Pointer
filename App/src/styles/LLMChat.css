@@ -6,6 +6,31 @@
   display: none;
 }
 
+/* Chat resize handle */
+.chat-resize-handle {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  cursor: ew-resize;
+  background-color: transparent;
+  transition: all 0.2s ease;
+  z-index: 10;
+}
+
+.chat-resize-handle:hover {
+  background-color: var(--accent-color) !important;
+  width: 6px;
+  left: -1px;
+}
+
+.chat-resize-handle.resizing {
+  background-color: var(--accent-color) !important;
+  width: 6px;
+  left: -1px;
+}
+
 .chat-switcher {
   position: relative;
   display: inline-block;

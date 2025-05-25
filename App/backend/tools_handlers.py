@@ -10,6 +10,9 @@ import re
 import subprocess
 from typing import Dict, Any, List
 from pathlib import Path
+import platform
+import shlex
+import time
 
 
 async def read_file(file_path: str = None, target_file: str = None) -> Dict[str, Any]:
@@ -282,7 +285,7 @@ async def fetch_webpage(url: str) -> Dict[str, Any]:
 
 async def grep_search(query: str, include_pattern: str = None, exclude_pattern: str = None, case_sensitive: bool = False) -> Dict[str, Any]:
     """
-    Search for a pattern in files.
+    Search for a pattern in files using ripgrep.
     
     Args:
         query: The pattern to search for
@@ -295,11 +298,11 @@ async def grep_search(query: str, include_pattern: str = None, exclude_pattern: 
     """
     try:
         # Build the ripgrep command
-        cmd = ["rg", "--json"]
+        cmd = ["rg", "--json", "--line-number", "--column"]
         
-        # Add case sensitivity option
+        # Add case sensitivity flag
         if not case_sensitive:
-            cmd.append("-i")
+            cmd.append("--ignore-case")
         
         # Add include pattern if provided
         if include_pattern:
@@ -366,6 +369,142 @@ async def grep_search(query: str, include_pattern: str = None, exclude_pattern: 
         }
 
 
+async def run_terminal_cmd(command: str, working_directory: str = None, timeout: int = 30) -> Dict[str, Any]:
+    """
+    Execute a terminal/console command and return the output.
+    
+    Args:
+        command: The command to execute
+        working_directory: Optional working directory to run the command in
+        timeout: Maximum time to wait for command completion in seconds (default: 30)
+        
+    Returns:
+        Dictionary with command execution results
+    """
+    try:
+        start_time = time.time()
+        
+        # Security check - prevent dangerous commands
+        dangerous_commands = [
+            'rm', 'del', 'format', 'fdisk', 'mkfs', 'dd', 'sudo rm', 
+            'shutdown', 'reboot', 'halt', 'init', 'kill -9', 'killall',
+            'chmod 777', 'chown', 'passwd', 'su ', 'sudo su', 'sudo -i'
+        ]
+        
+        command_lower = command.lower().strip()
+        for dangerous in dangerous_commands:
+            if dangerous in command_lower:
+                return {
+                    "success": False,
+                    "error": f"Command blocked for security reasons: '{dangerous}' not allowed",
+                    "command": command,
+                    "execution_time": 0
+                }
+        
+        # Parse the command safely
+        try:
+            # Handle shell operators and complex commands
+            if any(op in command for op in ['&&', '||', '|', '>', '<', ';']):
+                # Use shell=True for complex commands, but with extra caution
+                if platform.system() == "Windows":
+                    args = command
+                    shell = True
+                else:
+                    args = command
+                    shell = True
+            else:
+                # Simple commands can use shlex for better security
+                args = shlex.split(command)
+                shell = False
+        except ValueError as e:
+            return {
+                "success": False,
+                "error": f"Invalid command syntax: {str(e)}",
+                "command": command,
+                "execution_time": 0
+            }
+        
+        # Set working directory
+        cwd = working_directory if working_directory and os.path.exists(working_directory) else None
+        
+        # Create the subprocess
+        if shell:
+            process = await asyncio.create_subprocess_shell(
+                args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=cwd
+            )
+        else:
+            process = await asyncio.create_subprocess_exec(
+                *args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=cwd
+            )
+        
+        try:
+            # Wait for completion with timeout
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(), 
+                timeout=timeout
+            )
+        except asyncio.TimeoutError:
+            # Kill the process if it times out
+            try:
+                process.terminate()
+                await asyncio.wait_for(process.wait(), timeout=5)
+            except:
+                process.kill()
+                await process.wait()
+            
+            execution_time = time.time() - start_time
+            return {
+                "success": False,
+                "error": f"Command timed out after {timeout} seconds",
+                "command": command,
+                "working_directory": cwd,
+                "execution_time": round(execution_time, 2),
+                "timeout": timeout
+            }
+        
+        execution_time = time.time() - start_time
+        
+        # Decode output
+        stdout_text = stdout.decode('utf-8', errors='replace').strip() if stdout else ""
+        stderr_text = stderr.decode('utf-8', errors='replace').strip() if stderr else ""
+        
+        # Determine success based on return code
+        success = process.returncode == 0
+        
+        result = {
+            "success": success,
+            "return_code": process.returncode,
+            "stdout": stdout_text,
+            "stderr": stderr_text,
+            "command": command,
+            "working_directory": cwd,
+            "execution_time": round(execution_time, 2)
+        }
+        
+        # Add error message if command failed
+        if not success:
+            error_msg = stderr_text if stderr_text else f"Command failed with return code {process.returncode}"
+            result["error"] = error_msg
+        
+        return result
+        
+    except Exception as e:
+        execution_time = time.time() - start_time if 'start_time' in locals() else 0
+        return {
+            "success": False,
+            "error": f"Failed to execute command: {str(e)}",
+            "command": command,
+            "working_directory": working_directory,
+            "execution_time": round(execution_time, 2)
+        }
+
+
 # Dictionary mapping tool names to handler functions
 TOOL_HANDLERS = {
     "read_file": read_file,
@@ -373,6 +512,7 @@ TOOL_HANDLERS = {
     "web_search": web_search,
     "fetch_webpage": fetch_webpage,
     "grep_search": grep_search,
+    "run_terminal_cmd": run_terminal_cmd,
 }
 
 # Tool definitions for API documentation
@@ -469,6 +609,28 @@ TOOL_DEFINITIONS = [
                 }
             },
             "required": ["query"]
+        }
+    },
+    {
+        "name": "run_terminal_cmd",
+        "description": "Execute a terminal/console command and return the output. IMPORTANT: You MUST provide the 'command' parameter with the actual shell command to execute (e.g., 'ls -la', 'npm run build', 'git status'). This tool runs the command in a shell and returns stdout, stderr, and exit code.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "command": {
+                    "type": "string",
+                    "description": "REQUIRED: The actual shell command to execute. Examples: 'ls -la', 'npm install', 'python --version', 'git status'. Do not include shell operators like '&&' unless necessary."
+                },
+                "working_directory": {
+                    "type": "string",
+                    "description": "Optional: The directory path where the command should be executed. If not provided, uses current working directory."
+                },
+                "timeout": {
+                    "type": "integer",
+                    "description": "Optional: Maximum seconds to wait for command completion (default: 30). Use higher values for long-running commands."
+                }
+            },
+            "required": ["command"]
         }
     }
 ]

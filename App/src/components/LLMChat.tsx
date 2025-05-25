@@ -1685,7 +1685,10 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       // Calculate how much the mouse has moved
       const dx = startX - e.clientX;
       // Update width directly (adding dx because this is on the right side)
-      const newWidth = Math.max(300, Math.min(800, startWidth + dx));
+      // Increase max width and add screen size awareness
+      const maxWidth = Math.min(Math.max(window.innerWidth * 0.7, 600), 1200); // 70% of screen or max 1200px
+      const minWidth = 250; // Slightly smaller minimum
+      const newWidth = Math.max(minWidth, Math.min(maxWidth, startWidth + dx));
       
       // Update locally
       setWidth(newWidth);
@@ -1696,9 +1699,9 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       }
       
       // Notify parent for editor layout update
-    if (onResize) {
-      onResize(newWidth);
-    }
+      if (onResize) {
+        onResize(newWidth);
+      }
       
       // Indicate active resize state
       setIsResizing(true);
@@ -1706,14 +1709,14 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       // Prevent text selection while resizing
       document.body.style.userSelect = 'none';
       document.body.style.cursor = 'ew-resize';
-  };
+    };
 
-  const handleMouseUp = () => {
+    const handleMouseUp = () => {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
       
       // Reset states
-    setIsResizing(false);
+      setIsResizing(false);
       document.body.style.userSelect = '';
       document.body.style.cursor = '';
       
@@ -1741,6 +1744,58 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       return () => observer.disconnect();
     }
   }, [onResize]);
+
+  // Load saved chat width on mount and save width changes
+  useEffect(() => {
+    // Load saved width
+    const savedWidth = localStorage.getItem('chatWidth');
+    if (savedWidth) {
+      const parsedWidth = parseInt(savedWidth, 10);
+      if (parsedWidth >= 250 && parsedWidth <= 1200) {
+        setWidth(parsedWidth);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    // Save width changes
+    localStorage.setItem('chatWidth', width.toString());
+  }, [width]);
+
+  // Add keyboard shortcuts for resize operations
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isVisible) return;
+      
+      // Ctrl+Shift+Left: Make chat narrower
+      if (e.ctrlKey && e.shiftKey && e.key === 'ArrowLeft') {
+        e.preventDefault();
+        const newWidth = Math.max(250, width - 50);
+        setWidth(newWidth);
+        if (onResize) onResize(newWidth);
+      }
+      
+      // Ctrl+Shift+Right: Make chat wider
+      if (e.ctrlKey && e.shiftKey && e.key === 'ArrowRight') {
+        e.preventDefault();
+        const maxWidth = Math.min(Math.max(window.innerWidth * 0.7, 600), 1200);
+        const newWidth = Math.min(maxWidth, width + 50);
+        setWidth(newWidth);
+        if (onResize) onResize(newWidth);
+      }
+      
+      // Ctrl+Shift+0: Reset to default width
+      if (e.ctrlKey && e.shiftKey && e.key === '0') {
+        e.preventDefault();
+        const defaultWidth = 700;
+        setWidth(defaultWidth);
+        if (onResize) onResize(defaultWidth);
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isVisible, width, onResize]);
 
   // Generate a title based on the first user message
   const generateChatTitle = async (messages: ExtendedMessage[]): Promise<string> => {
@@ -2951,6 +3006,31 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
                   required: ["url"]
                 }
               }
+            },
+            {
+              type: "function",
+              function: {
+                name: "run_terminal_cmd",
+                description: "Execute a terminal/console command and return the output. IMPORTANT: You MUST provide the 'command' parameter with the actual shell command to execute (e.g., 'ls -la', 'npm run build', 'git status'). This tool runs the command in a shell and returns stdout, stderr, and exit code.",
+                parameters: {
+                  type: "object",
+                  properties: {
+                    command: {
+                      type: "string",
+                      description: "REQUIRED: The actual shell command to execute. Examples: 'ls -la', 'npm install', 'python --version', 'git status'. Do not include shell operators like '&&' unless necessary."
+                    },
+                    working_directory: {
+                      type: "string",
+                      description: "Optional: The directory path where the command should be executed. If not provided, uses current working directory."
+                    },
+                    timeout: {
+                      type: "integer",
+                      description: "Optional: Maximum seconds to wait for command completion (default: 30). Use higher values for long-running commands."
+                    }
+                  },
+                  required: ["command"]
+                }
+              }
             }
           ],
           tool_choice: "auto"
@@ -3847,6 +3927,31 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
                 required: ["url"]
               }
             }
+          },
+          {
+            type: "function",
+            function: {
+              name: "run_terminal_cmd",
+              description: "Execute a terminal/console command and return the output",
+              parameters: {
+                type: "object",
+                properties: {
+                  command: {
+                    type: "string",
+                    description: "The command to execute"
+                  },
+                  working_directory: {
+                    type: "string",
+                    description: "Optional working directory to run the command in"
+                  },
+                  timeout: {
+                    type: "integer",
+                    description: "Maximum time to wait for command completion in seconds (default: 30)"
+                  }
+                },
+                required: ["command"]
+              }
+            }
           }
         ],
         tool_choice: "auto"
@@ -4690,6 +4795,27 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
         zIndex: 1,
       }}
     >
+      {/* Resize Handle */}
+      <div
+        className={`chat-resize-handle ${isResizing ? 'resizing' : ''}`}
+        onMouseDown={handleResizeStart}
+        onDoubleClick={() => {
+          const defaultWidth = 700;
+          setWidth(defaultWidth);
+          if (onResize) onResize(defaultWidth);
+        }}
+        style={{
+          position: 'absolute',
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: '4px',
+          cursor: 'ew-resize',
+          zIndex: 10,
+        }}
+        title={`Drag to resize chat (${width}px) | Double-click to reset | Ctrl+Shift+←/→ to resize | Ctrl+Shift+0 to reset`}
+      />
+      
       <div style={{ 
         padding: '10px', 
         borderBottom: '1px solid var(--border-primary)',
@@ -4702,7 +4828,11 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
           <ChatModeSwitch mode={mode} onModeChange={setMode} />
           <div className="chat-switcher">
             <button
-              onClick={() => setIsChatListVisible(!isChatListVisible)}
+              onClick={async () => {
+                // Reload chats first, then toggle visibility
+                await loadChats();
+                setIsChatListVisible(!isChatListVisible);
+              }}
               className="settings-button"
               title="Switch chats"
             >

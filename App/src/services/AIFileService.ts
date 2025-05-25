@@ -607,9 +607,19 @@ ${content.length > 32000 ? content.substring(0, 32000) + "\n[truncated]" : conte
     const fallbackModel = 'Error occured while getting the model ID';
     let modelId = fallbackModel;
     
+    // Get the correct settings path based on platform
+    const getSettingsPath = (): string => {
+      if (window.navigator.platform.indexOf('Win') > -1) {
+        return 'C:/ProgramData/Pointer/data/settings';
+      } else {
+        return './settings';
+      }
+    };
+    
     try {
       // Try to load from settings file
-      const settingsResult = await FileSystemService.readSettingsFiles('C:/ProgramData/Pointer/data/settings');
+      const settingsPath = getSettingsPath();
+      const settingsResult = await FileSystemService.readSettingsFiles(settingsPath);
       if (settingsResult.success && settingsResult.settings.models && 
           settingsResult.settings.modelAssignments && settingsResult.settings.modelAssignments[purpose]) {
         const assignedModelId = settingsResult.settings.modelAssignments[purpose];
@@ -668,7 +678,17 @@ ${content.length > 32000 ? content.substring(0, 32000) + "\n[truncated]" : conte
       let apiEndpoint = defaultEndpoint;
       let modelId = await this.getModelIdForPurpose(purpose);
       
-      const settingsResult = await FileSystemService.readSettingsFiles('C:/ProgramData/Pointer/data/settings');
+      // Get the correct settings path based on platform
+      const getSettingsPath = (): string => {
+        if (window.navigator.platform.indexOf('Win') > -1) {
+          return 'C:/ProgramData/Pointer/data/settings';
+        } else {
+          return './settings';
+        }
+      };
+      
+      const settingsPath = getSettingsPath();
+      const settingsResult = await FileSystemService.readSettingsFiles(settingsPath);
       if (settingsResult.success && settingsResult.settings.models && 
           settingsResult.settings.modelAssignments && settingsResult.settings.modelAssignments[purpose]) {
         const assignedModelId = settingsResult.settings.modelAssignments[purpose];
