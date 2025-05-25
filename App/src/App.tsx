@@ -14,6 +14,7 @@ import Titlebar from './components/Titlebar';
 import GitView from './components/Git/GitView';
 import { GitService } from './services/gitService';
 import CloneRepositoryModal from './components/CloneRepositoryModal';
+import { PathConfig } from './config/paths';
 
 // Initialize language support
 initializeLanguageSupport();
@@ -205,7 +206,7 @@ const App: React.FC = () => {
   // Load settings, including Discord settings
   const loadSettings = async () => {
     try {
-      const result = await FileSystemService.readSettingsFiles('C:/ProgramData/Pointer/data/settings');
+      const result = await FileSystemService.readSettingsFiles(PathConfig.getActiveSettingsPath());
       if (result && result.success) {
         setSettingsData(result.settings);
         

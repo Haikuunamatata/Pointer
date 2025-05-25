@@ -1,8 +1,31 @@
 import os
 import json
 import requests
+import platform
+from pathlib import Path
 from typing import Optional, Dict
 from fastapi import HTTPException
+
+def get_app_data_path() -> Path:
+    """Get the appropriate application data directory based on platform"""
+    system = platform.system().lower()
+    
+    if system == "windows":
+        # Windows: Use AppData/Roaming for user-specific settings
+        base_path = os.environ.get('APPDATA', os.path.expanduser('~/AppData/Roaming'))
+        return Path(base_path) / 'Pointer' / 'data'
+    elif system == "darwin":  # macOS
+        # macOS: Use Application Support directory - properly expand home directory
+        home_dir = Path.home()
+        return home_dir / 'Library' / 'Application Support' / 'Pointer' / 'data'
+    else:  # Linux and other Unix-like systems
+        # Linux: Use XDG data directory or fallback to home - properly expand paths
+        xdg_data_home = os.environ.get('XDG_DATA_HOME')
+        if xdg_data_home:
+            return Path(xdg_data_home) / 'pointer' / 'data'
+        else:
+            home_dir = Path.home()
+            return home_dir / '.local' / 'share' / 'pointer' / 'data'
 
 class GitHubOAuth:
     def __init__(self):
@@ -44,10 +67,10 @@ class GitHubOAuth:
     def save_token(self, token: str) -> bool:
         """Save the access token to settings."""
         try:
-            settings_dir = "C:/ProgramData/Pointer/data/settings"
-            os.makedirs(settings_dir, exist_ok=True)
+            settings_dir = get_app_data_path() / "settings"
+            settings_dir.mkdir(parents=True, exist_ok=True)
             
-            token_path = os.path.join(settings_dir, "github_token.json")
+            token_path = settings_dir / "github_token.json"
             with open(token_path, 'w') as file:
                 json.dump({"token": token}, file)
             return True
@@ -58,8 +81,9 @@ class GitHubOAuth:
     def get_token(self) -> Optional[str]:
         """Get the saved access token."""
         try:
-            token_path = os.path.join("C:/ProgramData/Pointer/data/settings", "github_token.json")
-            if os.path.exists(token_path):
+            settings_dir = get_app_data_path() / "settings"
+            token_path = settings_dir / "github_token.json"
+            if token_path.exists():
                 with open(token_path, 'r') as file:
                     data = json.load(file)
                     return data.get('token')

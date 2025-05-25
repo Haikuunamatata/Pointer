@@ -4,6 +4,7 @@ import { ModelConfig, EditorSettings, ThemeSettings, AppSettings, ModelAssignmen
 import * as monaco from 'monaco-editor';
 import ColorInput from './ColorInput';
 import { presetThemes } from '../themes/presetThemes';
+import { PathConfig } from '../config/paths';
 // Add electron API import with proper typing
 // @ts-ignore
 const electron = window.require ? window.require('electron') : null;
@@ -114,13 +115,7 @@ const settingsCategories = [
   { id: 'advanced', name: 'Advanced' },
 ];
 
-const getSettingsPath = (): string => {
-  if (window.navigator.platform.indexOf('Win') > -1) {
-    return 'C:/ProgramData/Pointer/data/settings';
-  } else {
-    return './settings';
-  }
-};
+// Path configuration moved to PathConfig.getActiveSettingsPath()
 
 // Theme preview component for the theme library
 const ThemePreview: React.FC<{ theme: ThemeSettings; name: string; onSelect: () => void }> = ({ theme, name, onSelect }) => {
@@ -632,7 +627,7 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
         }));
       }
       await loadDiscordRpcSettings();
-      const settingsPath = getSettingsPath();
+      const settingsPath = PathConfig.getActiveSettingsPath();
       const result = await FileSystemService.readSettingsFiles(settingsPath);
       if (result && result.success) {
         if (result.settings.models) {
@@ -709,7 +704,7 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
       localStorage.setItem('modelConfig', JSON.stringify(modelConfigs.default));
       localStorage.setItem('modelAssignments', JSON.stringify(modelAssignments));
       applyThemeSettings();
-      const settingsPath = getSettingsPath();
+      const settingsPath = PathConfig.getActiveSettingsPath();
       const settings = {
         models: modelConfigs,
         modelAssignments: modelAssignments,

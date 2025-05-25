@@ -1,8 +1,8 @@
 from typing import Dict, Optional, Any
 import weakref
-from fastapi import FastAPI, HTTPException, WebSocket, Request
+from fastapi import FastAPI, HTTPException, WebSocket, Request, WebSocketDisconnect, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse, HTMLResponse, FileResponse
+from fastapi.responses import RedirectResponse, HTMLResponse, FileResponse, PlainTextResponse, JSONResponse
 from pydantic import BaseModel
 from typing import List
 import os
@@ -29,6 +29,11 @@ from github_oauth import GitHubOAuth
 import mimetypes
 import sqlite3
 import httpx
+import aiofiles
+import aiofiles.os
+import tempfile
+import shutil
+import uuid
 
 # Import tool handling functionality
 from tools_handlers import handle_tool_call, TOOL_DEFINITIONS
@@ -72,9 +77,10 @@ async def list_tools():
 async def get_user_repositories():
     """Get GitHub repositories for the authenticated user."""
     # Check if we have a GitHub token in settings
-    token_path = os.path.join("C:/ProgramData/Pointer/data/settings", "github_token.json")
+    settings_dir = get_app_data_path() / "settings"
+    token_path = settings_dir / "github_token.json"
     
-    if os.path.exists(token_path):
+    if token_path.exists():
         try:
             with open(token_path, 'r') as file:
                 token_data = json.load(file)
@@ -809,7 +815,7 @@ async def rename_item(request: RenameRequest):
 
 @app.get("/chats")
 async def list_chats():
-    chats_dir = Path(os.environ.get('PROGRAMDATA', 'C:\\ProgramData')) / 'Pointer' / 'data' / 'chats'
+    chats_dir = get_chats_directory()
     chats_dir.mkdir(parents=True, exist_ok=True)
     
     chats = []
@@ -829,7 +835,7 @@ async def list_chats():
 async def get_chat(chat_id: str):
     """Get a specific chat by ID."""
     try:
-        chats_dir = Path(os.environ.get('PROGRAMDATA', 'C:\\ProgramData')) / 'Pointer' / 'data' / 'chats'
+        chats_dir = get_chats_directory()
         chats_dir.mkdir(parents=True, exist_ok=True)
         
         chat_file = chats_dir / f"{chat_id}.json"
@@ -854,7 +860,7 @@ async def get_chat(chat_id: str):
 async def get_latest_chat_messages(chat_id: str, after_index: int = 0):
     """Get only the latest messages from a chat after a specific index."""
     try:
-        chats_dir = Path(os.environ.get('PROGRAMDATA', 'C:\\ProgramData')) / 'Pointer' / 'data' / 'chats'
+        chats_dir = get_chats_directory()
         chats_dir.mkdir(parents=True, exist_ok=True)
         
         chat_file = chats_dir / f"{chat_id}.json"
@@ -921,7 +927,7 @@ async def save_chat(chat_id: str, request: ChatMessage):
     - Setting overwrite=True will completely replace the chat (only for migrations or emergency fixes)
     """
     try:
-        chats_dir = Path(os.environ.get('PROGRAMDATA', 'C:\\ProgramData')) / 'Pointer' / 'data' / 'chats'
+        chats_dir = get_chats_directory()
         chats_dir.mkdir(parents=True, exist_ok=True)
         
         chat_file = chats_dir / f"{chat_id}.json"
@@ -1561,25 +1567,25 @@ async def get_current_working_directory():
 async def read_settings_files(request: SettingsRequest):
     """Read all JSON settings files from the specified directory."""
     try:
-        settings_dir = request.settingsDir
+        # Ignore the frontend path and use our own cross-platform path resolution
+        settings_dir = get_app_data_path() / "settings"
         
         # Check if the directory exists
-        if not os.path.isdir(settings_dir):
-            os.makedirs(settings_dir, exist_ok=True)
+        if not settings_dir.exists():
+            settings_dir.mkdir(parents=True, exist_ok=True)
             print(f"Created settings directory: {settings_dir}")
         
         # Read all JSON files in the directory
         settings = {}
-        for filename in os.listdir(settings_dir):
-            if filename.endswith('.json'):
+        for filename in settings_dir.iterdir():
+            if filename.suffix == '.json':
                 try:
-                    file_path = os.path.join(settings_dir, filename)
-                    with open(file_path, 'r', encoding='utf-8') as f:
+                    with open(filename, 'r', encoding='utf-8') as f:
                         # Use the filename without extension as the settings category
-                        category = os.path.splitext(filename)[0]
+                        category = filename.stem
                         settings[category] = json.load(f)
                 except Exception as e:
-                    print(f"Error reading settings file {filename}: {str(e)}")
+                    print(f"Error reading settings file {filename.name}: {str(e)}")
                     # Continue with other files even if one fails
         
         return {"settings": settings}
@@ -1591,16 +1597,17 @@ async def read_settings_files(request: SettingsRequest):
 async def save_settings_files(request: SaveSettingsRequest):
     """Save settings files to the specified directory."""
     try:
-        settings_dir = request.settingsDir
+        # Ignore the frontend path and use our own cross-platform path resolution
+        settings_dir = get_app_data_path() / "settings"
         
         # Check if the directory exists
-        if not os.path.isdir(settings_dir):
-            os.makedirs(settings_dir, exist_ok=True)
+        if not settings_dir.exists():
+            settings_dir.mkdir(parents=True, exist_ok=True)
             print(f"Created settings directory: {settings_dir}")
         
         # Save settings files
         for category, settings in request.settings.items():
-            file_path = os.path.join(settings_dir, f"{category}.json")
+            file_path = settings_dir / f"{category}.json"
             with open(file_path, 'w', encoding='utf-8') as f:
                 json.dump(settings, f, indent=2)
         
@@ -1666,12 +1673,12 @@ async def get_system_information():
 @app.post("/github/save-token")
 async def save_github_token(request: GitHubTokenRequest):
     """Save GitHub token to settings."""
-    settings_dir = "C:/ProgramData/Pointer/data/settings"
+    settings_dir = get_app_data_path() / "settings"
     
     # Create directory if it doesn't exist
-    os.makedirs(settings_dir, exist_ok=True)
+    settings_dir.mkdir(parents=True, exist_ok=True)
     
-    token_path = os.path.join(settings_dir, "github_token.json")
+    token_path = settings_dir / "github_token.json"
     
     try:
         with open(token_path, 'w') as file:
@@ -1914,9 +1921,10 @@ async def github_auth_status():
 async def github_logout():
     """Log out from GitHub."""
     try:
-        token_path = os.path.join("C:/ProgramData/Pointer/data/settings", "github_token.json")
-        if os.path.exists(token_path):
-            os.remove(token_path)
+        settings_dir = get_app_data_path() / "settings"
+        token_path = settings_dir / "github_token.json"
+        if token_path.exists():
+            token_path.unlink()
         return {"success": True, "message": "Successfully logged out"}
     except Exception as e:
         return {"success": False, "message": str(e)}
@@ -2416,6 +2424,32 @@ async def get_settings():
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# Cross-platform path configuration
+def get_app_data_path() -> Path:
+    """Get the appropriate application data directory based on platform"""
+    system = platform.system().lower()
+    
+    if system == "windows":
+        # Windows: Use AppData/Roaming for user-specific settings
+        base_path = os.environ.get('APPDATA', os.path.expanduser('~/AppData/Roaming'))
+        return Path(base_path) / 'Pointer' / 'data'
+    elif system == "darwin":  # macOS
+        # macOS: Use Application Support directory - properly expand home directory
+        home_dir = Path.home()
+        return home_dir / 'Library' / 'Application Support' / 'Pointer' / 'data'
+    else:  # Linux and other Unix-like systems
+        # Linux: Use XDG data directory or fallback to home - properly expand paths
+        xdg_data_home = os.environ.get('XDG_DATA_HOME')
+        if xdg_data_home:
+            return Path(xdg_data_home) / 'pointer' / 'data'
+        else:
+            home_dir = Path.home()
+            return home_dir / '.local' / 'share' / 'pointer' / 'data'
+
+def get_chats_directory() -> Path:
+    """Get the chats directory path"""
+    return get_app_data_path() / 'chats'
 
 # Remove the uvicorn.run() call since we're using run.py now
 if __name__ == "__main__":
