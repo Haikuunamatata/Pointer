@@ -1,13 +1,13 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import * as monaco from 'monaco-editor';
-import { FileSystemItem } from '../types';
+import { FileSystemItem, TabInfo } from '../types';
 import { getLanguageFromFileName } from '../utils/languageUtils';
 import { AIFileService } from '../services/AIFileService';
-import lmStudio from '../services/LMStudioService';
 import { FileSystemService } from '../services/FileSystemService';
 import { showToast } from '../services/ToastService';
-import Modal from './Modal';
 import { FileViewer, isImageFile, isBinaryFile, isPdfFile, isDatabaseFile } from './FileViewer';
+import Modal from './Modal';
+import PreviewPane from './PreviewPane';
 
 // Get access to the App's applyCustomTheme function through the window object
 declare global {
@@ -1869,6 +1869,9 @@ interface EditorGridProps {
   isGridLayout?: boolean;
   onToggleGrid?: () => void;
   setSaveStatus?: (status: 'saving' | 'saved' | 'error' | null) => void;
+  // Preview functionality
+  previewTabs: TabInfo[];
+  currentPreviewTabId?: string | null;
 }
 
 interface EditorLayout {
@@ -1913,6 +1916,8 @@ const EditorGrid: React.FC<EditorGridProps> = ({
   isGridLayout = false,
   onToggleGrid,
   setSaveStatus,
+  previewTabs,
+  currentPreviewTabId,
 }) => {
   const [layouts, setLayouts] = useState<EditorLayout[]>([]);
   const [draggingLayout, setDraggingLayout] = useState<EditorLayout | null>(null);
@@ -2038,62 +2043,94 @@ const EditorGrid: React.FC<EditorGridProps> = ({
         overflow: 'hidden',
       }}
     >
-      {layouts.map(layout => {
-        const isVisible = isGridLayout || layout.fileId === currentFileId;
-        const fileExists = !!items[layout.fileId];
-        
-        // Check if file exists before rendering
-        if (!fileExists) {
-          console.warn(`Missing file for id: ${layout.fileId}`);
-        }
-        
-        return isVisible ? (
-          <div
-            key={layout.id}
-            style={{
-              position: 'absolute',
-              left: `${layout.x}%`,
-              top: `${layout.y}%`,
-              width: `${layout.width}%`,
-              height: `${layout.height}%`,
-              border: '1px solid var(--border-color)',
-              background: 'var(--bg-primary)',
-              transition: draggingLayout?.id === layout.id ? 'none' : 'all 0.2s ease',
-              display: isVisible ? 'block' : 'none',
-            }}
-          >
-            {isGridLayout && (
-              <DragHandle onMouseDown={(e) => handleDragStart(layout, e)} />
-            )}
-            <div style={{ 
-              height: isGridLayout ? 'calc(100% - 24px)' : '100%', 
-              marginTop: isGridLayout ? '24px' : '0',
-            }}>
-              {fileExists ? (
-                <EditorPane
-                  fileId={layout.fileId}
-                  file={items[layout.fileId]}
-                  onEditorReady={onEditorChange}
-                  setSaveStatus={setSaveStatus}
-                />
-              ) : (
+      {/* Check if we should show a preview instead of editor */}
+      {currentPreviewTabId && previewTabs.find(tab => tab.id === currentPreviewTabId) ? (
+        <div style={{ height: '100%', width: '100%' }}>
+          {(() => {
+            const previewTab = previewTabs.find(tab => tab.id === currentPreviewTabId);
+            const file = previewTab ? items[previewTab.fileId!] : null;
+            
+            if (!file) {
+              return (
                 <div style={{
                   height: '100%',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   color: 'var(--text-secondary)',
-                  padding: '20px',
-                  textAlign: 'center',
-                  fontSize: '14px'
                 }}>
-                  File not found. The file may have been moved or deleted.
+                  Preview file not found
                 </div>
+              );
+            }
+            
+            return (
+              <PreviewPane 
+                file={file} 
+                content={file.content}
+              />
+            );
+          })()}
+        </div>
+      ) : (
+        // Show editor layouts
+        layouts.map(layout => {
+          const isVisible = isGridLayout || layout.fileId === currentFileId;
+          const fileExists = !!items[layout.fileId];
+          
+          // Check if file exists before rendering
+          if (!fileExists) {
+            console.warn(`Missing file for id: ${layout.fileId}`);
+          }
+          
+          return isVisible ? (
+            <div
+              key={layout.id}
+              style={{
+                position: 'absolute',
+                left: `${layout.x}%`,
+                top: `${layout.y}%`,
+                width: `${layout.width}%`,
+                height: `${layout.height}%`,
+                border: '1px solid var(--border-color)',
+                background: 'var(--bg-primary)',
+                transition: draggingLayout?.id === layout.id ? 'none' : 'all 0.2s ease',
+                display: isVisible ? 'block' : 'none',
+              }}
+            >
+              {isGridLayout && (
+                <DragHandle onMouseDown={(e) => handleDragStart(layout, e)} />
               )}
+              <div style={{ 
+                height: isGridLayout ? 'calc(100% - 24px)' : '100%', 
+                marginTop: isGridLayout ? '24px' : '0',
+              }}>
+                {fileExists ? (
+                  <EditorPane
+                    fileId={layout.fileId}
+                    file={items[layout.fileId]}
+                    onEditorReady={onEditorChange}
+                    setSaveStatus={setSaveStatus}
+                  />
+                ) : (
+                  <div style={{
+                    height: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'var(--text-secondary)',
+                    padding: '20px',
+                    textAlign: 'center',
+                    fontSize: '14px'
+                  }}>
+                    File not found. The file may have been moved or deleted.
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-        ) : null;
-      })}
+          ) : null;
+        })
+      )}
     </div>
   );
 };

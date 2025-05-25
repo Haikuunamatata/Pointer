@@ -27,8 +27,6 @@ export const INITIAL_SYSTEM_MESSAGE: ExtendedMessage = {
 
 read_file (read a file's contents): function_call: {"name": "read_file","arguments": {"file_path": "path/to/file","should_read_entire_file": true,"start_line_one_indexed": 1,"end_line_one_indexed_inclusive": 200}}
 
-list_directory (list the contents of a directory): function_call: {"name": "list_directory","arguments": {"relative_workspace_path": "path/to/directory"}}
-
 grep_search (search for patterns in files): function_call: {"name": "grep_search","arguments": {"query": "search pattern","include_pattern": "*.ts","exclude_pattern": "node_modules"}}
 
 web_search (search the web for information): function_call: {"name": "web_search","arguments": {"search_term": "your search query","num_results": 3}}
@@ -36,6 +34,8 @@ web_search (search the web for information): function_call: {"name": "web_search
 fetch_webpage (fetch content from a webpage): function_call: {"name": "fetch_webpage","arguments": {"url": "https://example.com"}}
 
 run_terminal_cmd (execute a terminal/console command): function_call: {"name": "run_terminal_cmd","arguments": {"command": "command to execute"}}
+
+list_directory (list the contents of a directory): function_call: {"name": "list_directory","arguments": {"relative_workspace_path": "path/to/directory"}}
 
 Code Block Format:
 To create a file, use one of these formats to specify the filename & autosave the file:
@@ -51,7 +51,7 @@ Format 2 - Filename in first line comment:
 // Your code here
 \`\`\`
 
-This enables the "Insert" button that allows users to merge your code changes into their files.
+This automatically saves the file into the specified location.
 
 Rules:
 1. Use exact function_call format shown above
@@ -70,8 +70,6 @@ export const REFRESH_KNOWLEDGE_PROMPT: ExtendedMessage = {
 
 read_file (read a file's contents): function_call: {"name": "read_file","arguments": {"file_path": "path/to/file","should_read_entire_file": true,"start_line_one_indexed": 1,"end_line_one_indexed_inclusive": 200}}
 
-list_directory (list the contents of a directory): function_call: {"name": "list_directory","arguments": {"relative_workspace_path": "path/to/directory"}}
-
 grep_search (search for patterns in files): function_call: {"name": "grep_search","arguments": {"query": "search pattern","include_pattern": "*.ts","exclude_pattern": "node_modules"}}
 
 web_search (search the web for information): function_call: {"name": "web_search","arguments": {"search_term": "your search query","num_results": 3}}
@@ -79,6 +77,8 @@ web_search (search the web for information): function_call: {"name": "web_search
 fetch_webpage (fetch content from a webpage): function_call: {"name": "fetch_webpage","arguments": {"url": "https://example.com"}}
 
 run_terminal_cmd (execute a terminal/console command): function_call: {"name": "run_terminal_cmd","arguments": {"command": "command to execute"}}
+
+list_directory (list the contents of a directory): function_call: {"name": "list_directory","arguments": {"relative_workspace_path": "path/to/directory"}}
 
 Code Block Format:
 When providing code, use one of these formats to specify the filename & autosave the file:
@@ -94,7 +94,7 @@ Format 2 - Filename in first line comment:
 // Your code here
 \`\`\`
 
-This enables the "Insert" button that allows users to merge your code changes into their files.
+This automatically saves the file into the specified location.
 
 Rules:
 1. Use exact function_call format shown above

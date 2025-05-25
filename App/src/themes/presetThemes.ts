@@ -1,6 +1,170 @@
 import { ThemeSettings } from '../types';
 
 export const presetThemes: Record<string, ThemeSettings> = {
+  'VS Code Dark': {
+    name: 'vs-dark',
+    customColors: {
+      bgPrimary: '#1e1e1e',
+      bgSecondary: '#252526',
+      bgTertiary: '#2d2d30',
+      bgSelected: '#264f78',
+      bgHover: '#2a2d2e',
+      bgAccent: '#0e639c',
+      textPrimary: '#d4d4d4',
+      textSecondary: '#858585',
+      borderColor: '#3e3e42',
+      borderPrimary: '#3e3e42',
+      accentColor: '#0e639c',
+      accentHover: '#1177bb',
+      errorColor: '#f14c4c',
+      titlebarBg: '#1e1e1e',
+      statusbarBg: '#007acc',
+      statusbarFg: '#ffffff',
+      activityBarBg: '#333333',
+      activityBarFg: '#ffffff',
+      inlineCodeColor: '#cc0000',
+      
+      // Explorer colors
+      explorerFolderFg: '#cccccc',
+      explorerFolderExpandedFg: '#cccccc',
+      explorerFileFg: '#cccccc',
+      explorerFileJavaScriptFg: '#f1c40f',
+      explorerFileTypeScriptFg: '#007acc',
+      explorerFileJsonFg: '#f1c40f',
+      explorerFileHtmlFg: '#e34c26',
+      explorerFileCssFg: '#1572b6',
+      explorerFileMarkdownFg: '#519aba',
+      explorerFileYamlFg: '#cb171e',
+      explorerFileImageFg: '#a074c4',
+      
+      // Custom file extensions
+      customFileExtensions: {
+        'js': '#f1c40f',
+        'jsx': '#f1c40f',
+        'ts': '#007acc',
+        'tsx': '#007acc',
+        'json': '#f1c40f',
+        'html': '#e34c26',
+        'htm': '#e34c26',
+        'css': '#1572b6',
+        'scss': '#1572b6',
+        'less': '#1572b6',
+        'md': '#519aba',
+        'markdown': '#519aba',
+        'yml': '#cb171e',
+        'yaml': '#cb171e',
+        'xml': '#e34c26',
+        'svg': '#a074c4',
+        'png': '#a074c4',
+        'jpg': '#a074c4',
+        'jpeg': '#a074c4',
+        'gif': '#a074c4',
+        'ico': '#a074c4',
+        'py': '#3776ab',
+        'java': '#ed8b00',
+        'c': '#a8b9cc',
+        'cpp': '#00599c',
+        'h': '#a8b9cc',
+        'hpp': '#00599c',
+        'cs': '#239120',
+        'php': '#777bb4',
+        'rb': '#cc342d',
+        'go': '#00add8',
+        'rs': '#dea584',
+        'swift': '#fa7343',
+        'kt': '#7f52ff',
+        'dart': '#0175c2',
+        'vue': '#4fc08d',
+        'svelte': '#ff3e00',
+        'sh': '#89e051',
+        'bash': '#89e051',
+        'zsh': '#89e051',
+        'fish': '#89e051',
+        'ps1': '#012456',
+        'bat': '#c1f12e',
+        'cmd': '#c1f12e',
+        'dockerfile': '#384d54',
+        'docker': '#384d54',
+        'gitignore': '#f1502f',
+        'gitattributes': '#f1502f',
+        'license': '#d0bf91',
+        'readme': '#519aba',
+        'changelog': '#87ceeb',
+        'makefile': '#427819',
+        'cmake': '#064f8c',
+        'gradle': '#02303a',
+        'maven': '#c71a36',
+        'npm': '#cb3837',
+        'yarn': '#2c8ebb',
+        'package': '#cb3837',
+        'lock': '#cb3837',
+        'env': '#ecd53f',
+        'config': '#6d8086',
+        'ini': '#6d8086',
+        'toml': '#9c4221',
+        'properties': '#6d8086',
+        'log': '#dddddd',
+        'txt': '#dddddd',
+        'pdf': '#ff0000',
+        'doc': '#2b579a',
+        'docx': '#2b579a',
+        'xls': '#217346',
+        'xlsx': '#217346',
+        'ppt': '#d24726',
+        'pptx': '#d24726',
+        'zip': '#ffe066',
+        'rar': '#ffe066',
+        '7z': '#ffe066',
+        'tar': '#ffe066',
+        'gz': '#ffe066'
+      }
+    },
+    editorColors: {
+      'editor.background': '#1e1e1e',
+      'editor.foreground': '#d4d4d4',
+      'editorLineNumber.foreground': '#858585',
+      'editorLineNumber.activeForeground': '#c6c6c6',
+      'editorCursor.foreground': '#d4d4d4',
+      'editor.selectionBackground': '#264f78',
+      'editor.lineHighlightBackground': '#2d2d2d50'
+    },
+    tokenColors: [
+      {
+        token: 'keyword',
+        foreground: '#569CD6',
+        fontStyle: 'bold'
+      },
+      {
+        token: 'comment',
+        foreground: '#6A9955',
+        fontStyle: 'italic'
+      },
+      {
+        token: 'string',
+        foreground: '#CE9178'
+      },
+      {
+        token: 'number',
+        foreground: '#B5CEA8'
+      },
+      {
+        token: 'operator',
+        foreground: '#D4D4D4'
+      },
+      {
+        token: 'type',
+        foreground: '#4EC9B0'
+      },
+      {
+        token: 'function',
+        foreground: '#DCDCAA'
+      },
+      {
+        token: 'variable',
+        foreground: '#9CDCFE'
+      }
+    ]
+  },
   'Ayu Dark': {
     name: 'vs-dark',
     customColors: {

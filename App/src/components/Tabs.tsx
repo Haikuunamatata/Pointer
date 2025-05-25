@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
-import { FileSystemItem } from '../types';
-import { getIconForFile } from './FileIcons';
+import { FileSystemItem, TabInfo } from '../types';
+import { getIconForFile, PreviewIcon } from './FileIcons';
 import ContextMenu from './ContextMenu';
 import { AIFileService } from '../services/AIFileService';
 import { showToast } from '../services/ToastService';
 import { FileSystemService } from '../services/FileSystemService';
 import Modal from './Modal';
-
+import { isPreviewableFile } from '../utils/previewUtils';
 
 interface TabsProps {
   openFiles: string[];
@@ -16,6 +16,12 @@ interface TabsProps {
   onTabClose?: (fileId: string) => void;
   onToggleGrid?: () => void;
   isGridLayout?: boolean;
+  // Preview functionality
+  previewTabs: TabInfo[];
+  onPreviewToggle?: (fileId: string) => void;
+  onPreviewTabSelect?: (tabId: string) => void;
+  onPreviewTabClose?: (tabId: string) => void;
+  currentPreviewTabId?: string | null;
 }
 
 const tabsContainerStyle = {
@@ -42,6 +48,11 @@ const Tabs: React.FC<TabsProps> = ({
   onTabClose,
   onToggleGrid,
   isGridLayout,
+  previewTabs,
+  onPreviewToggle,
+  onPreviewTabSelect,
+  onPreviewTabClose,
+  currentPreviewTabId,
 }) => {
   const [contextMenu, setContextMenu] = useState<{
     x: number;
@@ -73,10 +84,29 @@ const Tabs: React.FC<TabsProps> = ({
     }
   };
 
+  const handlePreviewTabClick = (tabId: string) => {
+    if (onPreviewTabSelect && tabId !== currentPreviewTabId) {
+      onPreviewTabSelect(tabId);
+    }
+  };
+
   const handleTabClose = (e: React.MouseEvent, fileId: string) => {
     e.stopPropagation();
     if (onTabClose) {
       onTabClose(fileId);
+    }
+  };
+
+  const handlePreviewTabClose = (e: React.MouseEvent, tabId: string) => {
+    e.stopPropagation();
+    if (onPreviewTabClose) {
+      onPreviewTabClose(tabId);
+    }
+  };
+
+  const handlePreviewToggle = () => {
+    if (currentFileId && onPreviewToggle) {
+      onPreviewToggle(currentFileId);
     }
   };
 
@@ -257,6 +287,104 @@ const Tabs: React.FC<TabsProps> = ({
             </div>
           );
         })}
+        
+        {/* Render preview tabs */}
+        {previewTabs.map((tab) => {
+          const file = items[tab.fileId!];
+          const isActive = tab.id === currentPreviewTabId;
+          
+          if (!file) return null;
+          
+          return (
+            <div
+              key={tab.id}
+              onClick={() => handlePreviewTabClick(tab.id)}
+              style={{
+                padding: '0 10px',
+                height: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                cursor: 'pointer',
+                borderRight: '1px solid var(--border-color)',
+                background: isActive ? 'var(--bg-selected)' : 'transparent',
+                color: isActive ? 'var(--text-active)' : 'var(--text-primary)',
+                fontWeight: isActive ? 500 : 'normal',
+                fontSize: '13px',
+                position: 'relative',
+                whiteSpace: 'nowrap',
+                userSelect: 'none',
+                minWidth: 0,
+              }}
+            >
+              <div style={{ 
+                marginRight: '8px', 
+                display: 'flex', 
+                alignItems: 'center',
+                flexShrink: 0,
+              }}>
+                <PreviewIcon />
+              </div>
+              <div style={{
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                maxWidth: '150px',
+              }}>
+                {file.name} (Preview)
+              </div>
+              <div
+                onClick={(e) => handlePreviewTabClose(e, tab.id)}
+                style={{
+                  marginLeft: '8px',
+                  opacity: 0.6,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: '16px',
+                  height: '16px',
+                  borderRadius: '50%',
+                  flexShrink: 0,
+                }}
+                onMouseOver={(e) => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.background = 'var(--bg-hover)'; }}
+                onMouseOut={(e) => { e.currentTarget.style.opacity = '0.6'; e.currentTarget.style.background = 'transparent'; }}
+              >
+                ✕
+              </div>
+              {isActive && (
+                <div style={{
+                  position: 'absolute',
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  height: '2px',
+                  background: 'var(--accent-color)',
+                }} />
+              )}
+            </div>
+          );
+        })}
+        
+        {/* Preview button - show when current file is previewable */}
+        {currentFileId && items[currentFileId] && isPreviewableFile(items[currentFileId].name) && onPreviewToggle && (
+          <button
+            onClick={handlePreviewToggle}
+            style={{
+              padding: '4px 8px',
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              fontSize: '16px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: '3px',
+              marginLeft: '8px',
+            }}
+            title="Open Preview"
+          >
+            <PreviewIcon />
+          </button>
+        )}
+        
         {onToggleGrid && (
           <button
             onClick={onToggleGrid}

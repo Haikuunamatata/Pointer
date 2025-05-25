@@ -48,6 +48,7 @@ interface StreamingChatCompletionOptions {
   tools?: any[]; // Tool definitions array
   tool_choice?: string | object; // Tool choice parameter
   purpose?: 'chat' | 'insert' | 'autocompletion' | 'summary' | 'agent'; // Add purpose parameter
+  signal?: AbortSignal; // Add signal for request cancellation
   onUpdate: (content: string) => void;
 }
 
@@ -213,6 +214,7 @@ class LMStudioService {
       tools,
       tool_choice,
       purpose = 'chat', // Default to 'chat' if not provided
+      signal, // Extract the abort signal
       onUpdate
     } = options;
     
@@ -328,6 +330,7 @@ class LMStudioService {
               ...(modelConfig.apiKey && { 'Authorization': `Bearer ${modelConfig.apiKey}` })
             },
             body: JSON.stringify(requestBody),
+            signal: signal
           });
 
           if (!response.ok) {

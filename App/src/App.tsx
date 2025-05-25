@@ -1,4 +1,10 @@
-import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';import * as monaco from 'monaco-editor';import FileExplorer from './components/FileExplorer';import Tabs from './components/Tabs';import Resizable from './components/Resizable';import { FileSystemItem, FileSystemState } from './types';import { FileSystemService } from './services/FileSystemService';import { RecentProjectsMenu } from './components/RecentProjectsMenu';import debounce from 'lodash/debounce';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import * as monaco from 'monaco-editor';
+import FileExplorer from './components/FileExplorer';
+import Tabs from './components/Tabs';
+import Resizable from './components/Resizable';
+import { FileSystemItem, FileSystemState, TabInfo } from './types';
+import { FileSystemService } from './services/FileSystemService';
 import EditorGrid from './components/EditorGrid';
 import { initializeLanguageSupport, getLanguageFromFileName } from './utils/languageUtils';
 import { LLMChat } from './components/LLMChat';
@@ -15,9 +21,23 @@ import GitView from './components/Git/GitView';
 import { GitService } from './services/gitService';
 import CloneRepositoryModal from './components/CloneRepositoryModal';
 import { PathConfig } from './config/paths';
+import { isPreviewableFile, getPreviewType } from './utils/previewUtils';
+import PreviewPane from './components/PreviewPane';
 
 // Initialize language support
 initializeLanguageSupport();
+
+// Simple debounce implementation to replace lodash
+function debounce<T extends (...args: any[]) => any>(
+  func: T,
+  wait: number
+): (...args: Parameters<T>) => void {
+  let timeout: number | null = null;
+  return (...args: Parameters<T>) => {
+    if (timeout) clearTimeout(timeout);
+    timeout = setTimeout(() => func(...args), wait) as any;
+  };
+}
 
 interface IEditor extends monaco.editor.IStandaloneCodeEditor {}
 
@@ -170,6 +190,10 @@ const App: React.FC = () => {
     }
     return 700; // Default width to match chat component
   });
+
+  // Preview tab state management
+  const [previewTabs, setPreviewTabs] = useState<TabInfo[]>([]);
+  const [currentPreviewTabId, setCurrentPreviewTabId] = useState<string | null>(null);
 
   // Add this inside the App component, near other state declarations
   const [isChatListVisible, setIsChatListVisible] = useState(false);
@@ -1390,6 +1414,63 @@ const App: React.FC = () => {
 
   const [isCloneModalOpen, setIsCloneModalOpen] = useState(false);
 
+  const handleToggleGrid = () => {
+    setIsGridLayout(prev => !prev);
+  };
+
+  // Preview handlers
+  const handlePreviewToggle = (fileId: string) => {
+    const file = fileSystem.items[fileId];
+    if (!file || !isPreviewableFile(file.name)) return;
+
+    const previewType = getPreviewType(file.name);
+    if (!previewType) return;
+
+    // Check if preview tab already exists for this file
+    const existingPreviewTab = previewTabs.find(tab => tab.fileId === fileId);
+    
+    if (existingPreviewTab) {
+      // Switch to existing preview tab
+      setCurrentPreviewTabId(existingPreviewTab.id);
+    } else {
+      // Create new preview tab
+      const newPreviewTab: TabInfo = {
+        id: `preview-${fileId}-${Date.now()}`,
+        fileId,
+        type: 'preview',
+        previewType,
+      };
+      
+      setPreviewTabs(prev => [...prev, newPreviewTab]);
+      setCurrentPreviewTabId(newPreviewTab.id);
+    }
+  };
+
+  const handlePreviewTabSelect = (tabId: string) => {
+    setCurrentPreviewTabId(tabId);
+    // Clear current file selection when switching to preview
+    setFileSystem(prev => ({ ...prev, currentFileId: null }));
+  };
+
+  const handlePreviewTabClose = (tabId: string) => {
+    setPreviewTabs(prev => prev.filter(tab => tab.id !== tabId));
+    
+    // If closing the current preview tab, switch to another tab or clear selection
+    if (tabId === currentPreviewTabId) {
+      const remainingPreviewTabs = previewTabs.filter(tab => tab.id !== tabId);
+      if (remainingPreviewTabs.length > 0) {
+        setCurrentPreviewTabId(remainingPreviewTabs[remainingPreviewTabs.length - 1].id);
+      } else {
+        setCurrentPreviewTabId(null);
+        // Switch back to the last open editor file if available
+        if (openFiles.length > 0) {
+          const lastFileId = openFiles[openFiles.length - 1];
+          setFileSystem(prev => ({ ...prev, currentFileId: lastFileId }));
+        }
+      }
+    }
+  };
+
   return (
     <div className="app-container">
       {isConnecting && (
@@ -1488,8 +1569,13 @@ const App: React.FC = () => {
               items={fileSystem.items}
               onTabSelect={handleTabSelect}
               onTabClose={handleTabClose}
-              onToggleGrid={() => setIsGridLayout(!isGridLayout)}
+              onToggleGrid={handleToggleGrid}
               isGridLayout={isGridLayout}
+              previewTabs={previewTabs}
+              onPreviewToggle={handlePreviewToggle}
+              onPreviewTabSelect={handlePreviewTabSelect}
+              onPreviewTabClose={handlePreviewTabClose}
+              currentPreviewTabId={currentPreviewTabId}
             />
             <EditorGrid
               openFiles={openFiles}
@@ -1520,8 +1606,10 @@ const App: React.FC = () => {
               }}
               onTabClose={handleTabClose}
               isGridLayout={isGridLayout}
-              onToggleGrid={() => setIsGridLayout(prev => !prev)}
+              onToggleGrid={handleToggleGrid}
               setSaveStatus={setSaveStatus}
+              previewTabs={previewTabs}
+              currentPreviewTabId={currentPreviewTabId}
             />
           </div>
 

@@ -1612,7 +1612,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   const [editingMessageIndex, setEditingMessageIndex] = useState<number | null>(null);
   // Add state for tracking pending code inserts
   const [pendingInserts, setPendingInserts] = useState<{filename: string; content: string}[]>([]);
-  const [autoInsertInProgress, setAutoInsertInProgress] = useState(false);
+  const [autoInsertInProgress, setAutoInsertInProgress] = useState<boolean>(false);
   // Add state to track if insert model has been preloaded
   const [insertModelPreloaded, setInsertModelPreloaded] = useState(false);
   // Add state for auto-insert setting
@@ -1643,19 +1643,20 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   const [mentionPosition, setMentionPosition] = useState<{ start: number; end: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const suggestionBoxRef = useRef<HTMLDivElement>(null);
-
+  // New state for tracking the width explicitly
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  
+  const textareaRef = useRef<HTMLTextAreaElement>(null); // Add textarea ref
+
   // Add a state variable to track streaming completion
   const [isStreamingComplete, setIsStreamingComplete] = useState(false);
   
   // Restore tool-related state
   const [toolResults, setToolResults] = useState<{[key: string]: any}[]>([]);
   const [isExecutingTool, setIsExecutingTool] = useState(false);
-  const [isInToolExecutionChain, setIsInToolExecutionChain] = useState(false);
+  const [isInToolExecutionChain, setIsInToolExecutionChain] = useState<boolean>(false);
   
   // Add a state variable to track thinking content
   const [thinking, setThinking] = useState<string>('');
@@ -1764,38 +1765,13 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
 
   // Add keyboard shortcuts for resize operations
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
+    const handleKeyDown = (e: KeyboardEvent): void => {
       if (!isVisible) return;
-      
-      // Ctrl+Shift+Left: Make chat narrower
-      if (e.ctrlKey && e.shiftKey && e.key === 'ArrowLeft') {
-        e.preventDefault();
-        const newWidth = Math.max(250, width - 50);
-        setWidth(newWidth);
-        if (onResize) onResize(newWidth);
-      }
-      
-      // Ctrl+Shift+Right: Make chat wider
-      if (e.ctrlKey && e.shiftKey && e.key === 'ArrowRight') {
-        e.preventDefault();
-        const maxWidth = Math.min(Math.max(window.innerWidth * 0.7, 600), 1200);
-        const newWidth = Math.min(maxWidth, width + 50);
-        setWidth(newWidth);
-        if (onResize) onResize(newWidth);
-      }
-      
-      // Ctrl+Shift+0: Reset to default width
-      if (e.ctrlKey && e.shiftKey && e.key === '0') {
-        e.preventDefault();
-        const defaultWidth = 700;
-        setWidth(defaultWidth);
-        if (onResize) onResize(defaultWidth);
-      }
     };
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isVisible, width, onResize]);
+  }, [isVisible]);
 
   // Generate a title based on the first user message
   const generateChatTitle = async (messages: ExtendedMessage[]): Promise<string> => {
@@ -2350,7 +2326,10 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         setMessages([systemMsg]);
       }
     } finally {
-      setIsProcessing(false);
+      // Only reset processing state if we're not in the middle of tool execution
+      if (!isInToolExecutionChain) {
+        setIsProcessing(false);
+      }
     }
   };
 
@@ -2711,6 +2690,9 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   const handleInputChange = async (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const inputValue = e.target.value;
     setInput(inputValue);
+    
+    // Auto-resize the textarea based on content
+    autoResizeTextarea();
     
     // Check for @ mentions
     const match = /@([^@\s]*)$/.exec(inputValue);
@@ -3075,6 +3057,7 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
       await lmStudio.createStreamingChatCompletion({
         ...apiConfig,
         purpose: mode === 'agent' ? 'agent' : 'chat',
+        signal: abortControllerRef.current?.signal, // Add abort signal for cancellation
         onUpdate: async (content: string) => {
           currentContent = content;
           setMessages(prev => {
@@ -3170,9 +3153,25 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
   // Cancel ongoing requests
   const handleCancel = () => {
     if (abortControllerRef.current) {
+      console.log('Cancelling ongoing AI request...');
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
       setIsProcessing(false);
+      setIsStreamingComplete(true);
+      setIsInToolExecutionChain(false);
+      
+      // Optionally add a cancellation message to the chat
+      setMessages(prev => {
+        const lastMessage = prev[prev.length - 1];
+        if (lastMessage && lastMessage.role === 'assistant' && 
+            (!lastMessage.content || lastMessage.content.trim().length === 0)) {
+          // Remove the empty assistant message that was created for streaming
+          return prev.slice(0, -1);
+        }
+        return prev;
+      });
+      
+      console.log('AI request cancelled successfully');
     }
   };
 
@@ -4006,6 +4005,7 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
             tools: apiConfig.tools,
             tool_choice: apiConfig.tool_choice,
             purpose: 'agent',
+            signal: abortControllerRef.current?.signal, // Add abort signal for cancellation
           onUpdate: async (content) => {
             currentContent = content;
             
@@ -4149,28 +4149,53 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
           // Process immediately
           const toolCallResult = await processToolCalls(currentContent);
           
-          // If no tool calls were processed, reset tool execution chain
+          // If no tool calls were processed, reset tool execution chain and processing state
           if (!toolCallResult.hasToolCalls) {
             setIsInToolExecutionChain(false);
+            setIsProcessing(false);
           }
+          // If tool calls were processed, don't set isProcessing to false here
+          // as the tool execution will handle the processing state
         } else {
-          // If there are no function calls, process any code blocks
-          // Extract and queue code blocks for auto-insert
-          const codeBlocks = extractCodeBlocks(currentContent);
-          if (codeBlocks.length > 0 && autoInsertEnabled) {
-            setPendingInserts(prev => [
-              ...prev,
-              ...codeBlocks.map(block => ({ filename: block.filename, content: block.content }))
-            ]);
+          // Only reset processing state if we're not in a tool execution chain
+          // When in tool execution chain, the AI might be writing a normal response after tool calls
+          if (!isInToolExecutionChain) {
+            // If there are no function calls, process any code blocks
+            // Extract and queue code blocks for auto-insert
+            const codeBlocks = extractCodeBlocks(currentContent);
+            if (codeBlocks.length > 0 && autoInsertEnabled) {
+              setPendingInserts(prev => [
+                ...prev,
+                ...codeBlocks.map(block => ({ filename: block.filename, content: block.content }))
+              ]);
+              
+              setTimeout(() => {
+                preloadInsertModel();
+              }, 3000);
+            }
             
-            setTimeout(() => {
-              preloadInsertModel();
-            }, 3000);
-          }
-          
-          // Reset tool execution chain state when there are no tool calls
+            // Reset processing state only when not in tool execution
+            setIsProcessing(false);
+          } else {
+            // In tool execution chain, just process code blocks but don't reset processing
+            const codeBlocks = extractCodeBlocks(currentContent);
+            if (codeBlocks.length > 0 && autoInsertEnabled) {
+              setPendingInserts(prev => [
+                ...prev,
+                ...codeBlocks.map(block => ({ filename: block.filename, content: block.content }))
+              ]);
+              
+              setTimeout(() => {
+                preloadInsertModel();
+              }, 3000);
+            }
+            
+            // Reset tool execution chain since AI finished responding, but keep processing state
             setIsInToolExecutionChain(false);
+            // Don't reset isProcessing here - let it stay true so cancel button remains visible
+            // isProcessing will be reset when the AI actually finishes its complete response
           }
+        }
           
         } catch (error) {
           console.error('Error in AI continuation:', error);
@@ -4197,9 +4222,10 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
           });
           
           setIsInToolExecutionChain(false);
+          setIsProcessing(false);
         }
       
-      setIsProcessing(false);
+      // Don't set isProcessing to false here as it's now handled conditionally above
       setThinking('');
     } catch (error) {
       console.error('Error setting up conversation continuation:', error);
@@ -4224,6 +4250,50 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
     
     // Calculate if this message should be faded
     const shouldBeFaded = editingMessageIndex !== null && index + 1 > editingMessageIndex;
+    
+    // For assistant messages with function calls, process them but clean the content for display
+    if (message.role === 'assistant') {
+      // Check if message has tool_calls or contains function_call syntax
+      const hasToolCalls = (message.tool_calls && message.tool_calls.length > 0) || 
+                          (typeof message.content === 'string' && message.content.includes('function_call:'));
+      
+      if (hasToolCalls) {
+        // Extract any code blocks from the message content before hiding it
+        const messageContent = typeof message.content === 'string' ? message.content : '';
+        const codeBlocks = extractCodeBlocks(messageContent);
+        
+        // If there are code blocks, render them and hide the function call syntax
+        if (codeBlocks.length > 0) {
+          // Create a cleaned message without function call syntax but with code blocks
+          let cleanedContent = messageContent;
+          
+          // Remove function_call syntax
+          cleanedContent = cleanedContent.replace(/function_call:\s*\{[\s\S]*?\}/g, '');
+          cleanedContent = cleanedContent.replace(/<function_calls>[\s\S]*?<\/antml:function_calls>/g, '');
+          cleanedContent = cleanedContent.trim();
+          
+          // If there's still meaningful content after cleaning, show it
+          if (cleanedContent) {
+            const cleanedMessage = { ...message, content: cleanedContent };
+            return (
+              <div 
+                key={index} 
+                style={{ 
+                  width: '100%',
+                  opacity: shouldBeFaded ? 0.33 : 1,
+                  transition: 'opacity 0.2s ease',
+                }}
+              >
+                <MessageRenderer message={cleanedMessage} />
+              </div>
+            );
+          }
+        }
+        
+        // If no meaningful content remains after cleaning, hide the message
+        return null;
+      }
+    }
     
     // If it's a thinking message, render it differently
     if (hasThinkBlocks) {
@@ -4254,20 +4324,39 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
           }}
         >
           <textarea
+            ref={textareaRef}
             value={input}
             onChange={handleInputChange}
-            autoFocus
+            placeholder={editingMessageIndex !== null ? "Edit your message..." : "Type your message... (Use @ to attach files)"}
             style={{
-              width: '85%',
+              width: '100%',
               padding: '12px',
-              borderRadius: '8px',
+              borderRadius: '4px',
               border: '1px solid var(--border-primary)',
               background: 'var(--bg-primary)',
               color: 'var(--text-primary)',
-              fontFamily: 'inherit',
-              minHeight: '100px',
-              resize: 'vertical',
+              resize: 'none',
+              fontSize: '13px',
+              minHeight: '60px',
+              maxHeight: '150px',
+              overflow: 'auto',
             }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                if (editingMessageIndex !== null) {
+                  handleSubmitEdit(e);
+                } else {
+                  handleSubmit(e);
+                }
+              } else if (e.key === 'Escape' && editingMessageIndex !== null) {
+                handleCancelEdit();
+              } else if (e.key === 'Escape' && showFileSuggestions) {
+                setShowFileSuggestions(false);
+                e.preventDefault();
+              }
+            }}
+            disabled={isProcessing}
           />
           <div style={{ marginTop: '10px', display: 'flex', gap: '10px' }}>
             <button
@@ -4775,6 +4864,26 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
           }
     }, [currentChatId]);
 
+  // Auto-resize function for textarea
+  const autoResizeTextarea = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      // Reset height to auto to get the natural height
+      textarea.style.height = 'auto';
+      
+      // Calculate the new height based on content
+      const newHeight = Math.max(60, Math.min(150, textarea.scrollHeight));
+      
+      // Set the new height
+      textarea.style.height = newHeight + 'px';
+    }
+  }, []);
+
+  // Auto-resize textarea when input changes
+  useEffect(() => {
+    autoResizeTextarea();
+  }, [input, autoResizeTextarea]);
+
   if (!isVisible) return null;
 
   return (
@@ -5047,6 +5156,7 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
           }}
         >
           <textarea
+            ref={textareaRef}
             value={input}
             onChange={handleInputChange}
             placeholder={editingMessageIndex !== null ? "Edit your message..." : "Type your message... (Use @ to attach files)"}
@@ -5063,7 +5173,6 @@ Avoid unnecessary explanations, introductions, or conclusions unless specificall
               maxHeight: '150px',
               overflow: 'auto',
             }}
-            rows={2}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();

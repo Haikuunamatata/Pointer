@@ -73,10 +73,10 @@ export class ToolService {
   }
 
   /**
-   * Format a tool response title with better information based on tool type and parameters
-   * @param toolName Name of the tool
-   * @param params Tool parameters used
-   * @param result Tool result
+   * Format a detailed title for tool results to be displayed in the UI
+   * @param toolName Name of the tool that was called
+   * @param params Parameters passed to the tool
+   * @param result Result returned by the tool
    * @returns Formatted title with detailed information
    */
   private formatToolResultTitle(toolName: string, params: any, result: any): string {
@@ -89,9 +89,9 @@ export class ToolService {
           itemCount = result.contents.length.toString();
           const dirCount = result.contents.filter((item: any) => item.type === 'directory').length;
           const fileCount = result.contents.length - dirCount;
-          return `Directory Listing [${path}]: Found ${dirCount} directories, ${fileCount} files`;
+          return `Listed directory [${path}]: Found ${dirCount} directories, ${fileCount} files`;
         }
-        return `Directory Listing [${path}]: ${result.success ? 'Success' : 'Failed'}`;
+        return `Listed directory [${path}]: ${result.success ? 'Success' : 'Failed'}`;
       } 
       else if (toolName === 'read_file') {
         const path = params.target_file || params.file_path || '';
@@ -99,9 +99,9 @@ export class ToolService {
         // Try to count lines in the content if available
         if (result.content) {
           lineCount = (result.content.match(/\n/g) || []).length + 1;
-          return `File Contents [${path}]: ${lineCount} lines`;
+          return `Read file [${path}]: ${lineCount} lines`;
         }
-        return `File Contents [${path}]: ${result.success ? 'Success' : 'Failed'}`;
+        return `Read file [${path}]: ${result.success ? 'Success' : 'Failed'}`;
       }
       else if (toolName === 'grep_search') {
         const query = params.query || '';
@@ -109,35 +109,35 @@ export class ToolService {
         let matchCount = 'unknown';
         if (result.matches && Array.isArray(result.matches)) {
           matchCount = result.matches.length;
-          return `Grep Search [${query}]: Found ${matchCount} matches in ${pattern}`;
+          return `Searched files [${query}]: Found ${matchCount} matches in ${pattern}`;
         }
-        return `Grep Search [${query}]: ${result.success ? 'Success' : 'Failed'}`;
+        return `Searched files [${query}]: ${result.success ? 'Success' : 'Failed'}`;
       }
       else if (toolName === 'web_search') {
         const query = params.search_term || params.query || '';
         let resultCount = 'unknown';
         if (result.results && Array.isArray(result.results)) {
           resultCount = result.results.length;
-          return `Web Search [${query}]: Found ${resultCount} results`;
+          return `Searched web [${query}]: Found ${resultCount} results`;
         }
-        return `Web Search [${query}]: ${result.success ? 'Success' : 'Failed'}`;
+        return `Searched web [${query}]: ${result.success ? 'Success' : 'Failed'}`;
       }
       else if (toolName === 'fetch_webpage') {
         const url = params.url || '';
         const contentType = result.content_type || 'unknown';
-        return `Webpage Content [${url}]: ${result.success ? 'Success' : 'Failed'} (${contentType})`;
+        return `Fetched webpage [${url}]: ${result.success ? 'Success' : 'Failed'} (${contentType})`;
       }
       else if (toolName === 'run_terminal_cmd') {
         const command = params.command || '';
         const exitCode = result.return_code !== undefined ? result.return_code : 'unknown';
         const executionTime = result.execution_time ? `${result.execution_time}s` : 'unknown';
-        return `Terminal Command [${command}]: ${result.success ? 'Success' : 'Failed'} (exit code: ${exitCode}, time: ${executionTime})`;
+        return `Ran command [${command}]: ${result.success ? 'Success' : 'Failed'} (exit code: ${exitCode}, time: ${executionTime})`;
       }
       // Default format for other tools
-      return `Tool ${toolName.replace(/_/g, ' ')}: ${result.success === false ? 'Failed' : 'Success'}`;
+      return `Used ${toolName.replace(/_/g, ' ')}: ${result.success === false ? 'Failed' : 'Success'}`;
     } catch (e) {
       console.error('Error formatting tool result title:', e);
-      return `Tool ${toolName}: Result`;
+      return `Used ${toolName}: Result`;
     }
   }
 

@@ -8,6 +8,20 @@ export interface FileSystemItem {
   path: string;
 }
 
+export interface PreviewTab {
+  id: string;
+  fileId: string;
+  type: 'preview';
+  previewType: 'html' | 'markdown';
+}
+
+export interface TabInfo {
+  id: string;
+  fileId?: string;
+  type: 'editor' | 'preview';
+  previewType?: 'html' | 'markdown';
+}
+
 export interface Message {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: string;
