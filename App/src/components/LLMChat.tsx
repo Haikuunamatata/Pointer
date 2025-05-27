@@ -54,18 +54,24 @@ interface LLMChatProps {
 const CodeActionsButton: React.FC<{ content: string; filename: string; isProcessing?: boolean }> = ({ content, filename, isProcessing: parentIsProcessing = false }) => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   // Combine local processing state with parent processing state
   const isAnyProcessing = isProcessing || parentIsProcessing;
+
+  // Debug logging
+  console.log('CodeActionsButton rendered:', { filename, hasFilename: !!filename, isMenuOpen, isAnyProcessing });
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(content);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+    setIsMenuOpen(false);
   };
 
   const handleInsert = async () => {
     setIsProcessing(true);
+    setIsMenuOpen(false);
     // Declare originalContent at the function scope so it's accessible in the catch blocks
     let originalContent = '';
     
@@ -204,7 +210,7 @@ const CodeActionsButton: React.FC<{ content: string; filename: string; isProcess
   return (
     <div style={{ position: 'relative' }}>
       <button
-        onClick={() => setIsProcessing(!isProcessing)}
+        onClick={() => setIsMenuOpen(!isMenuOpen)}
         style={{
           position: 'absolute',
           right: '10px',
@@ -235,7 +241,7 @@ const CodeActionsButton: React.FC<{ content: string; filename: string; isProcess
         </svg>
       </button>
 
-      {isProcessing && (
+      {isMenuOpen && (
         <div
           style={{
             position: 'absolute',
@@ -4147,50 +4153,34 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
           
           // If no tool calls were processed, reset tool execution chain and processing state
           if (!toolCallResult.hasToolCalls) {
+            console.log('No tool calls found, resetting processing state');
             setIsInToolExecutionChain(false);
+            setIsExecutingTool(false);
             setIsProcessing(false);
           }
           // If tool calls were processed, don't set isProcessing to false here
           // as the tool execution will handle the processing state
         } else {
-          // Only reset processing state if we're not in a tool execution chain
-          // When in tool execution chain, the AI might be writing a normal response after tool calls
-          if (!isInToolExecutionChain) {
-            // If there are no function calls, process any code blocks
-            // Extract and queue code blocks for auto-insert
-            const codeBlocks = extractCodeBlocks(currentContent);
-            if (codeBlocks.length > 0 && autoInsertEnabled) {
-              setPendingInserts(prev => [
-                ...prev,
-                ...codeBlocks.map(block => ({ filename: block.filename, content: block.content }))
-              ]);
-              
-              setTimeout(() => {
-                preloadInsertModel();
-              }, 3000);
-            }
+          // No function calls in the response - always reset processing state
+          console.log('No function calls detected, resetting all processing states');
+          
+          // Extract and queue code blocks for auto-insert
+          const codeBlocks = extractCodeBlocks(currentContent);
+          if (codeBlocks.length > 0 && autoInsertEnabled) {
+            setPendingInserts(prev => [
+              ...prev,
+              ...codeBlocks.map(block => ({ filename: block.filename, content: block.content }))
+            ]);
             
-            // Reset processing state only when not in tool execution
-            setIsProcessing(false);
-          } else {
-            // In tool execution chain, just process code blocks but don't reset processing
-            const codeBlocks = extractCodeBlocks(currentContent);
-            if (codeBlocks.length > 0 && autoInsertEnabled) {
-              setPendingInserts(prev => [
-                ...prev,
-                ...codeBlocks.map(block => ({ filename: block.filename, content: block.content }))
-              ]);
-              
-              setTimeout(() => {
-                preloadInsertModel();
-              }, 3000);
-            }
-            
-            // Reset tool execution chain since AI finished responding, but keep processing state
-            setIsInToolExecutionChain(false);
-            // Don't reset isProcessing here - let it stay true so cancel button remains visible
-            // isProcessing will be reset when the AI actually finishes its complete response
+            setTimeout(() => {
+              preloadInsertModel();
+            }, 3000);
           }
+          
+          // Always reset all processing states when there are no function calls
+          setIsInToolExecutionChain(false);
+          setIsExecutingTool(false);
+          setIsProcessing(false);
         }
           
         } catch (error) {
@@ -4899,6 +4889,16 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   useEffect(() => {
     autoResizeTextarea();
   }, [input, autoResizeTextarea]);
+
+  // Add debugging for processing states
+  useEffect(() => {
+    console.log('Processing states changed:', { 
+      isProcessing, 
+      isExecutingTool, 
+      isInToolExecutionChain, 
+      isAnyProcessing 
+    });
+  }, [isProcessing, isExecutingTool, isInToolExecutionChain, isAnyProcessing]);
 
   if (!isVisible) return null;
 
