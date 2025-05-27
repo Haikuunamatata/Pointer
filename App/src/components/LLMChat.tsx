@@ -51,16 +51,17 @@ interface LLMChatProps {
 }
 
 // Combined actions button component for code blocks
-const CodeActionsButton: React.FC<{ content: string; filename: string }> = ({ content, filename }) => {
-  const [isOpen, setIsOpen] = useState(false);
+const CodeActionsButton: React.FC<{ content: string; filename: string; isProcessing?: boolean }> = ({ content, filename, isProcessing: parentIsProcessing = false }) => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  // Combine local processing state with parent processing state
+  const isAnyProcessing = isProcessing || parentIsProcessing;
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(content);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-    setIsOpen(false);
   };
 
   const handleInsert = async () => {
@@ -197,14 +198,13 @@ const CodeActionsButton: React.FC<{ content: string; filename: string }> = ({ co
       }
     } finally {
       setIsProcessing(false);
-      setIsOpen(false);
     }
   };
 
   return (
     <div style={{ position: 'relative' }}>
       <button
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => setIsProcessing(!isProcessing)}
         style={{
           position: 'absolute',
           right: '10px',
@@ -235,7 +235,7 @@ const CodeActionsButton: React.FC<{ content: string; filename: string }> = ({ co
         </svg>
       </button>
 
-      {isOpen && (
+      {isProcessing && (
         <div
           style={{
             position: 'absolute',
@@ -281,14 +281,14 @@ const CodeActionsButton: React.FC<{ content: string; filename: string }> = ({ co
           {filename && (
             <button
               onClick={handleInsert}
-              disabled={isProcessing}
+              disabled={isAnyProcessing}
               style={{
                 width: '100%',
                 padding: '8px 12px',
                 background: 'none',
                 border: 'none',
-                color: isProcessing ? 'var(--accent-color)' : 'var(--text-primary)',
-                cursor: isProcessing ? 'default' : 'pointer',
+                color: isAnyProcessing ? 'var(--accent-color)' : 'var(--text-primary)',
+                cursor: isAnyProcessing ? 'default' : 'pointer',
                 display: 'flex',
                 alignItems: 'center',
                 gap: '8px',
@@ -296,7 +296,7 @@ const CodeActionsButton: React.FC<{ content: string; filename: string }> = ({ co
                 transition: 'background-color 0.2s ease',
               }}
               onMouseEnter={(e) => {
-                if (!isProcessing) {
+                if (!isAnyProcessing) {
                   e.currentTarget.style.backgroundColor = 'var(--bg-hover)';
                 }
               }}
@@ -304,7 +304,7 @@ const CodeActionsButton: React.FC<{ content: string; filename: string }> = ({ co
                 e.currentTarget.style.backgroundColor = 'transparent';
               }}
             >
-              {isProcessing ? (
+              {isAnyProcessing ? (
                 <svg 
                   width="14" 
                   height="14" 
@@ -322,7 +322,7 @@ const CodeActionsButton: React.FC<{ content: string; filename: string }> = ({ co
                   <path d="M12 5v14M5 12h14" />
                 </svg>
               )}
-              {isProcessing ? 'Inserting...' : 'Insert code'}
+              {isAnyProcessing ? 'Inserting...' : 'Insert code'}
             </button>
           )}
         </div>
@@ -332,7 +332,7 @@ const CodeActionsButton: React.FC<{ content: string; filename: string }> = ({ co
 };
 
 // Update CollapsibleCodeBlock component to use the new combined button
-const CollapsibleCodeBlock: React.FC<{ language: string; filename?: string; content: string }> = ({ language, filename, content }) => {
+const CollapsibleCodeBlock: React.FC<{ language: string; filename?: string; content: string; isProcessing?: boolean }> = ({ language, filename, content, isProcessing = false }) => {
   const [isCollapsed, setIsCollapsed] = useState(true);
   const [isHovered, setIsHovered] = useState(false);
   
@@ -394,7 +394,7 @@ const CollapsibleCodeBlock: React.FC<{ language: string; filename?: string; cont
           </svg>
           {filename || `${language}.${getFileExtension(language)}`}
         </div>
-        <CodeActionsButton content={content} filename={filename || ''} />
+        <CodeActionsButton content={content} filename={filename || ''} isProcessing={isProcessing} />
       </div>
       <div style={{ 
         maxHeight: isCollapsible ? '200px' : 'none',
@@ -519,7 +519,7 @@ interface CodeProps extends React.HTMLAttributes<HTMLElement> {
 }
 
 // Component to render messages with markdown and code syntax highlighting
-const MessageRenderer: React.FC<{ message: ExtendedMessage }> = ({ message }) => {
+const MessageRenderer: React.FC<{ message: ExtendedMessage; isAnyProcessing?: boolean }> = ({ message, isAnyProcessing = false }) => {
   const [thinkTimes] = useState<ThinkTimes>({});
   
   // Handle non-string content
@@ -686,6 +686,7 @@ const MessageRenderer: React.FC<{ message: ExtendedMessage }> = ({ message }) =>
                     language={language || 'text'}
                     filename={filename}
                     content={content}
+                    isProcessing={isAnyProcessing}
                   />
                 );
               }
@@ -840,6 +841,7 @@ const MessageRenderer: React.FC<{ message: ExtendedMessage }> = ({ message }) =>
                       language={language || 'text'}
                       filename={filename}
                       content={content}
+                      isProcessing={isAnyProcessing}
                     />
                   );
                 }
@@ -1000,6 +1002,7 @@ const MessageRenderer: React.FC<{ message: ExtendedMessage }> = ({ message }) =>
                   language={language || 'text'}
                   filename={filename}
                   content={content}
+                  isProcessing={isAnyProcessing}
                 />
               );
             }
@@ -1173,6 +1176,7 @@ const MessageRenderer: React.FC<{ message: ExtendedMessage }> = ({ message }) =>
                       language={language || 'text'}
                       filename={filename}
                       content={content}
+                      isProcessing={isAnyProcessing}
                     />
                   );
                 }
@@ -2773,6 +2777,9 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   // Add state for current working directory
   const [currentWorkingDirectory, setCurrentWorkingDirectory] = useState<string>('');
 
+  // Combine all processing states to determine when input should be disabled/grayed out
+  const isAnyProcessing = isProcessing || isExecutingTool || isInToolExecutionChain;
+
   // Fetch current working directory on component mount
   useEffect(() => {
     const fetchCwd = async () => {
@@ -3145,6 +3152,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
       setIsProcessing(false);
+      setIsExecutingTool(false);
       setIsStreamingComplete(true);
       setIsInToolExecutionChain(false);
       
@@ -4218,6 +4226,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
     } catch (error) {
       console.error('Error setting up conversation continuation:', error);
       setIsProcessing(false);
+      setIsExecutingTool(false);
       setIsInToolExecutionChain(false);
       setThinking('');
       
@@ -4272,7 +4281,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
                   transition: 'opacity 0.2s ease',
                 }}
               >
-                <MessageRenderer message={cleanedMessage} />
+                <MessageRenderer message={cleanedMessage} isAnyProcessing={isAnyProcessing} />
               </div>
             );
           }
@@ -4294,7 +4303,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
             transition: 'opacity 0.2s ease',
           }}
         >
-          <MessageRenderer message={message} />
+          <MessageRenderer message={message} isAnyProcessing={isAnyProcessing} />
         </div>
       );
     }
@@ -4321,13 +4330,15 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
               padding: '12px',
               borderRadius: '4px',
               border: '1px solid var(--border-primary)',
-              background: 'var(--bg-primary)',
-              color: 'var(--text-primary)',
+              background: isAnyProcessing ? 'var(--bg-tertiary, #f5f5f5)' : 'var(--bg-primary)',
+              color: isAnyProcessing ? 'var(--text-disabled, #888)' : 'var(--text-primary)',
               resize: 'none',
               fontSize: '13px',
               minHeight: '60px',
               maxHeight: '150px',
               overflow: 'auto',
+              opacity: isAnyProcessing ? 0.6 : 1,
+              cursor: isAnyProcessing ? 'not-allowed' : 'text',
             }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
@@ -4344,7 +4355,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
                 e.preventDefault();
               }
             }}
-            disabled={isProcessing}
+            disabled={isAnyProcessing}
           />
           <div style={{ marginTop: '10px', display: 'flex', gap: '10px' }}>
             <button
@@ -4744,7 +4755,24 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
             border: message.role === 'user' ? '1px solid var(--border-primary)' : 'none',
           }}
         >
-          <MessageRenderer message={message} />
+          {/* Assistant message */}
+          {message.role === 'assistant' && (
+            <div
+              style={{
+                backgroundColor: 'var(--bg-secondary)',
+                padding: '12px',
+                borderRadius: '8px',
+                marginBottom: '12px',
+                position: 'relative',
+              }}
+            >
+              <MessageRenderer message={message} isAnyProcessing={isAnyProcessing} />
+            </div>
+          )}
+          {/* User message */}
+          {message.role === 'user' && (
+            <MessageRenderer message={message} isAnyProcessing={isAnyProcessing} />
+          )}
         </div>
         {message.role === 'user' && (
           <div
@@ -5153,13 +5181,15 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
               padding: '12px',
               borderRadius: '4px',
               border: '1px solid var(--border-primary)',
-              background: 'var(--bg-primary)',
-              color: 'var(--text-primary)',
+              background: isAnyProcessing ? 'var(--bg-tertiary, #f5f5f5)' : 'var(--bg-primary)',
+              color: isAnyProcessing ? 'var(--text-disabled, #888)' : 'var(--text-primary)',
               resize: 'none',
               fontSize: '13px',
               minHeight: '60px',
               maxHeight: '150px',
               overflow: 'auto',
+              opacity: isAnyProcessing ? 0.6 : 1,
+              cursor: isAnyProcessing ? 'not-allowed' : 'text',
             }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
@@ -5176,7 +5206,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
                 e.preventDefault();
               }
             }}
-            disabled={isProcessing}
+            disabled={isAnyProcessing}
           />
 
           {/* File suggestions dropdown */}
@@ -5234,7 +5264,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
             />
             
             {/* File attachment button */}
-            {!editingMessageIndex && !isProcessing && (
+            {!editingMessageIndex && !isAnyProcessing && (
               <button
                 onClick={handleFileAttachment}
                 type="button"
@@ -5247,7 +5277,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
               </button>
             )}
             
-            {isProcessing ? (
+            {isAnyProcessing ? (
               <button
                 onClick={handleCancel}
                 style={{

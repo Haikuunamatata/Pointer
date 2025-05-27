@@ -1819,49 +1819,7 @@ async def github_callback(code: str, state: str):
         github_oauth.save_token(token_response['access_token'])
         
         # Return success page
-        return HTMLResponse("""
-            <html>
-                <head>
-                    <title>GitHub Authentication Success</title>
-                    <style>
-                        body {
-                            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-                            display: flex;
-                            flex-direction: column;
-                            align-items: center;
-                            justify-content: center;
-                            height: 100vh;
-                            margin: 0;
-                            background-color: #f6f8fa;
-                        }
-                        .container {
-                            text-align: center;
-                            padding: 2rem;
-                            background: white;
-                            border-radius: 8px;
-                            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-                        }
-                        h1 { color: #24292e; }
-                        p { color: #586069; }
-                        .button {
-                            display: inline-block;
-                            padding: 8px 16px;
-                            background-color: #2ea44f;
-                            color: white;
-                            text-decoration: none;
-                            border-radius: 4px;
-                            margin-top: 1rem;
-                        }
-                    </style>
-                </head>
-                <body>
-                    <div class="container">
-                        <h1>Successfully Connected!</h1>
-                        <p>Your GitHub account has been connected successfully. You can close this window and return to Pointer.</p>
-                    </div>
-                </body>
-            </html>
-        """)
+        return HTMLResponse(open("backend/templates/github/auth/success.html").read())
     except Exception as e:
         print(f"Error in GitHub callback: {e}")
         return HTMLResponse("""
