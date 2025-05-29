@@ -122,7 +122,7 @@ const CodeActionsButton: React.FC<{ content: string; filename: string; isProcess
       const insertModelConfigStr = localStorage.getItem('insertModelConfig');
       const insertModelConfig = insertModelConfigStr ? JSON.parse(insertModelConfigStr) : {
         temperature: 0.2,
-        maxTokens: -1,
+        maxTokens: null,
       };
 
       // Create a prompt for the AI to merge the changes
@@ -166,7 +166,7 @@ const CodeActionsButton: React.FC<{ content: string; filename: string; isProcess
         const modelConfigStr = localStorage.getItem('modelConfig');
         const modelConfig = modelConfigStr ? JSON.parse(modelConfigStr) : {
           temperature: 0.3,
-          maxTokens: -1,
+          maxTokens: null,
           frequencyPenalty: 0,
           presencePenalty: 0,
         };
@@ -1673,6 +1673,11 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   // Add a state variable to track thinking content
   const [thinking, setThinking] = useState<string>('');
   
+  // Add timeout refs for proper cleanup during cancellation
+  const toolCallTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const conversationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const processedToolCallIds = useRef<Set<string>>(new Set());
+  
   // Preload the insert model only when needed
   const preloadInsertModel = async () => {
     if (insertModelPreloaded) return; // Only preload once
@@ -2367,7 +2372,6 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   // Handle chat selection
   const handleSelectChat = (chatId: string) => {
     onSelectChat(chatId);
-    setIsChatListVisible(false);
   };
 
   // Function to extract code blocks with filenames from message content
@@ -2503,7 +2507,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       const insertModelConfigStr = localStorage.getItem('insertModelConfig');
       const insertModelConfig = insertModelConfigStr ? JSON.parse(insertModelConfigStr) : {
         temperature: 0.2,
-        maxTokens: -1,
+        maxTokens: null,
       };
 
       // Create a prompt for the AI to merge the changes
@@ -2550,7 +2554,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         const modelConfigStr = localStorage.getItem('modelConfig');
         const modelConfig = modelConfigStr ? JSON.parse(modelConfigStr) : {
           temperature: 0.3,
-          maxTokens: -1,
+          maxTokens: null,
           frequencyPenalty: 0,
           presencePenalty: 0,
         };
@@ -3153,28 +3157,78 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   
   // Cancel ongoing requests
   const handleCancel = () => {
+    console.log('Comprehensive cancellation initiated...');
+    
+    // 1. Abort any ongoing HTTP requests (streaming chat completions, tool calls)
     if (abortControllerRef.current) {
-      console.log('Cancelling ongoing AI request...');
+      console.log('Aborting ongoing AI request...');
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
-      setIsProcessing(false);
-      setIsExecutingTool(false);
-      setIsStreamingComplete(true);
-      setIsInToolExecutionChain(false);
-      
-      // Optionally add a cancellation message to the chat
-      setMessages(prev => {
-        const lastMessage = prev[prev.length - 1];
-        if (lastMessage && lastMessage.role === 'assistant' && 
-            (!lastMessage.content || lastMessage.content.trim().length === 0)) {
-          // Remove the empty assistant message that was created for streaming
-          return prev.slice(0, -1);
-        }
-        return prev;
-      });
-      
-      console.log('AI request cancelled successfully');
     }
+    
+    // 2. Clear all timeout operations
+    if (toolCallTimeoutRef.current) {
+      console.log('Clearing tool call timeout...');
+      clearTimeout(toolCallTimeoutRef.current);
+      toolCallTimeoutRef.current = null;
+    }
+    
+    if (conversationTimeoutRef.current) {
+      console.log('Clearing conversation timeout...');
+      clearTimeout(conversationTimeoutRef.current);
+      conversationTimeoutRef.current = null;
+    }
+    
+    // 3. Reset all processing states immediately
+    setIsProcessing(false);
+    setIsExecutingTool(false);
+    setIsStreamingComplete(true);
+    setIsInToolExecutionChain(false);
+    setThinking('');
+    
+    // 4. Reset tool execution state in ToolService
+    try {
+      if (ToolService && typeof (ToolService as any).setToolExecutionState === 'function') {
+        (ToolService as any).setToolExecutionState(false);
+        console.log('Reset ToolService execution state');
+      }
+    } catch (error) {
+      console.warn('Could not reset ToolService state:', error);
+    }
+    
+    // 5. Clear processed tool call IDs to prevent state inconsistencies
+    processedToolCallIds.current.clear();
+    
+    // 6. Clean up any partial messages and add cancellation message
+    setMessages(prev => {
+      const lastMessage = prev[prev.length - 1];
+      
+      // If the last message is an empty or very short assistant message, remove it
+      if (lastMessage && lastMessage.role === 'assistant' && 
+          (!lastMessage.content || lastMessage.content.trim().length < 10)) {
+        const messagesWithoutEmpty = prev.slice(0, -1);
+        
+        // Add a cancellation message
+        return [...messagesWithoutEmpty, {
+          role: 'assistant',
+          content: '**Operation cancelled by user.** I stopped processing and am ready for your next request.',
+          messageId: getNextMessageId()
+        }];
+      }
+      
+      // If there's substantial content, just add a cancellation note
+      if (lastMessage && lastMessage.role === 'assistant') {
+        return [...prev, {
+          role: 'assistant', 
+          content: '**Operation cancelled by user.** I stopped processing and am ready for your next request.',
+          messageId: getNextMessageId()
+        }];
+      }
+      
+      return prev;
+    });
+    
+    console.log('Comprehensive cancellation completed - all operations stopped');
   };
 
   // Create a new chat

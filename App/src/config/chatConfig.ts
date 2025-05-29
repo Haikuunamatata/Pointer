@@ -218,13 +218,13 @@ Return ONLY the final merged code without any explanations. The code should be r
 export const defaultModelConfigs = {
   chat: {
     temperature: 0.3,
-    maxTokens: -1,
+    maxTokens: null,
     frequencyPenalty: 0,
     presencePenalty: 0,
   },
   insert: {
     temperature: 0.2,
-    maxTokens: -1,
+    maxTokens: null,
   }
 };
 

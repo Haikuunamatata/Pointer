@@ -39,7 +39,7 @@ export interface ModelConfig {
   id?: string;
   name: string;
   temperature: number;
-  maxTokens: number;
+  maxTokens: number | null;
   topP: number;
   frequencyPenalty: number;
   presencePenalty: number;

@@ -70,7 +70,7 @@ const defaultConfig: ModelConfig = {
   id: 'deepseek-coder-v2-lite-instruct',
   name: 'Default Model',
   temperature: 0.7,
-  maxTokens: -1,
+  maxTokens: null,
   topP: 1,
   frequencyPenalty: 0,
   presencePenalty: 0,

@@ -164,7 +164,6 @@ export const stripThinkTags = (text: string): string => {
  * @returns Array of code blocks with language, filename, and cleaned content
  */
 export const extractCodeBlocks = (content: string) => {
-  const codeBlockRegex = /```(\w+):([^\n]+)\n([\s\S]*?)```/g;
   const codeBlocks: {language: string; filename: string; content: string}[] = [];
   
   // First, find all thinking blocks to exclude code blocks within them
@@ -183,28 +182,71 @@ export const extractCodeBlocks = (content: string) => {
   const isInThinkBlock = (position: number) => {
     return thinkBlocks.some(block => position >= block.start && position <= block.end);
   };
+
+  // Updated regex to match both patterns:
+  // 1. ```language:filename\n code ```
+  // 2. ```language\n code ``` (where filename is in comments)
+  const codeBlockRegex = /```(\w+)(?::([^\n]+))?\n([\s\S]*?)```/g;
   
   let match;
   while ((match = codeBlockRegex.exec(content)) !== null) {
-    const [fullMatch, language, filename, code] = match;
+    const [fullMatch, language, explicitFilename, code] = match;
     const matchStart = match.index;
     
     // Skip this code block if it's within a thinking block
     if (isInThinkBlock(matchStart)) {
-      console.log(`Skipping code block for ${filename} as it's within a thinking block`);
+      console.log(`Skipping code block as it's within a thinking block`);
       continue;
     }
     
-    if (filename && code) {
+    let filename = explicitFilename;
+    let cleanedCode = code;
+    
+    // If no explicit filename was provided, try to extract it from the first line of code
+    if (!filename && code) {
+      const lines = code.split('\n');
+      const firstLine = lines[0]?.trim() || '';
+      
+      // Extract potential filename from any comment style
+      const commentPatterns = [
+        /^<!--\s*(.*?\.[\w]+)\s*-->/, // HTML comments
+        /^\/\/\s*(.*?\.[\w]+)\s*$/, // Single line comments
+        /^#\s*(.*?\.[\w]+)\s*$/, // Hash comments
+        /^\/\*\s*(.*?\.[\w]+)\s*\*\/$/, // Multi-line comments
+        /^--\s*(.*?\.[\w]+)\s*$/, // SQL comments
+        /^%\s*(.*?\.[\w]+)\s*$/, // Matlab/LaTeX comments
+        /^;\s*(.*?\.[\w]+)\s*$/, // Assembly/Lisp comments
+        // More flexible patterns
+        /^(?:\/\/|#|\/\*|--)\s*(?:filename|file|path):\s*([^\s\n]+)/i, // filename: pattern
+        /^(?:\/\/|#|\/\*|--)\s*@file:\s*([^\s\n]+)/i, // @file: pattern
+      ];
+
+      for (const pattern of commentPatterns) {
+        const commentMatch = firstLine.match(pattern);
+        if (commentMatch && commentMatch[1]) {
+          const potentialPath = commentMatch[1].trim();
+          // Basic check if it looks like a file path (has extension, no spaces in the main part)
+          if (potentialPath.includes('.') && !potentialPath.includes(' ')) {
+            filename = potentialPath;
+            // Remove the first line from the content since we're using it as the filename
+            cleanedCode = lines.slice(1).join('\n').trim();
+            break;
+          }
+        }
+      }
+    }
+    
+    if (filename && cleanedCode) {
       // Strip any think tags from the code content
-      const cleanedCode = stripThinkTags(code);
+      const finalCode = stripThinkTags(cleanedCode);
       
       // Only add the code block if there's actual content after cleaning
-      if (cleanedCode.trim()) {
+      if (finalCode.trim()) {
+        console.log(`Found code block for auto-insertion: ${filename}`);
         codeBlocks.push({
           language,
           filename,
-          content: cleanedCode
+          content: finalCode
         });
       } else {
         console.log(`Skipping code block for ${filename} as it contains only thinking content`);

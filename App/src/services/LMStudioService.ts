@@ -24,7 +24,7 @@ interface ChatCompletionOptions {
   model: string;
   messages: ChatMessage[];
   temperature?: number;
-  max_tokens?: number;
+  max_tokens?: number | null;
   stream?: boolean;
   onStream?: (content: string) => void;
 }
@@ -41,7 +41,7 @@ interface StreamingChatCompletionOptions {
   model: string;
   messages: Message[];
   temperature?: number;
-  max_tokens?: number;
+  max_tokens?: number | null;
   top_p?: number;
   frequency_penalty?: number;
   presence_penalty?: number;
@@ -56,7 +56,7 @@ interface CompletionOptions {
   model: string;
   prompt: string;
   temperature?: number;
-  max_tokens?: number;
+  max_tokens?: number | null;
   stop?: string[];
   suffix?: string;
   purpose?: 'chat' | 'insert' | 'autocompletion' | 'summary';
@@ -130,7 +130,7 @@ class LMStudioService {
             body: JSON.stringify({
               ...requestOptions,
               temperature: options.temperature ?? 0.7,
-              max_tokens: options.max_tokens ?? -1,
+              ...(options.max_tokens !== null && options.max_tokens !== undefined && options.max_tokens > 0 ? { max_tokens: options.max_tokens } : {}),
               stream: true
             })
           });
@@ -207,7 +207,7 @@ class LMStudioService {
       model,
       messages,
       temperature = 0.7,
-      max_tokens = -1,
+      max_tokens = null,
       top_p = 1,
       frequency_penalty = 0,
       presence_penalty = 0,
@@ -304,7 +304,7 @@ class LMStudioService {
             model,
             messages: trimmedMessages,
             temperature,
-            max_tokens: max_tokens > 0 ? max_tokens : undefined, // Only include max_tokens if it's positive
+            ...(max_tokens !== null && max_tokens !== undefined && max_tokens > 0 ? { max_tokens } : {}),
             top_p,
             frequency_penalty,
             presence_penalty,
