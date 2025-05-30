@@ -70,14 +70,12 @@ const FileExplorerItem: React.FC<{
   const childIds = Object.values(items).filter(i => i.parentId === item.id).map(i => i.id);
 
   const handleFolderClick = async () => {
-    const newExpanded = new Set(isExpanded);
-    if (newExpanded.has(item.id)) {
-      newExpanded.delete(item.id);
+    if (isExpanded) {
+      setIsExpanded(false);
     } else {
-      newExpanded.add(item.id);
+      setIsExpanded(true);
       await loadFolderContents(item.path);
     }
-    setIsExpanded(newExpanded.has(item.id));
   };
 
   const handleFolderHover = useCallback(async () => {
@@ -392,7 +390,7 @@ const getAllChildIds = (items: Record<string, FileSystemItem>, parentId: string)
   return children;
 };
 
-const handleDelete = (item: FileSystemItem, onDeleteItem: (item: FileSystemItem) => void) => {
+const handleDelete = (item: FileSystemItem, onDeleteItem: (item: FileSystemItem) => void, items: Record<string, FileSystemItem>) => {
   onDeleteItem(item);
 
   if (item.type === 'directory') {
@@ -649,7 +647,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
           onClick={(e) => {
             e.stopPropagation();
             if (confirm(`Are you sure you want to delete ${item.name}?`)) {
-              handleDelete(item, onDeleteItem);
+              handleDelete(item, onDeleteItem, items);
             }
             closeContextMenu();
           }}
@@ -807,7 +805,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
                 onClick={(e) => {
                   e.stopPropagation();
                   if (confirm(`Are you sure you want to delete ${item.name}?`)) {
-                    handleDelete(item, onDeleteItem);
+                    handleDelete(item, onDeleteItem, items);
                   }
                 }}
                 style={buttonStyle}

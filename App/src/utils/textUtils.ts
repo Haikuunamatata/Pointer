@@ -161,10 +161,17 @@ export const stripThinkTags = (text: string): string => {
 /**
  * Extract code blocks with filenames from message content, excluding those in thinking blocks
  * @param content - The message content to parse
- * @returns Array of code blocks with language, filename, and cleaned content
+ * @returns Array of code blocks with language, filename, content, and optional line range for editing
  */
 export const extractCodeBlocks = (content: string) => {
-  const codeBlocks: {language: string; filename: string; content: string}[] = [];
+  const codeBlocks: {
+    language: string; 
+    filename: string; 
+    content: string; 
+    startLine?: number; 
+    endLine?: number;
+    isLineEdit?: boolean;
+  }[] = [];
   
   // First, find all thinking blocks to exclude code blocks within them
   const thinkBlockRegex = /<think>[\s\S]*?<\/think>/gi;
@@ -183,9 +190,10 @@ export const extractCodeBlocks = (content: string) => {
     return thinkBlocks.some(block => position >= block.start && position <= block.end);
   };
 
-  // Updated regex to match both patterns:
+  // Updated regex to match multiple patterns:
   // 1. ```language:filename\n code ```
-  // 2. ```language\n code ``` (where filename is in comments)
+  // 2. ```language:startline:endline:filename\n code ``` (line-specific editing)
+  // 3. ```language\n code ``` (where filename is in comments)
   const codeBlockRegex = /```(\w+)(?::([^\n]+))?\n([\s\S]*?)```/g;
   
   let match;
@@ -201,6 +209,21 @@ export const extractCodeBlocks = (content: string) => {
     
     let filename = explicitFilename;
     let cleanedCode = code;
+    let startLine: number | undefined;
+    let endLine: number | undefined;
+    let isLineEdit = false;
+    
+    // Check for line-specific editing format: startline:endline:filename
+    if (filename) {
+      const lineEditMatch = filename.match(/^(\d+):(\d+):(.+)$/);
+      if (lineEditMatch) {
+        startLine = parseInt(lineEditMatch[1], 10);
+        endLine = parseInt(lineEditMatch[2], 10);
+        filename = lineEditMatch[3];
+        isLineEdit = true;
+        console.log(`Found line-specific edit for ${filename}, lines ${startLine}-${endLine}`);
+      }
+    }
     
     // If no explicit filename was provided, try to extract it from the first line of code
     if (!filename && code) {
@@ -242,11 +265,14 @@ export const extractCodeBlocks = (content: string) => {
       
       // Only add the code block if there's actual content after cleaning
       if (finalCode.trim()) {
-        console.log(`Found code block for auto-insertion: ${filename}`);
+        const blockType = isLineEdit ? 'line-specific edit' : 'auto-insertion';
+        console.log(`Found code block for ${blockType}: ${filename}`);
+        
         codeBlocks.push({
           language,
           filename,
-          content: finalCode
+          content: finalCode,
+          ...(isLineEdit && { startLine, endLine, isLineEdit })
         });
       } else {
         console.log(`Skipping code block for ${filename} as it contains only thinking content`);

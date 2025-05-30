@@ -38,6 +38,9 @@ import uuid
 # Import tool handling functionality
 from tools_handlers import handle_tool_call, TOOL_DEFINITIONS
 
+# Import codebase indexer
+from codebase_indexer import CodebaseIndexer
+
 # Load environment variables
 load_dotenv()
 
@@ -50,6 +53,23 @@ try:
 except ValueError as e:
     print(f"Warning: GitHub OAuth not configured: {str(e)}")
     github_oauth = None
+
+# Global codebase indexer instance
+codebase_indexer: Optional[CodebaseIndexer] = None
+
+async def start_background_indexing(workspace_path: str):
+    """Start background indexing of the codebase."""
+    try:
+        if codebase_indexer:
+            # Run indexing in a separate thread to avoid blocking
+            import threading
+            def run_indexing():
+                codebase_indexer.index_workspace()
+            
+            thread = threading.Thread(target=run_indexing, daemon=True)
+            thread.start()
+    except Exception as e:
+        print(f"Error during background indexing: {e}")
 
 # Tool calling API endpoints
 class ToolCallRequest(BaseModel):
@@ -71,6 +91,77 @@ async def list_tools():
     Get a list of available tools.
     """
     return {"tools": TOOL_DEFINITIONS}
+
+# Codebase indexing API endpoints
+@app.get("/api/codebase/overview")
+async def get_codebase_overview():
+    """Get a comprehensive overview of the codebase."""
+    if not codebase_indexer:
+        return {"error": "No codebase indexed"}
+    
+    try:
+        overview = codebase_indexer.generate_project_overview()
+        summary = codebase_indexer.get_project_summary()
+        
+        return {
+            "overview": overview.__dict__,
+            "summary": summary,
+            "workspace_path": str(codebase_indexer.workspace_path)
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.get("/api/codebase/search")
+async def search_codebase(query: str, element_types: str = None, limit: int = 50):
+    """Search for code elements in the indexed codebase."""
+    if not codebase_indexer:
+        return {"error": "No codebase indexed"}
+    
+    try:
+        element_types_list = element_types.split(',') if element_types else None
+        results = codebase_indexer.search_code_elements(query, element_types_list, limit)
+        
+        return {
+            "query": query,
+            "results": results,
+            "total": len(results)
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.get("/api/codebase/file-overview")
+async def get_file_overview(file_path: str):
+    """Get overview of a specific file including its code elements."""
+    if not codebase_indexer:
+        return {"error": "No codebase indexed"}
+    
+    try:
+        overview = codebase_indexer.get_file_overview(file_path)
+        if overview:
+            return overview
+        else:
+            return {"error": "File not found in index"}
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.post("/api/codebase/reindex")
+async def reindex_codebase(force: bool = False):
+    """Trigger a reindex of the codebase."""
+    if not codebase_indexer:
+        return {"error": "No codebase indexer initialized"}
+    
+    try:
+        # Start reindexing in background
+        import threading
+        def run_reindexing():
+            codebase_indexer.index_workspace(force_reindex=force)
+        
+        thread = threading.Thread(target=run_reindexing, daemon=True)
+        thread.start()
+        
+        return {"message": "Reindexing started in background", "force": force}
+    except Exception as e:
+        return {"error": str(e)}
 
 # GitHub API endpoints
 @app.get("/github/user-repos")
@@ -392,7 +483,7 @@ async def test_backend():
 @app.post("/open-directory")
 async def open_directory():
     """Open a directory using dialog and return its contents."""
-    global base_directory
+    global base_directory, codebase_indexer
     
     dialog = QFileDialog()
     dialog.setFileMode(QFileDialog.Directory)
@@ -407,6 +498,17 @@ async def open_directory():
         base_directory = path
         # Also set as user workspace directory
         set_user_workspace_directory(path)
+        
+        # Initialize codebase indexer
+        try:
+            codebase_indexer = CodebaseIndexer(path)
+            # Start indexing in background
+            asyncio.create_task(start_background_indexing(path))
+            print(f"Started codebase indexing for: {path}")
+        except Exception as e:
+            print(f"Failed to initialize codebase indexer: {e}")
+            codebase_indexer = None
+        
         return scan_directory(path)
     
     raise HTTPException(status_code=400, detail="No directory selected")
@@ -608,7 +710,7 @@ async def delete_item(request: PathRequest):
 @app.post("/open-specific-directory")
 async def open_specific_directory(request: PathRequest):
     """Open a specific directory path."""
-    global base_directory
+    global base_directory, codebase_indexer
     
     if not request.path:
         raise HTTPException(status_code=400, detail="No directory path provided")
@@ -622,6 +724,16 @@ async def open_specific_directory(request: PathRequest):
     
     # Also set this as the user workspace directory
     set_user_workspace_directory(request.path)
+    
+    # Initialize codebase indexer
+    try:
+        codebase_indexer = CodebaseIndexer(request.path)
+        # Start indexing in background
+        asyncio.create_task(start_background_indexing(request.path))
+        print(f"Started codebase indexing for: {request.path}")
+    except Exception as e:
+        print(f"Failed to initialize codebase indexer: {e}")
+        codebase_indexer = None
     
     return scan_directory(request.path)
 

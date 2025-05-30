@@ -1,0 +1,523 @@
+import os
+import json
+import sqlite3
+import hashlib
+import time
+from pathlib import Path
+from typing import Dict, List, Optional, Any, Set
+from dataclasses import dataclass, asdict
+import ast
+import re
+from keyword_extractor import extract_keywords
+
+
+@dataclass
+class FileMetadata:
+    path: str
+    size: int
+    last_modified: float
+    file_type: str
+    content_hash: str
+    line_count: int
+    language: str
+    
+@dataclass
+class CodeElement:
+    file_path: str
+    element_type: str  # 'function', 'class', 'interface', 'component', 'import', 'export'
+    name: str
+    line_start: int
+    line_end: int
+    signature: Optional[str] = None
+    docstring: Optional[str] = None
+    
+@dataclass
+class ProjectOverview:
+    total_files: int
+    total_lines: int
+    languages: Dict[str, int]  # language -> file count
+    main_directories: List[str]
+    key_files: List[str]
+    framework_info: Dict[str, Any]
+    dependencies: List[str]
+
+
+class CodebaseIndexer:
+    """
+    Indexes a codebase to provide the AI with comprehensive project understanding from startup.
+    """
+    
+    def __init__(self, workspace_path: str, cache_dir: str = None):
+        self.workspace_path = Path(workspace_path)
+        self.cache_dir = Path(cache_dir or (self.workspace_path / ".pointer_cache"))
+        self.cache_dir.mkdir(exist_ok=True)
+        self.db_path = self.cache_dir / "codebase_index.db"
+        self.init_database()
+        
+        # File type mappings
+        self.language_map = {
+            '.py': 'python', '.js': 'javascript', '.ts': 'typescript', 
+            '.tsx': 'typescriptreact', '.jsx': 'javascriptreact',
+            '.java': 'java', '.cpp': 'cpp', '.c': 'c', '.cs': 'csharp',
+            '.go': 'go', '.rs': 'rust', '.php': 'php', '.rb': 'ruby',
+            '.html': 'html', '.css': 'css', '.scss': 'scss', '.sass': 'sass',
+            '.json': 'json', '.xml': 'xml', '.yaml': 'yaml', '.yml': 'yaml',
+            '.md': 'markdown', '.txt': 'text', '.sh': 'shell',
+            '.sql': 'sql', '.dockerfile': 'dockerfile'
+        }
+        
+        # Ignore patterns
+        self.ignore_patterns = {
+            'node_modules', '.git', '__pycache__', '.DS_Store', 
+            'dist', 'build', 'coverage', '.next', '.nuxt',
+            'vendor', 'target', 'bin', 'obj', '.pointer_cache'
+        }
+        
+    def init_database(self):
+        """Initialize SQLite database for caching indexed data."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS file_metadata (
+                    path TEXT PRIMARY KEY,
+                    size INTEGER,
+                    last_modified REAL,
+                    file_type TEXT,
+                    content_hash TEXT,
+                    line_count INTEGER,
+                    language TEXT,
+                    indexed_at REAL
+                )
+            ''')
+            
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS code_elements (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    file_path TEXT,
+                    element_type TEXT,
+                    name TEXT,
+                    line_start INTEGER,
+                    line_end INTEGER,
+                    signature TEXT,
+                    docstring TEXT,
+                    FOREIGN KEY (file_path) REFERENCES file_metadata(path)
+                )
+            ''')
+            
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS project_overview (
+                    key TEXT PRIMARY KEY,
+                    value TEXT,
+                    updated_at REAL
+                )
+            ''')
+            
+            # Create indexes for better query performance
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_code_elements_file ON code_elements(file_path)')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_code_elements_name ON code_elements(name)')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_code_elements_type ON code_elements(element_type)')
+    
+    def should_ignore_path(self, path: Path) -> bool:
+        """Check if a path should be ignored during indexing."""
+        for part in path.parts:
+            if part in self.ignore_patterns or part.startswith('.'):
+                return True
+        return False
+    
+    def get_file_language(self, file_path: Path) -> str:
+        """Determine the programming language of a file."""
+        suffix = file_path.suffix.lower()
+        return self.language_map.get(suffix, 'unknown')
+    
+    def calculate_content_hash(self, content: str) -> str:
+        """Calculate MD5 hash of file content."""
+        return hashlib.md5(content.encode('utf-8')).hexdigest()
+    
+    def is_file_changed(self, file_path: Path) -> bool:
+        """Check if file has changed since last indexing."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute(
+                    'SELECT last_modified, content_hash FROM file_metadata WHERE path = ?',
+                    (str(file_path.relative_to(self.workspace_path)),)
+                )
+                result = cursor.fetchone()
+                
+                if not result:
+                    return True  # File not in index
+                
+                stored_mtime, stored_hash = result
+                current_mtime = file_path.stat().st_mtime
+                
+                # If modification time changed, check content hash
+                if current_mtime != stored_mtime:
+                    try:
+                        with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+                            content = f.read()
+                        current_hash = self.calculate_content_hash(content)
+                        return current_hash != stored_hash
+                    except:
+                        return True
+                
+                return False
+        except:
+            return True
+    
+    def extract_python_elements(self, content: str, file_path: str) -> List[CodeElement]:
+        """Extract code elements from Python files."""
+        elements = []
+        try:
+            tree = ast.parse(content)
+            
+            for node in ast.walk(tree):
+                if isinstance(node, ast.FunctionDef):
+                    signature = f"def {node.name}({', '.join([arg.arg for arg in node.args.args])})"
+                    docstring = ast.get_docstring(node)
+                    elements.append(CodeElement(
+                        file_path=file_path,
+                        element_type='function',
+                        name=node.name,
+                        line_start=node.lineno,
+                        line_end=node.end_lineno or node.lineno,
+                        signature=signature,
+                        docstring=docstring
+                    ))
+                
+                elif isinstance(node, ast.ClassDef):
+                    base_classes = [base.id for base in node.bases if isinstance(base, ast.Name)]
+                    signature = f"class {node.name}({', '.join(base_classes)})" if base_classes else f"class {node.name}"
+                    docstring = ast.get_docstring(node)
+                    elements.append(CodeElement(
+                        file_path=file_path,
+                        element_type='class',
+                        name=node.name,
+                        line_start=node.lineno,
+                        line_end=node.end_lineno or node.lineno,
+                        signature=signature,
+                        docstring=docstring
+                    ))
+        except Exception as e:
+            print(f"Error parsing Python file {file_path}: {e}")
+        
+        return elements
+    
+    def extract_js_ts_elements(self, content: str, file_path: str) -> List[CodeElement]:
+        """Extract code elements from JavaScript/TypeScript files."""
+        elements = []
+        lines = content.split('\n')
+        
+        # Regular expressions for different JS/TS patterns
+        patterns = [
+            # Functions
+            (r'^\s*(?:export\s+)?(?:async\s+)?function\s+(\w+)', 'function'),
+            (r'^\s*(?:export\s+)?const\s+(\w+)\s*=\s*(?:async\s+)?\s*\([^)]*\)\s*=>', 'function'),
+            (r'^\s*(?:export\s+)?(\w+)\s*:\s*(?:async\s+)?\s*\([^)]*\)\s*=>', 'function'),
+            
+            # Classes
+            (r'^\s*(?:export\s+)?(?:abstract\s+)?class\s+(\w+)', 'class'),
+            
+            # Interfaces (TypeScript)
+            (r'^\s*(?:export\s+)?interface\s+(\w+)', 'interface'),
+            
+            # Type definitions (TypeScript)
+            (r'^\s*(?:export\s+)?type\s+(\w+)', 'type'),
+            
+            # React components
+            (r'^\s*(?:export\s+)?const\s+(\w+):\s*React\.FC', 'component'),
+            (r'^\s*(?:export\s+)?const\s+(\w+)\s*=\s*\([^)]*\)\s*=>\s*{', 'component'),
+        ]
+        
+        for i, line in enumerate(lines, 1):
+            for pattern, element_type in patterns:
+                match = re.search(pattern, line)
+                if match:
+                    name = match.group(1)
+                    elements.append(CodeElement(
+                        file_path=file_path,
+                        element_type=element_type,
+                        name=name,
+                        line_start=i,
+                        line_end=i,  # We'd need more complex parsing for end lines
+                        signature=line.strip()
+                    ))
+        
+        return elements
+    
+    def extract_code_elements(self, content: str, file_path: str, language: str) -> List[CodeElement]:
+        """Extract code elements based on file language."""
+        if language == 'python':
+            return self.extract_python_elements(content, file_path)
+        elif language in ['javascript', 'typescript', 'javascriptreact', 'typescriptreact']:
+            return self.extract_js_ts_elements(content, file_path)
+        else:
+            return []  # Add more language support as needed
+    
+    def index_file(self, file_path: Path) -> Optional[FileMetadata]:
+        """Index a single file and extract its metadata and code elements."""
+        try:
+            relative_path = str(file_path.relative_to(self.workspace_path))
+            
+            # Read file content
+            with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+                content = f.read()
+            
+            # Calculate metadata
+            stat = file_path.stat()
+            language = self.get_file_language(file_path)
+            content_hash = self.calculate_content_hash(content)
+            line_count = len(content.split('\n'))
+            
+            metadata = FileMetadata(
+                path=relative_path,
+                size=stat.st_size,
+                last_modified=stat.st_mtime,
+                file_type=file_path.suffix.lower(),
+                content_hash=content_hash,
+                line_count=line_count,
+                language=language
+            )
+            
+            # Extract code elements
+            elements = self.extract_code_elements(content, relative_path, language)
+            
+            # Store in database
+            with sqlite3.connect(self.db_path) as conn:
+                # Insert/update file metadata
+                conn.execute('''
+                    INSERT OR REPLACE INTO file_metadata 
+                    (path, size, last_modified, file_type, content_hash, line_count, language, indexed_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (*asdict(metadata).values(), time.time()))
+                
+                # Delete old code elements for this file
+                conn.execute('DELETE FROM code_elements WHERE file_path = ?', (relative_path,))
+                
+                # Insert new code elements
+                for element in elements:
+                    conn.execute('''
+                        INSERT INTO code_elements 
+                        (file_path, element_type, name, line_start, line_end, signature, docstring)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ''', (
+                        element.file_path, element.element_type, element.name,
+                        element.line_start, element.line_end, element.signature, element.docstring
+                    ))
+            
+            return metadata
+            
+        except Exception as e:
+            print(f"Error indexing file {file_path}: {e}")
+            return None
+    
+    def generate_project_overview(self) -> ProjectOverview:
+        """Generate a comprehensive project overview."""
+        with sqlite3.connect(self.db_path) as conn:
+            # Get total files and lines
+            cursor = conn.execute('SELECT COUNT(*), SUM(line_count) FROM file_metadata')
+            total_files, total_lines = cursor.fetchone()
+            total_lines = total_lines or 0
+            
+            # Get languages distribution
+            cursor = conn.execute('SELECT language, COUNT(*) FROM file_metadata GROUP BY language')
+            languages = dict(cursor.fetchall())
+            
+            # Get main directories
+            cursor = conn.execute('SELECT DISTINCT path FROM file_metadata')
+            all_paths = [row[0] for row in cursor.fetchall()]
+            directories = set()
+            for path in all_paths:
+                parts = Path(path).parts
+                if len(parts) > 1:
+                    directories.add(parts[0])
+            main_directories = sorted(list(directories))
+            
+            # Identify key files
+            key_files = []
+            for file_path in all_paths:
+                filename = Path(file_path).name.lower()
+                if filename in ['package.json', 'requirements.txt', 'cargo.toml', 'pom.xml', 
+                              'dockerfile', 'docker-compose.yml', 'readme.md', 'main.py', 
+                              'index.js', 'index.ts', 'app.py', 'app.js', 'app.ts']:
+                    key_files.append(file_path)
+            
+            # Detect framework/technology info
+            framework_info = {}
+            dependencies = []
+            
+            # Check package.json for Node.js projects
+            package_json_path = self.workspace_path / 'package.json'
+            if package_json_path.exists():
+                try:
+                    with open(package_json_path, 'r') as f:
+                        package_data = json.load(f)
+                        deps = {**package_data.get('dependencies', {}), **package_data.get('devDependencies', {})}
+                        dependencies.extend(deps.keys())
+                        
+                        # Detect frameworks
+                        if 'react' in deps:
+                            framework_info['frontend'] = 'React'
+                        elif 'vue' in deps:
+                            framework_info['frontend'] = 'Vue'
+                        elif 'angular' in deps:
+                            framework_info['frontend'] = 'Angular'
+                        
+                        if 'express' in deps:
+                            framework_info['backend'] = 'Express'
+                        elif 'fastify' in deps:
+                            framework_info['backend'] = 'Fastify'
+                        
+                        if 'typescript' in deps:
+                            framework_info['language'] = 'TypeScript'
+                except:
+                    pass
+            
+            # Check requirements.txt for Python projects
+            requirements_path = self.workspace_path / 'requirements.txt'
+            if requirements_path.exists():
+                try:
+                    with open(requirements_path, 'r') as f:
+                        for line in f:
+                            line = line.strip()
+                            if line and not line.startswith('#'):
+                                dep = line.split('==')[0].split('>=')[0].split('<=')[0]
+                                dependencies.append(dep)
+                                
+                                # Detect frameworks
+                                if dep.lower() in ['django', 'flask', 'fastapi']:
+                                    framework_info['backend'] = dep.capitalize()
+                except:
+                    pass
+            
+            return ProjectOverview(
+                total_files=total_files,
+                total_lines=total_lines,
+                languages=languages,
+                main_directories=main_directories,
+                key_files=key_files,
+                framework_info=framework_info,
+                dependencies=dependencies[:20]  # Limit to first 20 dependencies
+            )
+    
+    def get_project_summary(self) -> str:
+        """Generate a natural language summary of the project."""
+        overview = self.generate_project_overview()
+        
+        summary_parts = []
+        
+        # Project scale
+        summary_parts.append(f"This is a codebase with {overview.total_files} files and {overview.total_lines:,} lines of code.")
+        
+        # Languages
+        if overview.languages:
+            lang_list = [f"{lang} ({count} files)" for lang, count in sorted(overview.languages.items(), key=lambda x: x[1], reverse=True)]
+            summary_parts.append(f"Primary languages: {', '.join(lang_list[:5])}.")
+        
+        # Framework/tech stack
+        if overview.framework_info:
+            tech_info = []
+            if 'frontend' in overview.framework_info:
+                tech_info.append(f"Frontend: {overview.framework_info['frontend']}")
+            if 'backend' in overview.framework_info:
+                tech_info.append(f"Backend: {overview.framework_info['backend']}")
+            if 'language' in overview.framework_info:
+                tech_info.append(f"Language: {overview.framework_info['language']}")
+            if tech_info:
+                summary_parts.append(f"Technology stack: {', '.join(tech_info)}.")
+        
+        # Directory structure
+        if overview.main_directories:
+            summary_parts.append(f"Main directories: {', '.join(overview.main_directories[:8])}.")
+        
+        # Key files
+        if overview.key_files:
+            summary_parts.append(f"Key configuration files: {', '.join(overview.key_files)}.")
+        
+        return " ".join(summary_parts)
+    
+    def index_workspace(self, force_reindex: bool = False) -> bool:
+        """Index the entire workspace."""
+        print(f"Starting indexing of workspace: {self.workspace_path}")
+        
+        indexed_count = 0
+        skipped_count = 0
+        
+        for file_path in self.workspace_path.rglob('*'):
+            if file_path.is_file() and not self.should_ignore_path(file_path):
+                # Only index text files that we can understand
+                if self.get_file_language(file_path) != 'unknown' or file_path.suffix.lower() in ['.md', '.txt', '.json']:
+                    if force_reindex or self.is_file_changed(file_path):
+                        if self.index_file(file_path):
+                            indexed_count += 1
+                    else:
+                        skipped_count += 1
+        
+        # Update project overview in database
+        overview = self.generate_project_overview()
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute('''
+                INSERT OR REPLACE INTO project_overview (key, value, updated_at)
+                VALUES (?, ?, ?)
+            ''', ('overview', json.dumps(asdict(overview)), time.time()))
+        
+        print(f"Indexing complete: {indexed_count} files indexed, {skipped_count} files skipped")
+        return True
+    
+    def search_code_elements(self, query: str, element_types: List[str] = None, limit: int = 50) -> List[Dict]:
+        """Search for code elements by name or signature."""
+        with sqlite3.connect(self.db_path) as conn:
+            where_clauses = ["name LIKE ? OR signature LIKE ?"]
+            params = [f"%{query}%", f"%{query}%"]
+            
+            if element_types:
+                where_clauses.append(f"element_type IN ({','.join(['?' for _ in element_types])})")
+                params.extend(element_types)
+            
+            sql = f'''
+                SELECT file_path, element_type, name, line_start, line_end, signature, docstring
+                FROM code_elements
+                WHERE {' AND '.join(where_clauses)}
+                ORDER BY name
+                LIMIT ?
+            '''
+            params.append(limit)
+            
+            cursor = conn.execute(sql, params)
+            results = []
+            for row in cursor.fetchall():
+                results.append({
+                    'file_path': row[0],
+                    'element_type': row[1],
+                    'name': row[2],
+                    'line_start': row[3],
+                    'line_end': row[4],
+                    'signature': row[5],
+                    'docstring': row[6]
+                })
+            
+            return results
+    
+    def get_file_overview(self, file_path: str) -> Optional[Dict]:
+        """Get overview of a specific file including its code elements."""
+        with sqlite3.connect(self.db_path) as conn:
+            # Get file metadata
+            cursor = conn.execute(
+                'SELECT * FROM file_metadata WHERE path = ?',
+                (file_path,)
+            )
+            file_data = cursor.fetchone()
+            
+            if not file_data:
+                return None
+            
+            # Get code elements
+            cursor = conn.execute(
+                'SELECT element_type, name, line_start, signature FROM code_elements WHERE file_path = ? ORDER BY line_start',
+                (file_path,)
+            )
+            elements = [{'type': row[0], 'name': row[1], 'line': row[2], 'signature': row[3]} for row in cursor.fetchall()]
+            
+            return {
+                'path': file_data[0],
+                'language': file_data[6],
+                'line_count': file_data[5],
+                'elements': elements
+            } 

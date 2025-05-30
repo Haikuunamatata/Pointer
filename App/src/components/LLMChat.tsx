@@ -25,8 +25,10 @@ import {
   defaultModelConfigs,
   AFTER_TOOL_CALL_PROMPT,
   getChatSystemMessage,
-  getAgentSystemMessage
+  getAgentSystemMessage,
+  generateEnhancedSystemMessage
 } from '../config/chatConfig';
+import { CodebaseContextService } from '../services/CodebaseContextService';
 import { stripThinkTags, extractCodeBlocks } from '../utils/textUtils';
 
 // Add TypeScript declarations for window properties
@@ -338,7 +340,15 @@ const CodeActionsButton: React.FC<{ content: string; filename: string; isProcess
 };
 
 // Update CollapsibleCodeBlock component to use the new combined button
-const CollapsibleCodeBlock: React.FC<{ language: string; filename?: string; content: string; isProcessing?: boolean }> = ({ language, filename, content, isProcessing = false }) => {
+const CollapsibleCodeBlock: React.FC<{ 
+  language: string; 
+  filename?: string; 
+  content: string; 
+  isProcessing?: boolean;
+  startLine?: number;
+  endLine?: number;
+  isLineEdit?: boolean;
+}> = ({ language, filename, content, isProcessing = false, startLine, endLine, isLineEdit = false }) => {
   const [isCollapsed, setIsCollapsed] = useState(true);
   const [isHovered, setIsHovered] = useState(false);
   
@@ -346,6 +356,15 @@ const CollapsibleCodeBlock: React.FC<{ language: string; filename?: string; cont
   const lines = content.split('\n');
   const shouldBeCollapsible = lines.length > 10; // Only collapse if more than 10 lines
   const isCollapsible = shouldBeCollapsible && isCollapsed;
+  
+  // Create display text for the header
+  const getHeaderText = () => {
+    const fileName = filename || `${language}.${getFileExtension(language)}`;
+    if (isLineEdit && startLine && endLine) {
+      return `${fileName} (lines ${startLine}-${endLine})`;
+    }
+    return fileName;
+  };
   
   return (
     <div 
@@ -356,7 +375,7 @@ const CollapsibleCodeBlock: React.FC<{ language: string; filename?: string; cont
         borderRadius: '8px',
         overflow: 'hidden',
         boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
-        border: '1px solid var(--border-primary)',
+        border: isLineEdit ? '2px solid var(--accent-color)' : '1px solid var(--border-primary)',
       }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
@@ -374,10 +393,10 @@ const CollapsibleCodeBlock: React.FC<{ language: string; filename?: string; cont
             top: 0,
             left: 0,
             right: 0,
-            background: 'rgba(40, 44, 52, 0.9)',
+            background: isLineEdit ? 'rgba(0, 123, 255, 0.1)' : 'rgba(40, 44, 52, 0.9)',
             padding: '8px 16px',
             borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-            color: 'var(--text-secondary)',
+            color: isLineEdit ? 'var(--accent-color)' : 'var(--text-secondary)',
             fontSize: '12px',
             fontFamily: 'var(--font-mono)',
             display: 'flex',
@@ -395,10 +414,29 @@ const CollapsibleCodeBlock: React.FC<{ language: string; filename?: string; cont
             strokeWidth="2"
             style={{ marginRight: '8px' }}
           >
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-            <polyline points="14 2 14 8 20 8"></polyline>
+            {isLineEdit ? (
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+            ) : (
+              <>
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                <polyline points="14 2 14 8 20 8"></polyline>
+              </>
+            )}
           </svg>
-          {filename || `${language}.${getFileExtension(language)}`}
+          {getHeaderText()}
+          {isLineEdit && (
+            <span style={{ 
+              marginLeft: '8px', 
+              fontSize: '10px', 
+              padding: '2px 6px', 
+              backgroundColor: 'var(--accent-color)', 
+              color: 'white', 
+              borderRadius: '3px',
+              fontWeight: 'bold'
+            }}>
+              LINE EDIT
+            </span>
+          )}
         </div>
         <CodeActionsButton content={content} filename={filename || ''} isProcessing={isProcessing} />
       </div>
@@ -1623,7 +1661,13 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   const [chatTitle, setChatTitle] = useState<string>('');
   const [editingMessageIndex, setEditingMessageIndex] = useState<number | null>(null);
   // Add state for tracking pending code inserts
-  const [pendingInserts, setPendingInserts] = useState<{filename: string; content: string}[]>([]);
+  const [pendingInserts, setPendingInserts] = useState<{
+    filename: string; 
+    content: string; 
+    startLine?: number; 
+    endLine?: number; 
+    isLineEdit?: boolean;
+  }[]>([]);
   const [autoInsertInProgress, setAutoInsertInProgress] = useState<boolean>(false);
   // Add state to track if insert model has been preloaded
   const [insertModelPreloaded, setInsertModelPreloaded] = useState(false);
@@ -1689,6 +1733,25 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       setInsertModelPreloaded(true);
     } catch (error) {
       console.error("Error preloading insert model:", error);
+    }
+  };
+  
+  // Function to initialize system message with codebase context
+  const initializeEnhancedSystemMessage = async (): Promise<ExtendedMessage> => {
+    try {
+      // Try to get codebase context
+      const codebaseContext = await CodebaseContextService.getInitialCodebaseContext();
+      
+      if (codebaseContext) {
+        console.log('Initializing chat with codebase context');
+        return generateEnhancedSystemMessage(codebaseContext);
+      } else {
+        console.log('No codebase context available, using default system message');
+        return INITIAL_SYSTEM_MESSAGE;
+      }
+    } catch (error) {
+      console.warn('Failed to get codebase context:', error);
+      return INITIAL_SYSTEM_MESSAGE;
     }
   };
   
@@ -2374,62 +2437,29 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
     onSelectChat(chatId);
   };
 
-  // Function to extract code blocks with filenames from message content
-  const extractCodeBlocks = (content: string) => {
-    const codeBlockRegex = /```(\w+):([^\n]+)\n([\s\S]*?)```/g;
-    const codeBlocks: {language: string; filename: string; content: string}[] = [];
+  // Function to handle line-specific edits
+  const handleLineSpecificEdit = (originalContent: string, newContent: string, startLine: number, endLine: number): string => {
+    const lines = originalContent.split('\n');
+    const newLines = newContent.split('\n');
     
-    // First, find all thinking blocks to exclude code blocks within them
-    const thinkBlockRegex = /<think>[\s\S]*?<\/think>/gi;
-    const thinkBlocks: Array<{start: number; end: number}> = [];
+    // Convert to 0-based indexing for array operations
+    const startIndex = startLine - 1;
+    const endIndex = endLine - 1;
     
-    let thinkMatch;
-    while ((thinkMatch = thinkBlockRegex.exec(content)) !== null) {
-      thinkBlocks.push({
-        start: thinkMatch.index,
-        end: thinkMatch.index + thinkMatch[0].length
-      });
+    // Validate line numbers
+    if (startIndex < 0 || endIndex >= lines.length || startIndex > endIndex) {
+      console.warn(`Invalid line range: ${startLine}-${endLine} for file with ${lines.length} lines`);
+      return originalContent; // Return original if invalid range
     }
     
-    // Function to check if a position is within any thinking block
-    const isInThinkBlock = (position: number) => {
-      return thinkBlocks.some(block => position >= block.start && position <= block.end);
-    };
+    // Replace the specified lines
+    const result = [
+      ...lines.slice(0, startIndex),
+      ...newLines,
+      ...lines.slice(endIndex + 1)
+    ];
     
-    // Function to strip think tags from code content
-    const stripThinkTags = (codeContent: string): string => {
-      return codeContent.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
-    };
-    
-    let match;
-    while ((match = codeBlockRegex.exec(content)) !== null) {
-      const [fullMatch, language, filename, code] = match;
-      const matchStart = match.index;
-      
-      // Skip this code block if it's within a thinking block
-      if (isInThinkBlock(matchStart)) {
-        console.log(`Skipping code block for ${filename} as it's within a thinking block`);
-        continue;
-      }
-      
-      if (filename && code) {
-        // Strip any think tags from the code content
-        const cleanedCode = stripThinkTags(code);
-        
-        // Only add the code block if there's actual content after cleaning
-        if (cleanedCode.trim()) {
-          codeBlocks.push({
-            language,
-            filename,
-            content: cleanedCode
-          });
-        } else {
-          console.log(`Skipping code block for ${filename} as it contains only thinking content`);
-        }
-      }
-    }
-    
-    return codeBlocks;
+    return result.join('\n');
   };
 
   // Process auto-insert for code blocks
@@ -2447,8 +2477,6 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
     let originalContent = '';
     
     try {
-      // Check if file exists first
-      
       // Get directory path for the file
       const directoryPath = currentInsert.filename.substring(0, currentInsert.filename.lastIndexOf('/'));
       
@@ -2458,7 +2486,14 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         if (response.ok) {
           originalContent = await response.text();
         } else {
-          // File doesn't exist - create it directly without AI merging
+          // File doesn't exist - handle based on edit type
+          if (currentInsert.isLineEdit) {
+            console.error(`Cannot perform line edit on non-existent file: ${currentInsert.filename}`);
+            setPendingInserts(prev => prev.slice(1));
+            setAutoInsertInProgress(false);
+            return;
+          }
+          
           console.log(`File ${currentInsert.filename} doesn't exist, creating directly`);
           
           // If file doesn't exist, check if we need to create directories
@@ -2491,15 +2526,34 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         }
       } catch (error) {
         console.error('Error reading file:', error);
-        // For errors, create the file directly
-        const cleanedContent = stripThinkTags(currentInsert.content);
-        FileChangeEventService.emitChange(currentInsert.filename, '', cleanedContent);
+        // For errors, create the file directly (only if not a line edit)
+        if (!currentInsert.isLineEdit) {
+          const cleanedContent = stripThinkTags(currentInsert.content);
+          FileChangeEventService.emitChange(currentInsert.filename, '', cleanedContent);
+        }
         setPendingInserts(prev => prev.slice(1));
         setAutoInsertInProgress(false);
         return;
       }
 
-      // If we reach here, the file exists and we need AI merging
+      // Handle line-specific edits differently
+      if (currentInsert.isLineEdit && currentInsert.startLine && currentInsert.endLine) {
+        console.log(`Performing line-specific edit on ${currentInsert.filename}, lines ${currentInsert.startLine}-${currentInsert.endLine}`);
+        
+        // Apply line-specific edit directly
+        const cleanedContent = stripThinkTags(currentInsert.content);
+        const editedContent = handleLineSpecificEdit(originalContent, cleanedContent, currentInsert.startLine, currentInsert.endLine);
+        
+        // Use the FileChangeEventService to trigger the diff viewer
+        FileChangeEventService.emitChange(currentInsert.filename, originalContent, editedContent);
+        
+        // Remove the processed insert from the queue
+        setPendingInserts(prev => prev.slice(1));
+        setAutoInsertInProgress(false);
+        return;
+      }
+
+      // If we reach here, the file exists and we need AI merging (for full file insertions)
       // Get model ID for insert purpose
       const insertModelId = await AIFileService.getModelIdForPurpose('insert');
       
@@ -2604,24 +2658,33 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   const processStreamingCodeBlocks = (content: string) => {
     if (!autoInsertEnabled) return;
     
-    // Extract code blocks from the current content
+    // Extract code blocks from the current content using the robust function from textUtils
     const codeBlocks = extractCodeBlocks(content);
     
-    // Process only new code blocks that haven't been processed yet
+    // Process code blocks with filename-based duplicate checking to prevent multiple inserts
     codeBlocks.forEach(block => {
-      const blockId = `${block.filename}:${block.content.slice(0, 50)}`; // Use filename + content snippet as ID
+      const blockType = block.isLineEdit ? 'line-specific edit' : 'full file insertion';
+      console.log(`Processing ${blockType} during streaming: ${block.filename}`);
       
-      if (!processedCodeBlocks.has(blockId)) {
-        console.log(`Processing new code block during streaming: ${block.filename}`);
-        
-        // Mark as processed
-        setProcessedCodeBlocks(prev => new Set(prev).add(blockId));
-        
-        // Add to pending inserts
+      // Check if we already have this filename in pending inserts
+      const alreadyPending = pendingInserts.some(insert => insert.filename === block.filename);
+      
+      if (!alreadyPending) {
+        // Add to pending inserts with all properties
         setPendingInserts(prev => [
           ...prev,
-          { filename: block.filename, content: block.content }
+          { 
+            filename: block.filename, 
+            content: block.content,
+            ...(block.isLineEdit && {
+              startLine: block.startLine,
+              endLine: block.endLine,
+              isLineEdit: block.isLineEdit
+            })
+          }
         ]);
+      } else {
+        console.log(`Skipping ${block.filename} - already pending insertion`);
       }
     });
   };
@@ -2638,11 +2701,11 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
 
   // Run auto-insert whenever pendingInserts changes
   useEffect(() => {
-    // Add a delay to prevent immediate loading of insertion model when page loads
+    // Add a small delay to batch multiple code blocks that arrive quickly
     if (pendingInserts.length > 0 && autoInsertEnabled) {
       const timer = setTimeout(() => {
         processAutoInsert();
-      }, 2000); // 2 second delay
+      }, 500); // 500ms delay for more responsive insertion
       
       return () => clearTimeout(timer);
     }
@@ -3018,6 +3081,60 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
                   required: ["command"]
                 }
               }
+            },
+            {
+              type: "function",
+              function: {
+                name: "get_codebase_overview",
+                description: "Get a comprehensive overview of the current codebase including languages, file counts, framework info, and project structure",
+                parameters: {
+                  type: "object",
+                  properties: {},
+                  additionalProperties: false
+                }
+              }
+            },
+            {
+              type: "function",
+              function: {
+                name: "search_codebase",
+                description: "Search for code elements (functions, classes, interfaces, components) in the indexed codebase",
+                parameters: {
+                  type: "object",
+                  properties: {
+                    query: {
+                      type: "string",
+                      description: "Search query for code element names or signatures"
+                    },
+                    element_types: {
+                      type: "string",
+                      description: "Optional comma-separated list of element types to filter by (function, class, interface, component, type)"
+                    },
+                    limit: {
+                      type: "integer",
+                      description: "Maximum number of results to return (default: 20)"
+                    }
+                  },
+                  required: ["query"]
+                }
+              }
+            },
+            {
+              type: "function",
+              function: {
+                name: "get_file_overview",
+                description: "Get an overview of a specific file including its language, line count, and code elements",
+                parameters: {
+                  type: "object",
+                  properties: {
+                    file_path: {
+                      type: "string",
+                      description: "Path to the file to get overview for"
+                    }
+                  },
+                  required: ["file_path"]
+                }
+              }
             }
           ],
           tool_choice: "auto"
@@ -3232,9 +3349,13 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   };
 
   // Create a new chat
-  const handleNewChat = () => {
+  const handleNewChat = async () => {
     const newChatId = uuidv4();
-    setMessages([INITIAL_SYSTEM_MESSAGE]);
+    
+    // Initialize with enhanced system message that includes codebase context
+    const enhancedSystemMessage = await initializeEnhancedSystemMessage();
+    setMessages([enhancedSystemMessage]);
+    
     setInput('');
     setChatTitle(''); // Reset chat title for new chat
     onSelectChat(newChatId);
@@ -3294,6 +3415,28 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
     
     loadAutoInsertSetting();
   }, []);
+
+  // Initialize system message with codebase context on component mount
+  useEffect(() => {
+    const enhanceInitialSystemMessage = async () => {
+      // Only enhance if we have the default system message (no chat loaded yet)
+      if (messages.length === 1 && messages[0].content === INITIAL_SYSTEM_MESSAGE.content) {
+        try {
+          const enhancedSystemMessage = await initializeEnhancedSystemMessage();
+          if (enhancedSystemMessage.content !== INITIAL_SYSTEM_MESSAGE.content) {
+            console.log('Enhancing initial system message with codebase context');
+            setMessages([enhancedSystemMessage]);
+          }
+        } catch (error) {
+          console.warn('Failed to enhance initial system message:', error);
+        }
+      }
+    };
+
+    // Small delay to ensure component is fully mounted
+    const timer = setTimeout(enhanceInitialSystemMessage, 100);
+    return () => clearTimeout(timer);
+  }, []); // Only run once on mount
 
   // Define the saveBeforeToolExecution function
   const saveBeforeToolExecution = useCallback(async () => {
@@ -4005,6 +4148,60 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
                   }
                 },
                 required: ["command"]
+              }
+            }
+          },
+          {
+            type: "function",
+            function: {
+              name: "get_codebase_overview",
+              description: "Get a comprehensive overview of the current codebase including languages, file counts, framework info, and project structure",
+              parameters: {
+                type: "object",
+                properties: {},
+                additionalProperties: false
+              }
+            }
+          },
+          {
+            type: "function",
+            function: {
+              name: "search_codebase",
+              description: "Search for code elements (functions, classes, interfaces, components) in the indexed codebase",
+              parameters: {
+                type: "object",
+                properties: {
+                  query: {
+                    type: "string",
+                    description: "Search query for code element names or signatures"
+                  },
+                  element_types: {
+                    type: "string",
+                    description: "Optional comma-separated list of element types to filter by (function, class, interface, component, type)"
+                  },
+                  limit: {
+                    type: "integer",
+                    description: "Maximum number of results to return (default: 20)"
+                  }
+                },
+                required: ["query"]
+              }
+            }
+          },
+          {
+            type: "function",
+            function: {
+              name: "get_file_overview",
+              description: "Get an overview of a specific file including its language, line count, and code elements",
+              parameters: {
+                type: "object",
+                properties: {
+                  file_path: {
+                    type: "string",
+                    description: "Path to the file to get overview for"
+                  }
+                },
+                required: ["file_path"]
               }
             }
           }

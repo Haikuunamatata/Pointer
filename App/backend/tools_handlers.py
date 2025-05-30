@@ -13,6 +13,7 @@ from pathlib import Path
 import platform
 import shlex
 import time
+import httpx
 
 
 async def read_file(file_path: str = None, target_file: str = None) -> Dict[str, Any]:
@@ -505,6 +506,96 @@ async def run_terminal_cmd(command: str, working_directory: str = None, timeout:
         }
 
 
+async def get_codebase_overview() -> Dict[str, Any]:
+    """
+    Get a comprehensive overview of the current codebase.
+    
+    Returns:
+        Dictionary with codebase overview including languages, file counts, frameworks, etc.
+    """
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get("http://localhost:23816/api/codebase/overview")
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                return {
+                    "success": False,
+                    "error": f"Failed to get codebase overview: HTTP {response.status_code}"
+                }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Error getting codebase overview: {str(e)}"
+        }
+
+
+async def search_codebase(query: str, element_types: str = None, limit: int = 20) -> Dict[str, Any]:
+    """
+    Search for code elements (functions, classes, etc.) in the indexed codebase.
+    
+    Args:
+        query: Search query for code element names or signatures
+        element_types: Optional comma-separated list of element types to filter by 
+                      (function, class, interface, component, type)
+        limit: Maximum number of results to return
+        
+    Returns:
+        Dictionary with search results
+    """
+    try:
+        params = {"query": query, "limit": limit}
+        if element_types:
+            params["element_types"] = element_types
+            
+        async with httpx.AsyncClient() as client:
+            response = await client.get("http://localhost:23816/api/codebase/search", params=params)
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                return {
+                    "success": False,
+                    "error": f"Failed to search codebase: HTTP {response.status_code}"
+                }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Error searching codebase: {str(e)}"
+        }
+
+
+async def get_file_overview(file_path: str) -> Dict[str, Any]:
+    """
+    Get an overview of a specific file including its code elements.
+    
+    Args:
+        file_path: Path to the file to get overview for
+        
+    Returns:
+        Dictionary with file overview including language, line count, and code elements
+    """
+    try:
+        params = {"file_path": file_path}
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.get("http://localhost:23816/api/codebase/file-overview", params=params)
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                return {
+                    "success": False,
+                    "error": f"Failed to get file overview: HTTP {response.status_code}"
+                }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Error getting file overview: {str(e)}"
+        }
+
+
 # Dictionary mapping tool names to handler functions
 TOOL_HANDLERS = {
     "read_file": read_file,
@@ -513,6 +604,9 @@ TOOL_HANDLERS = {
     "fetch_webpage": fetch_webpage,
     "grep_search": grep_search,
     "run_terminal_cmd": run_terminal_cmd,
+    "get_codebase_overview": get_codebase_overview,
+    "search_codebase": search_codebase,
+    "get_file_overview": get_file_overview,
 }
 
 # Tool definitions for API documentation
@@ -631,6 +725,47 @@ TOOL_DEFINITIONS = [
                 }
             },
             "required": ["command"]
+        }
+    },
+    {
+        "name": "get_codebase_overview",
+        "description": "Get a comprehensive overview of the current codebase",
+        "parameters": {}
+    },
+    {
+        "name": "search_codebase",
+        "description": "Search for code elements in the indexed codebase",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search query for code element names or signatures"
+                },
+                "element_types": {
+                    "type": "string",
+                    "description": "Optional comma-separated list of element types to filter by (function, class, interface, component, type)"
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of results to return"
+                }
+            },
+            "required": ["query"]
+        }
+    },
+    {
+        "name": "get_file_overview",
+        "description": "Get an overview of a specific file including its code elements",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "Path to the file to get overview for"
+                }
+            },
+            "required": ["file_path"]
         }
     }
 ]
