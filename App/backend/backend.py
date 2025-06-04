@@ -163,6 +163,30 @@ async def reindex_codebase(force: bool = False):
     except Exception as e:
         return {"error": str(e)}
 
+@app.get("/api/codebase/info")
+async def get_codebase_indexing_info():
+    """Get information about the current codebase indexing setup."""
+    if not codebase_indexer:
+        return {"error": "No codebase indexer initialized"}
+    
+    try:
+        info = codebase_indexer.get_indexing_info()
+        return info
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.post("/api/codebase/cleanup-old-cache")
+async def cleanup_old_codebase_cache():
+    """Clean up old .pointer_cache directory in the workspace."""
+    if not codebase_indexer:
+        return {"error": "No codebase indexer initialized"}
+    
+    try:
+        result = codebase_indexer.cleanup_old_workspace_cache()
+        return result
+    except Exception as e:
+        return {"error": str(e)}
+
 # GitHub API endpoints
 @app.get("/github/user-repos")
 async def get_user_repositories():

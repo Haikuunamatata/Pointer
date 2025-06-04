@@ -3,6 +3,7 @@ import json
 import sqlite3
 import hashlib
 import time
+import platform
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Set
 from dataclasses import dataclass, asdict
@@ -42,6 +43,28 @@ class ProjectOverview:
     dependencies: List[str]
 
 
+def get_app_data_path() -> Path:
+    """Get the appropriate application data directory based on platform"""
+    system = platform.system().lower()
+    
+    if system == "windows":
+        # Windows: Use AppData/Roaming for user-specific settings
+        base_path = os.environ.get('APPDATA', os.path.expanduser('~/AppData/Roaming'))
+        return Path(base_path) / 'Pointer' / 'data'
+    elif system == "darwin":  # macOS
+        # macOS: Use Application Support directory - properly expand home directory
+        home_dir = Path.home()
+        return home_dir / 'Library' / 'Application Support' / 'Pointer' / 'data'
+    else:  # Linux and other Unix-like systems
+        # Linux: Use XDG data directory or fallback to home - properly expand paths
+        xdg_data_home = os.environ.get('XDG_DATA_HOME')
+        if xdg_data_home:
+            return Path(xdg_data_home) / 'pointer' / 'data'
+        else:
+            home_dir = Path.home()
+            return home_dir / '.local' / 'share' / 'pointer' / 'data'
+
+
 class CodebaseIndexer:
     """
     Indexes a codebase to provide the AI with comprehensive project understanding from startup.
@@ -49,8 +72,17 @@ class CodebaseIndexer:
     
     def __init__(self, workspace_path: str, cache_dir: str = None):
         self.workspace_path = Path(workspace_path)
-        self.cache_dir = Path(cache_dir or (self.workspace_path / ".pointer_cache"))
-        self.cache_dir.mkdir(exist_ok=True)
+        
+        # Use appdata directory organized by workspace path
+        if cache_dir:
+            self.cache_dir = Path(cache_dir)
+        else:
+            app_data = get_app_data_path()
+            # Create a sanitized directory name from workspace path
+            workspace_hash = self._create_workspace_identifier(self.workspace_path)
+            self.cache_dir = app_data / "codebase_indexes" / workspace_hash
+        
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.db_path = self.cache_dir / "codebase_index.db"
         self.init_database()
         
@@ -73,6 +105,31 @@ class CodebaseIndexer:
             'vendor', 'target', 'bin', 'obj', '.pointer_cache'
         }
         
+    def _create_workspace_identifier(self, workspace_path: Path) -> str:
+        """
+        Create a unique, filesystem-safe identifier for the workspace.
+        Combines sanitized path with hash for uniqueness.
+        """
+        # Get the absolute path
+        abs_path = workspace_path.resolve()
+        
+        # Create a readable name from the last part of the path
+        workspace_name = abs_path.name or "root"
+        
+        # Sanitize the name for filesystem use
+        import string
+        valid_chars = f"-_.() {string.ascii_letters}{string.digits}"
+        sanitized_name = ''.join(c for c in workspace_name if c in valid_chars)
+        sanitized_name = sanitized_name.strip()
+        if not sanitized_name:
+            sanitized_name = "workspace"
+        
+        # Create a hash of the full path for uniqueness
+        path_hash = hashlib.md5(str(abs_path).encode('utf-8')).hexdigest()[:8]
+        
+        # Combine sanitized name with hash
+        return f"{sanitized_name}_{path_hash}"
+    
     def init_database(self):
         """Initialize SQLite database for caching indexed data."""
         with sqlite3.connect(self.db_path) as conn:
@@ -110,6 +167,26 @@ class CodebaseIndexer:
                     updated_at REAL
                 )
             ''')
+            
+            # Store workspace information
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS workspace_info (
+                    key TEXT PRIMARY KEY,
+                    value TEXT,
+                    updated_at REAL
+                )
+            ''')
+            
+            # Store workspace path and cache location
+            conn.execute('''
+                INSERT OR REPLACE INTO workspace_info (key, value, updated_at)
+                VALUES (?, ?, ?)
+            ''', ('workspace_path', str(self.workspace_path.resolve()), time.time()))
+            
+            conn.execute('''
+                INSERT OR REPLACE INTO workspace_info (key, value, updated_at)
+                VALUES (?, ?, ?)
+            ''', ('cache_location', str(self.cache_dir), time.time()))
             
             # Create indexes for better query performance
             conn.execute('CREATE INDEX IF NOT EXISTS idx_code_elements_file ON code_elements(file_path)')
@@ -520,4 +597,60 @@ class CodebaseIndexer:
                 'language': file_data[6],
                 'line_count': file_data[5],
                 'elements': elements
+            }
+    
+    def get_indexing_info(self) -> Dict[str, Any]:
+        """Get information about the current indexing setup."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute('SELECT key, value FROM workspace_info')
+                workspace_info = dict(cursor.fetchall())
+                
+                cursor = conn.execute('SELECT COUNT(*) FROM file_metadata')
+                total_files = cursor.fetchone()[0]
+                
+                cursor = conn.execute('SELECT COUNT(*) FROM code_elements')
+                total_elements = cursor.fetchone()[0]
+                
+                return {
+                    'workspace_path': workspace_info.get('workspace_path'),
+                    'cache_location': workspace_info.get('cache_location'),
+                    'database_path': str(self.db_path),
+                    'total_indexed_files': total_files,
+                    'total_code_elements': total_elements,
+                    'workspace_identifier': self._create_workspace_identifier(self.workspace_path),
+                    'cache_directory_exists': self.cache_dir.exists(),
+                    'database_exists': self.db_path.exists()
+                }
+        except Exception as e:
+            return {
+                'error': str(e),
+                'workspace_path': str(self.workspace_path.resolve()),
+                'cache_location': str(self.cache_dir),
+                'database_path': str(self.db_path)
+            }
+    
+    def cleanup_old_workspace_cache(self) -> Dict[str, Any]:
+        """Clean up old .pointer_cache directory in the workspace if it exists."""
+        old_cache_dir = self.workspace_path / ".pointer_cache"
+        if old_cache_dir.exists():
+            try:
+                import shutil
+                shutil.rmtree(old_cache_dir)
+                return {
+                    'success': True,
+                    'message': f'Removed old cache directory: {old_cache_dir}',
+                    'removed_path': str(old_cache_dir)
+                }
+            except Exception as e:
+                return {
+                    'success': False,
+                    'error': f'Failed to remove old cache directory: {str(e)}',
+                    'path': str(old_cache_dir)
+                }
+        else:
+            return {
+                'success': True,
+                'message': 'No old cache directory found',
+                'path': str(old_cache_dir)
             } 

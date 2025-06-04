@@ -596,6 +596,57 @@ async def get_file_overview(file_path: str) -> Dict[str, Any]:
         }
 
 
+async def get_codebase_indexing_info() -> Dict[str, Any]:
+    """
+    Get information about the current codebase indexing setup.
+    
+    Returns:
+        Dictionary with indexing information including workspace path, cache location, 
+        database path, and statistics about indexed files and code elements
+    """
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get("http://localhost:23816/api/codebase/info")
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                return {
+                    "success": False,
+                    "error": f"Failed to get indexing info: HTTP {response.status_code}"
+                }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Error getting codebase indexing info: {str(e)}"
+        }
+
+
+async def cleanup_old_codebase_cache() -> Dict[str, Any]:
+    """
+    Clean up old .pointer_cache directory in the workspace.
+    
+    Returns:
+        Dictionary with cleanup results indicating success/failure and details
+    """
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post("http://localhost:23816/api/codebase/cleanup-old-cache")
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                return {
+                    "success": False,
+                    "error": f"Failed to cleanup old cache: HTTP {response.status_code}"
+                }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Error cleaning up old cache: {str(e)}"
+        }
+
+
 # Dictionary mapping tool names to handler functions
 TOOL_HANDLERS = {
     "read_file": read_file,
@@ -607,6 +658,8 @@ TOOL_HANDLERS = {
     "get_codebase_overview": get_codebase_overview,
     "search_codebase": search_codebase,
     "get_file_overview": get_file_overview,
+    "get_codebase_indexing_info": get_codebase_indexing_info,
+    "cleanup_old_codebase_cache": cleanup_old_codebase_cache,
 }
 
 # Tool definitions for API documentation
@@ -767,6 +820,16 @@ TOOL_DEFINITIONS = [
             },
             "required": ["file_path"]
         }
+    },
+    {
+        "name": "get_codebase_indexing_info",
+        "description": "Get information about the current codebase indexing setup",
+        "parameters": {}
+    },
+    {
+        "name": "cleanup_old_codebase_cache",
+        "description": "Clean up old .pointer_cache directory in the workspace",
+        "parameters": {}
     }
 ]
 
