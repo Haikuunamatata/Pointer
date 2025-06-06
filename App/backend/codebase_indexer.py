@@ -653,4 +653,287 @@ class CodebaseIndexer:
                 'success': True,
                 'message': 'No old cache directory found',
                 'path': str(old_cache_dir)
-            } 
+            }
+    
+    def get_ai_context_summary(self) -> Dict[str, Any]:
+        """Generate a comprehensive AI-friendly summary of the codebase."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                # Get project overview
+                overview = self.generate_project_overview()
+                
+                # Get most important files (high line count or many code elements)
+                cursor = conn.execute('''
+                    SELECT fm.path, fm.language, fm.line_count,
+                           COUNT(ce.id) as element_count
+                    FROM file_metadata fm
+                    LEFT JOIN code_elements ce ON fm.path = ce.file_path
+                    GROUP BY fm.path
+                    ORDER BY (fm.line_count + COUNT(ce.id) * 10) DESC
+                    LIMIT 20
+                ''')
+                important_files = [
+                    {
+                        'path': row[0],
+                        'language': row[1], 
+                        'line_count': row[2],
+                        'element_count': row[3]
+                    }
+                    for row in cursor.fetchall()
+                ]
+                
+                # Get most common function/class names (might indicate patterns)
+                cursor = conn.execute('''
+                    SELECT name, element_type, COUNT(*) as frequency
+                    FROM code_elements
+                    GROUP BY name, element_type
+                    HAVING COUNT(*) > 1
+                    ORDER BY COUNT(*) DESC
+                    LIMIT 15
+                ''')
+                common_patterns = [
+                    {
+                        'name': row[0],
+                        'type': row[1],
+                        'frequency': row[2]
+                    }
+                    for row in cursor.fetchall()
+                ]
+                
+                # Get directory structure overview
+                cursor = conn.execute('SELECT DISTINCT path FROM file_metadata')
+                all_paths = [row[0] for row in cursor.fetchall()]
+                
+                # Build directory tree summary
+                directories = {}
+                for path in all_paths:
+                    parts = Path(path).parts
+                    if len(parts) > 1:
+                        dir_name = parts[0]
+                        if dir_name not in directories:
+                            directories[dir_name] = {'files': 0, 'languages': set()}
+                        directories[dir_name]['files'] += 1
+                        
+                        # Get language from file extension
+                        file_lang = self.get_file_language(Path(path))
+                        if file_lang != 'unknown':
+                            directories[dir_name]['languages'].add(file_lang)
+                
+                # Convert sets to lists for JSON serialization
+                for dir_info in directories.values():
+                    dir_info['languages'] = list(dir_info['languages'])
+                
+                return {
+                    'project_summary': self.get_project_summary(),
+                    'overview': asdict(overview),
+                    'important_files': important_files,
+                    'common_patterns': common_patterns,
+                    'directory_structure': directories,
+                    'workspace_path': str(self.workspace_path),
+                    'total_indexed_files': len(all_paths)
+                }
+                
+        except Exception as e:
+            return {
+                'error': str(e),
+                'workspace_path': str(self.workspace_path)
+            }
+    
+    def query_codebase_natural_language(self, query: str) -> Dict[str, Any]:
+        """Answer natural language questions about the codebase structure and content."""
+        try:
+            query_lower = query.lower()
+            results = {}
+            
+            with sqlite3.connect(self.db_path) as conn:
+                
+                # Handle questions about file counts and languages
+                if any(word in query_lower for word in ['how many', 'count', 'total']):
+                    if any(word in query_lower for word in ['file', 'files']):
+                        cursor = conn.execute('SELECT COUNT(*) FROM file_metadata')
+                        total_files = cursor.fetchone()[0]
+                        results['total_files'] = total_files
+                        
+                        # Language breakdown
+                        cursor = conn.execute('SELECT language, COUNT(*) FROM file_metadata GROUP BY language ORDER BY COUNT(*) DESC')
+                        results['files_by_language'] = dict(cursor.fetchall())
+                    
+                    if any(word in query_lower for word in ['function', 'class', 'component']):
+                        cursor = conn.execute('SELECT element_type, COUNT(*) FROM code_elements GROUP BY element_type ORDER BY COUNT(*) DESC')
+                        results['elements_by_type'] = dict(cursor.fetchall())
+                
+                # Handle questions about specific technologies or frameworks
+                tech_keywords = ['react', 'vue', 'angular', 'express', 'fastapi', 'django', 'flask', 'typescript', 'javascript', 'python']
+                for tech in tech_keywords:
+                    if tech in query_lower:
+                        # Search in file content, names, and dependencies
+                        cursor = conn.execute('''
+                            SELECT DISTINCT fm.path, fm.language
+                            FROM file_metadata fm
+                            LEFT JOIN code_elements ce ON fm.path = ce.file_path
+                            WHERE fm.path LIKE ? OR ce.name LIKE ? OR ce.signature LIKE ?
+                            LIMIT 10
+                        ''', (f'%{tech}%', f'%{tech}%', f'%{tech}%'))
+                        
+                        tech_files = [{'path': row[0], 'language': row[1]} for row in cursor.fetchall()]
+                        if tech_files:
+                            results[f'{tech}_related_files'] = tech_files
+                
+                # Handle questions about specific file types or directories
+                if any(word in query_lower for word in ['component', 'components']):
+                    cursor = conn.execute('''
+                        SELECT file_path, name, signature FROM code_elements 
+                        WHERE element_type IN ('component', 'function') 
+                        AND (file_path LIKE '%component%' OR name LIKE '%Component%')
+                        LIMIT 15
+                    ''')
+                    results['components'] = [
+                        {'file': row[0], 'name': row[1], 'signature': row[2]}
+                        for row in cursor.fetchall()
+                    ]
+                
+                # Handle questions about configuration or setup files
+                if any(word in query_lower for word in ['config', 'setup', 'package', 'dependencies']):
+                    config_files = []
+                    cursor = conn.execute('SELECT path FROM file_metadata WHERE path LIKE ? OR path LIKE ? OR path LIKE ? OR path LIKE ?', 
+                                        ('%package.json%', '%requirements.txt%', '%config%', '%setup%'))
+                    config_files = [row[0] for row in cursor.fetchall()]
+                    results['configuration_files'] = config_files
+                
+                # Handle questions about large or complex files
+                if any(word in query_lower for word in ['large', 'big', 'complex', 'main']):
+                    cursor = conn.execute('''
+                        SELECT fm.path, fm.line_count, COUNT(ce.id) as element_count
+                        FROM file_metadata fm
+                        LEFT JOIN code_elements ce ON fm.path = ce.file_path
+                        GROUP BY fm.path
+                        ORDER BY fm.line_count DESC
+                        LIMIT 10
+                    ''')
+                    results['largest_files'] = [
+                        {'path': row[0], 'lines': row[1], 'elements': row[2]}
+                        for row in cursor.fetchall()
+                    ]
+                
+                # If no specific patterns matched, provide a general summary
+                if not results:
+                    overview = self.generate_project_overview()
+                    results['general_info'] = {
+                        'total_files': overview.total_files,
+                        'total_lines': overview.total_lines,
+                        'languages': overview.languages,
+                        'main_directories': overview.main_directories[:5],
+                        'key_files': overview.key_files[:5]
+                    }
+                
+                results['query'] = query
+                return results
+                
+        except Exception as e:
+            return {
+                'error': str(e),
+                'query': query
+            }
+    
+    def get_relevant_context_for_query(self, query: str, max_files: int = 5) -> Dict[str, Any]:
+        """Get relevant code context based on a query or task description."""
+        try:
+            query_lower = query.lower()
+            relevant_files = []
+            relevant_elements = []
+            
+            with sqlite3.connect(self.db_path) as conn:
+                # Extract keywords from the query (simple approach)
+                import re
+                keywords = re.findall(r'\b\w{3,}\b', query_lower)
+                keywords = [k for k in keywords if k not in ['the', 'and', 'for', 'with', 'this', 'that', 'are', 'was', 'were', 'been', 'have', 'has', 'had', 'will', 'would', 'could', 'should']]
+                
+                if keywords:
+                    # Search for relevant code elements
+                    keyword_pattern = '|'.join(keywords[:5])  # Limit to top 5 keywords
+                    
+                    cursor = conn.execute('''
+                        SELECT ce.file_path, ce.element_type, ce.name, ce.line_start, ce.signature,
+                               fm.language, fm.line_count
+                        FROM code_elements ce
+                        JOIN file_metadata fm ON ce.file_path = fm.path
+                        WHERE ce.name REGEXP ? OR ce.signature REGEXP ? OR ce.file_path REGEXP ?
+                        ORDER BY 
+                            CASE 
+                                WHEN ce.name REGEXP ? THEN 3
+                                WHEN ce.signature REGEXP ? THEN 2  
+                                ELSE 1
+                            END DESC
+                        LIMIT 20
+                    ''', (keyword_pattern, keyword_pattern, keyword_pattern, keyword_pattern, keyword_pattern))
+                    
+                    relevant_elements = [
+                        {
+                            'file_path': row[0],
+                            'element_type': row[1],
+                            'name': row[2],
+                            'line_start': row[3],
+                            'signature': row[4],
+                            'language': row[5],
+                            'file_line_count': row[6]
+                        }
+                        for row in cursor.fetchall()
+                    ]
+                    
+                    # Get unique files from relevant elements
+                    file_paths = list(set([elem['file_path'] for elem in relevant_elements]))
+                    
+                    # Get file overviews for the most relevant files
+                    for file_path in file_paths[:max_files]:
+                        file_overview = self.get_file_overview(file_path)
+                        if file_overview:
+                            relevant_files.append(file_overview)
+                
+                return {
+                    'query': query,
+                    'keywords_found': keywords[:5],
+                    'relevant_files': relevant_files,
+                    'relevant_elements': relevant_elements[:15],
+                    'suggestions': self._generate_context_suggestions(query_lower, relevant_elements)
+                }
+                
+        except Exception as e:
+            return {
+                'error': str(e),
+                'query': query
+            }
+    
+    def _generate_context_suggestions(self, query_lower: str, relevant_elements: List[Dict]) -> List[str]:
+        """Generate helpful suggestions based on the query and found elements."""
+        suggestions = []
+        
+        if not relevant_elements:
+            suggestions.append("No specific code elements found. Try using 'get_codebase_overview' for a general summary.")
+            return suggestions
+        
+        # Group elements by type
+        element_types = {}
+        for elem in relevant_elements:
+            elem_type = elem['element_type']
+            if elem_type not in element_types:
+                element_types[elem_type] = []
+            element_types[elem_type].append(elem)
+        
+        # Generate type-specific suggestions
+        for elem_type, elements in element_types.items():
+            if len(elements) > 1:
+                suggestions.append(f"Found {len(elements)} {elem_type}s that might be relevant. Consider examining: {', '.join([e['name'] for e in elements[:3]])}")
+        
+        # File-specific suggestions
+        files = set([elem['file_path'] for elem in relevant_elements])
+        if len(files) > 1:
+            suggestions.append(f"Relevant code spans {len(files)} files. Key files: {', '.join(list(files)[:3])}")
+        
+        # Context-specific suggestions
+        if any(word in query_lower for word in ['implement', 'create', 'add', 'build']):
+            suggestions.append("For implementation tasks, examine existing similar patterns in the found elements.")
+        
+        if any(word in query_lower for word in ['debug', 'fix', 'error', 'bug']):
+            suggestions.append("For debugging, look at the function signatures and check for similar patterns that might help identify the issue.")
+        
+        return suggestions 

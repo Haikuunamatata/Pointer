@@ -30,6 +30,7 @@ import {
 } from '../config/chatConfig';
 import { CodebaseContextService } from '../services/CodebaseContextService';
 import { stripThinkTags, extractCodeBlocks } from '../utils/textUtils';
+import { resizePerformanceMonitor } from '../utils/performance';
 
 // Add TypeScript declarations for window properties
 declare global {
@@ -348,7 +349,7 @@ const CollapsibleCodeBlock: React.FC<{
   startLine?: number;
   endLine?: number;
   isLineEdit?: boolean;
-}> = ({ language, filename, content, isProcessing = false, startLine, endLine, isLineEdit = false }) => {
+}> = React.memo(({ language, filename, content, isProcessing = false, startLine, endLine, isLineEdit = false }) => {
   const [isCollapsed, setIsCollapsed] = useState(true);
   const [isHovered, setIsHovered] = useState(false);
   
@@ -548,7 +549,7 @@ const CollapsibleCodeBlock: React.FC<{
       )}
     </div>
   );
-};
+});
 
 // Add this near the top with other component definitions
 interface ThinkTimes {
@@ -562,8 +563,8 @@ interface CodeProps extends React.HTMLAttributes<HTMLElement> {
   children?: React.ReactNode;
 }
 
-// Component to render messages with markdown and code syntax highlighting
-const MessageRenderer: React.FC<{ message: ExtendedMessage; isAnyProcessing?: boolean }> = ({ message, isAnyProcessing = false }) => {
+// Memoized MessageRenderer to prevent unnecessary re-renders during resize
+const MessageRenderer: React.FC<{ message: ExtendedMessage; isAnyProcessing?: boolean }> = React.memo(({ message, isAnyProcessing = false }) => {
   const [thinkTimes] = useState<ThinkTimes>({});
   
   // Handle non-string content
@@ -1233,7 +1234,7 @@ const MessageRenderer: React.FC<{ message: ExtendedMessage; isAnyProcessing?: bo
       })}
     </>
   );
-};
+});
 
 // Update ThinkBlock component to accept actual think time
 const ThinkBlock: React.FC<{ content: string; thinkTime: number }> = ({ content, thinkTime }) => {
@@ -1755,80 +1756,125 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
     }
   };
   
-  // Simple resize implementation
+  // Performance optimized resize implementation
   const handleResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     
     const startX = e.clientX;
     const startWidth = width;
+    let animationFrameId: number | null = null;
+    let lastUpdateTime = 0;
+    const THROTTLE_MS = 16; // ~60fps
+
+    // Start performance monitoring in development (check if console is available)
+    const isDevelopment = typeof console !== 'undefined' && console.log;
+    if (isDevelopment) {
+      resizePerformanceMonitor.startMonitoring();
+    }
 
     const handleMouseMove = (e: MouseEvent) => {
-      // Calculate how much the mouse has moved
-      const dx = startX - e.clientX;
-      // Update width directly (adding dx because this is on the right side)
-      // Increase max width and add screen size awareness
-      const maxWidth = Math.min(Math.max(window.innerWidth * 0.7, 600), 1200); // 70% of screen or max 1200px
-      const minWidth = 250; // Slightly smaller minimum
-      const newWidth = Math.max(minWidth, Math.min(maxWidth, startWidth + dx));
+      const now = performance.now();
       
-      // Update locally
-      setWidth(newWidth);
-      
-      // Update container width immediately for smooth visual feedback
-      if (containerRef.current) {
-        containerRef.current.style.width = `${newWidth}px`;
+      // Throttle updates to improve performance
+      if (now - lastUpdateTime < THROTTLE_MS) {
+        return;
       }
-      
-      // Notify parent for editor layout update
-      if (onResize) {
-        onResize(newWidth);
+      lastUpdateTime = now;
+
+      // Use requestAnimationFrame for smooth updates
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
       }
-      
-      // Indicate active resize state
-      setIsResizing(true);
-      
-      // Prevent text selection while resizing
-      document.body.style.userSelect = 'none';
-      document.body.style.cursor = 'ew-resize';
+
+      animationFrameId = requestAnimationFrame(() => {
+        // Record frame for performance monitoring
+        if (isDevelopment) {
+          resizePerformanceMonitor.recordFrame();
+        }
+
+        // Calculate how much the mouse has moved
+        const dx = startX - e.clientX;
+        // Update width directly (adding dx because this is on the right side)
+        // Increase max width and add screen size awareness
+        const maxWidth = Math.min(Math.max(window.innerWidth * 0.7, 600), 1200); // 70% of screen or max 1200px
+        const minWidth = 250; // Slightly smaller minimum
+        const newWidth = Math.max(minWidth, Math.min(maxWidth, startWidth + dx));
+        
+        // Update locally
+        setWidth(newWidth);
+        
+        // Update container width immediately for smooth visual feedback
+        if (containerRef.current) {
+          containerRef.current.style.width = `${newWidth}px`;
+        }
+        
+        // Indicate active resize state
+        setIsResizing(true);
+        
+        // Prevent text selection while resizing
+        document.body.style.userSelect = 'none';
+        document.body.style.cursor = 'ew-resize';
+      });
     };
 
     const handleMouseUp = () => {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
       
+      // Clean up animation frame
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+      }
+      
+      // Stop performance monitoring and log results
+      if (isDevelopment) {
+        resizePerformanceMonitor.stopMonitoring();
+      }
+      
       // Reset states
       setIsResizing(false);
       document.body.style.userSelect = '';
       document.body.style.cursor = '';
       
-      // Force editor layout update on mouse up
-      if (onResize) {
-        onResize(width);
-      }
+      // Debounced final resize update to parent
+      setTimeout(() => {
+        if (onResize) {
+          onResize(width);
+        }
+      }, 100);
     };
     
-    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mousemove', handleMouseMove, { passive: true });
     document.addEventListener('mouseup', handleMouseUp);
   }, [width, onResize]);
   
-  // Add effect to handle initial width
+  // Optimized ResizeObserver effect
   useEffect(() => {
-    if (containerRef.current) {
+    if (containerRef.current && onResize) {
+      let timeoutId: number;
+      
       const observer = new ResizeObserver((entries) => {
-        const entry = entries[0];
-        if (entry && onResize) {
-          onResize(entry.contentRect.width);
-        }
+        // Debounce resize observer calls
+        clearTimeout(timeoutId);
+        timeoutId = setTimeout(() => {
+          const entry = entries[0];
+          if (entry) {
+            onResize(entry.contentRect.width);
+          }
+        }, 50);
       });
       
       observer.observe(containerRef.current);
-      return () => observer.disconnect();
+      return () => {
+        observer.disconnect();
+        clearTimeout(timeoutId);
+      };
     }
   }, [onResize]);
 
-  // Load saved chat width on mount and save width changes
+  // Optimized width persistence with debouncing
   useEffect(() => {
-    // Load saved width
+    // Load saved width only once on mount
     const savedWidth = localStorage.getItem('chatWidth');
     if (savedWidth) {
       const parsedWidth = parseInt(savedWidth, 10);
@@ -1839,8 +1885,12 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   }, []);
 
   useEffect(() => {
-    // Save width changes
-    localStorage.setItem('chatWidth', width.toString());
+    // Debounced save width changes to prevent excessive localStorage writes
+    const timeoutId = setTimeout(() => {
+      localStorage.setItem('chatWidth', width.toString());
+    }, 300);
+    
+    return () => clearTimeout(timeoutId);
   }, [width]);
 
   // Add keyboard shortcuts for resize operations
@@ -5121,24 +5171,39 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
           }
     }, [currentChatId]);
 
-  // Auto-resize function for textarea
+  // Optimized auto-resize function for textarea
   const autoResizeTextarea = useCallback(() => {
     const textarea = textareaRef.current;
-    if (textarea) {
+    if (!textarea) return;
+    
+    // Use requestAnimationFrame for smooth updates
+    requestAnimationFrame(() => {
+      // Store current values to avoid recalculation
+      const currentHeight = parseInt(textarea.style.height) || 60;
+      
       // Reset height to auto to get the natural height
       textarea.style.height = 'auto';
       
       // Calculate the new height based on content
       const newHeight = Math.max(60, Math.min(150, textarea.scrollHeight));
       
-      // Set the new height
-      textarea.style.height = newHeight + 'px';
-    }
+      // Only update if height actually changed to avoid unnecessary reflows
+      if (newHeight !== currentHeight) {
+        textarea.style.height = newHeight + 'px';
+      }
+    });
   }, []);
 
-  // Auto-resize textarea when input changes
+  // Throttled auto-resize textarea when input changes
   useEffect(() => {
-    autoResizeTextarea();
+    let timeoutId: number;
+    
+    // Debounce the auto-resize to avoid excessive calls during typing
+    timeoutId = setTimeout(() => {
+      autoResizeTextarea();
+    }, 100);
+    
+    return () => clearTimeout(timeoutId);
   }, [input, autoResizeTextarea]);
 
   // Add debugging for processing states
@@ -5169,6 +5234,10 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         backgroundColor: 'var(--bg-secondary)',
         borderLeft: '1px solid var(--border-primary)',
         zIndex: 1,
+        // Performance optimizations
+        contain: 'layout style size',
+        willChange: isResizing ? 'none' : 'auto',
+        transform: 'translateZ(0)', // Create compositing layer
       }}
     >
       {/* Resize Handle */}
@@ -5325,6 +5394,10 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
           display: 'flex',
           flexDirection: 'column',
           gap: '12px', // Changed from 16px to 12px for tighter spacing
+          // Performance optimizations for smooth scrolling during resize
+          contain: 'layout style',
+          willChange: isResizing ? 'none' : 'auto',
+          transform: 'translateZ(0)', // Create compositing layer
         }}
       >
         {messages.length <= 1 ? (

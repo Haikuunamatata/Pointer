@@ -647,6 +647,98 @@ async def cleanup_old_codebase_cache() -> Dict[str, Any]:
         }
 
 
+async def get_ai_codebase_context() -> Dict[str, Any]:
+    """
+    Get a comprehensive AI-friendly summary of the entire codebase.
+    
+    Returns:
+        Dictionary with project summary, important files, common patterns, 
+        directory structure, and other contextual information useful for AI understanding
+    """
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get("http://localhost:23816/api/codebase/ai-context")
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                return {
+                    "success": False,
+                    "error": f"Failed to get AI context: HTTP {response.status_code}"
+                }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Error getting AI codebase context: {str(e)}"
+        }
+
+
+async def query_codebase_natural_language(query: str) -> Dict[str, Any]:
+    """
+    Ask natural language questions about the codebase structure and content.
+    
+    Args:
+        query: Natural language question about the codebase (e.g., "How many React components are there?", 
+               "What files contain authentication logic?", "Show me the largest files")
+               
+    Returns:
+        Dictionary with answers to the natural language query about codebase structure
+    """
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                "http://localhost:23816/api/codebase/query",
+                json={"query": query}
+            )
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                return {
+                    "success": False,
+                    "error": f"Failed to query codebase: HTTP {response.status_code}"
+                }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Error querying codebase: {str(e)}"
+        }
+
+
+async def get_relevant_codebase_context(query: str, max_files: int = 5) -> Dict[str, Any]:
+    """
+    Get relevant code context for a specific task or query.
+    
+    Args:
+        query: Description of what you're working on or need context for
+               (e.g., "implementing user authentication", "fixing the payment system", 
+               "adding a new React component")
+        max_files: Maximum number of relevant files to return (default: 5)
+        
+    Returns:
+        Dictionary with relevant files, code elements, and suggestions for the given task/query
+    """
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                "http://localhost:23816/api/codebase/context",
+                json={"query": query, "max_files": max_files}
+            )
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                return {
+                    "success": False,
+                    "error": f"Failed to get context: HTTP {response.status_code}"
+                }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Error getting relevant context: {str(e)}"
+        }
+
+
 # Dictionary mapping tool names to handler functions
 TOOL_HANDLERS = {
     "read_file": read_file,
@@ -660,6 +752,9 @@ TOOL_HANDLERS = {
     "get_file_overview": get_file_overview,
     "get_codebase_indexing_info": get_codebase_indexing_info,
     "cleanup_old_codebase_cache": cleanup_old_codebase_cache,
+    "get_ai_codebase_context": get_ai_codebase_context,
+    "query_codebase_natural_language": query_codebase_natural_language,
+    "get_relevant_codebase_context": get_relevant_codebase_context,
 }
 
 # Tool definitions for API documentation
@@ -830,6 +925,43 @@ TOOL_DEFINITIONS = [
         "name": "cleanup_old_codebase_cache",
         "description": "Clean up old .pointer_cache directory in the workspace",
         "parameters": {}
+    },
+    {
+        "name": "get_ai_codebase_context",
+        "description": "Get a comprehensive AI-friendly summary of the entire codebase",
+        "parameters": {}
+    },
+    {
+        "name": "query_codebase_natural_language",
+        "description": "Ask natural language questions about the codebase structure and content",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Natural language question about the codebase"
+                }
+            },
+            "required": ["query"]
+        }
+    },
+    {
+        "name": "get_relevant_codebase_context",
+        "description": "Get relevant code context for a specific task or query",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Description of what you're working on or need context for"
+                },
+                "max_files": {
+                    "type": "integer",
+                    "description": "Maximum number of relevant files to return (default: 5)"
+                }
+            },
+            "required": ["query"]
+        }
     }
 ]
 

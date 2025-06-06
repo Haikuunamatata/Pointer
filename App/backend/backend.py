@@ -187,6 +187,128 @@ async def cleanup_old_codebase_cache():
     except Exception as e:
         return {"error": str(e)}
 
+@app.get("/api/codebase/ai-context")
+async def get_ai_context_summary():
+    """Get a comprehensive AI-friendly summary of the codebase."""
+    if not codebase_indexer:
+        return {"error": "No codebase indexer initialized"}
+    
+    try:
+        context = codebase_indexer.get_ai_context_summary()
+        return context
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.post("/api/codebase/query")
+async def query_codebase_natural_language(request: dict):
+    """Answer natural language questions about the codebase."""
+    if not codebase_indexer:
+        return {"error": "No codebase indexer initialized"}
+    
+    try:
+        query = request.get("query", "")
+        if not query:
+            return {"error": "No query provided"}
+        
+        result = codebase_indexer.query_codebase_natural_language(query)
+        return result
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.post("/api/codebase/context")
+async def get_relevant_context(request: dict):
+    """Get relevant code context for a specific query or task."""
+    if not codebase_indexer:
+        return {"error": "No codebase indexer initialized"}
+    
+    try:
+        query = request.get("query", "")
+        max_files = request.get("max_files", 5)
+        
+        if not query:
+            return {"error": "No query provided"}
+        
+        result = codebase_indexer.get_relevant_context_for_query(query, max_files)
+        return result
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.get("/api/codebase/chat-context")
+async def get_codebase_chat_context():
+    """Get a condensed codebase context suitable for chat system messages."""
+    if not codebase_indexer:
+        return {"error": "No codebase indexer initialized", "context": ""}
+    
+    try:
+        # Get basic project info
+        overview = codebase_indexer.generate_project_overview()
+        summary = codebase_indexer.get_project_summary()
+        
+        # Create a condensed context for the AI
+        context_lines = [
+            "## Current Codebase Context",
+            f"**Project**: {overview.total_files} files, {overview.total_lines:,} lines of code",
+            ""
+        ]
+        
+        # Add languages
+        if overview.languages:
+            lang_info = []
+            for lang, count in sorted(overview.languages.items(), key=lambda x: x[1], reverse=True)[:5]:
+                lang_info.append(f"{lang} ({count} files)")
+            context_lines.extend([
+                f"**Languages**: {', '.join(lang_info)}",
+                ""
+            ])
+        
+        # Add framework info
+        if overview.framework_info:
+            tech_stack = []
+            for category, tech in overview.framework_info.items():
+                tech_stack.append(f"{category.title()}: {tech}")
+            context_lines.extend([
+                f"**Tech Stack**: {', '.join(tech_stack)}",
+                ""
+            ])
+        
+        # Add directory structure
+        if overview.main_directories:
+            context_lines.extend([
+                f"**Main Directories**: {', '.join(overview.main_directories[:5])}",
+                ""
+            ])
+        
+        # Add key files
+        if overview.key_files:
+            context_lines.extend([
+                f"**Key Files**: {', '.join(overview.key_files[:5])}",
+                ""
+            ])
+        
+        # Add usage instructions
+        context_lines.extend([
+            "**Available Tools for Codebase Analysis**:",
+            "- `get_ai_codebase_context()` - Get comprehensive codebase summary",
+            "- `search_codebase(query)` - Search for functions, classes, components",
+            "- `query_codebase_natural_language(query)` - Ask questions about the codebase",
+            "- `get_relevant_codebase_context(query)` - Get context for specific tasks",
+            "- `get_file_overview(file_path)` - Analyze specific files",
+            ""
+        ])
+        
+        context_text = "\n".join(context_lines)
+        
+        return {
+            "context": context_text,
+            "workspace_path": str(codebase_indexer.workspace_path),
+            "summary": summary
+        }
+    except Exception as e:
+        return {
+            "error": str(e),
+            "context": "Error loading codebase context. Use `get_codebase_overview()` to get project information."
+        }
+
 # GitHub API endpoints
 @app.get("/github/user-repos")
 async def get_user_repositories():
