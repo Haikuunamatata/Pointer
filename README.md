@@ -103,4 +103,4 @@ This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) 
 
 ![Works on my machine](https://blog.codinghorror.com/content/images/uploads/2007/03/6a0120a85dcdae970b0128776ff992970c-pi.png)
 
-*Built with ❤️ by the Pointer community*
+*Built with ❤️ by ![Das_F1sHy312](https://github.com/f1shyondrugs)*
