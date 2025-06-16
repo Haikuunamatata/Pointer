@@ -173,16 +173,34 @@ export const extractCodeBlocks = (content: string) => {
     isLineEdit?: boolean;
   }[] = [];
   
-  // First, find all thinking blocks to exclude code blocks within them
-  const thinkBlockRegex = /<think>[\s\S]*?<\/think>/gi;
-  const thinkBlocks: Array<{start: number; end: number}> = [];
+  if (!content || typeof content !== 'string') {
+    return codeBlocks;
+  }
   
-  let thinkMatch;
-  while ((thinkMatch = thinkBlockRegex.exec(content)) !== null) {
-    thinkBlocks.push({
-      start: thinkMatch.index,
-      end: thinkMatch.index + thinkMatch[0].length
-    });
+  // First, find all thinking blocks to exclude code blocks within them
+  // Use a more robust approach to handle nested or malformed thinking blocks
+  const thinkBlocks: Array<{start: number; end: number}> = [];
+  let searchStart = 0;
+  
+  while (searchStart < content.length) {
+    const thinkStartIndex = content.indexOf('<think>', searchStart);
+    if (thinkStartIndex === -1) break;
+    
+    const thinkEndIndex = content.indexOf('</think>', thinkStartIndex);
+    if (thinkEndIndex === -1) {
+      // Handle malformed thinking block - exclude everything from start to end of content
+      thinkBlocks.push({
+        start: thinkStartIndex,
+        end: content.length
+      });
+      break;
+    } else {
+      thinkBlocks.push({
+        start: thinkStartIndex,
+        end: thinkEndIndex + 8 // 8 is length of '</think>'
+      });
+      searchStart = thinkEndIndex + 8;
+    }
   }
   
   // Function to check if a position is within any thinking block
@@ -190,20 +208,29 @@ export const extractCodeBlocks = (content: string) => {
     return thinkBlocks.some(block => position >= block.start && position <= block.end);
   };
 
-  // Updated regex to match multiple patterns:
-  // 1. ```language:filename\n code ```
-  // 2. ```language:startline:endline:filename\n code ``` (line-specific editing)
-  // 3. ```language\n code ``` (where filename is in comments)
-  const codeBlockRegex = /```(\w+)(?::([^\n]+))?\n([\s\S]*?)```/g;
+  // Use a non-global regex to prevent infinite loops
+  const codeBlockRegex = /```(\w+)(?::([^\n]+))?\n([\s\S]*?)```/;
+  let remainingContent = content;
+  let currentOffset = 0;
+  let iterationCount = 0;
+  const maxIterations = 100; // Safety limit to prevent infinite loops
   
-  let match;
-  while ((match = codeBlockRegex.exec(content)) !== null) {
+  while (remainingContent && iterationCount < maxIterations) {
+    const match = codeBlockRegex.exec(remainingContent);
+    if (!match) break;
+    
+    iterationCount++;
+    
     const [fullMatch, language, explicitFilename, code] = match;
-    const matchStart = match.index;
+    const matchStart = currentOffset + match.index;
     
     // Skip this code block if it's within a thinking block
     if (isInThinkBlock(matchStart)) {
-      console.log(`Skipping code block as it's within a thinking block`);
+      console.log(`Skipping code block as it's within a thinking block at position ${matchStart}`);
+      // Move past this match and continue searching
+      const nextSearchStart = match.index + fullMatch.length;
+      remainingContent = remainingContent.substring(nextSearchStart);
+      currentOffset += nextSearchStart;
       continue;
     }
     
@@ -278,7 +305,17 @@ export const extractCodeBlocks = (content: string) => {
         console.log(`Skipping code block for ${filename} as it contains only thinking content`);
       }
     }
+    
+    // Move past this match and continue searching
+    const nextSearchStart = match.index + fullMatch.length;
+    remainingContent = remainingContent.substring(nextSearchStart);
+    currentOffset += nextSearchStart;
   }
   
+  if (iterationCount >= maxIterations) {
+    console.warn(`extractCodeBlocks: Hit iteration limit (${maxIterations}), stopping to prevent infinite loop`);
+  }
+  
+  console.log(`extractCodeBlocks: Found ${codeBlocks.length} code blocks after ${iterationCount} iterations`);
   return codeBlocks;
 }; 

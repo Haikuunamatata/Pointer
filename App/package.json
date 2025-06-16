@@ -33,7 +33,7 @@
     "react-syntax-highlighter": "^15.6.1",
     "simple-git": "^3.27.0",
     "tcp-port-used": "^1.0.2",
-    "uuid": "^11.0.5",
+    "uuid": "^11.1.0",
     "zustand": "^5.0.3"
   },
   "devDependencies": {
@@ -53,7 +53,10 @@
     "mac": {
       "category": "public.app-category.developer-tools",
       "icon": "electron/logo.png",
-      "target": ["dmg", "zip"]
+      "target": [
+        "dmg",
+        "zip"
+      ]
     },
     "win": {
       "target": "nsis",

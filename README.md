@@ -1,170 +1,106 @@
-# Pointer - Modern Code Editor
+# Pointer - Modern Development Suite
 
-A modern code editor built with React, TypeScript, and Python, featuring AI assistance, integrated terminal, and a VS Code-like interface.
+A comprehensive development suite consisting of a modern code editor, community Discord bots, and a web presence - all built with React, TypeScript, Python, and Next.js.
 
-(This project will probably take a while. (please help me))
+- **Website**: [pointr.sh](https://pointr.sh)
+- **Discord**: [Join our Discord](https://discord.gg/vhgc8THmNk)
+- **GitHub**: [Source Code](https://github.com/f1shyondrugs/Pointer)
 
-## Features
+> **Note**: This is an ambitious multi-component project that brings together a VS Code-like editor, community tools, and web presence. (Community contributions welcome!)
 
-- 🎨 VS Code-like interface and theme
+## 🏗️ Project Components
 
-- 🤖 AI-powered code assistance
-- 📁 File explorer with create/edit/delete capabilities
-- 💻 Integrated terminal
-- 📝 Monaco Editor with syntax highlighting
-- 🔄 Real-time code synchronization
-- 🎯 Multi-cursor support
-- 📊 Split view support
+### 📝 [**Code Editor**](App/README.md) - VS Code-like Editor with AI
+> Modern Electron-based code editor with AI assistance, integrated terminal, and professional development features.
 
-## Prerequisites
+**Features**: Monaco Editor, AI Chat, Git Integration, Discord Rich Presence, Cross-platform Desktop App
 
-- Node.js (v16 or higher)
-- Python (v3.8 or higher)
-- npm or yarn
-- Git
+**Tech Stack**: React + TypeScript + Electron + Python FastAPI
 
-## Installation
+**[→ Full Setup Guide](App/README.md)**
 
-### 1. Clone the Repository
+---
 
+### 🌐 [**Website**](Website/README.md) - Landing Page & Web Presence  
+> Next.js marketing website and web-based tools for the Pointer ecosystem.
+
+**Features**: Landing page, documentation, web tools, static site generation
+
+**Tech Stack**: Next.js + TypeScript + Tailwind CSS
+
+**[→ Full Setup Guide](Website/README.md)**
+
+---
+
+### 🤖 [**Discord Bots**](DiscordBot/README.md) - Community & Moderation Suite
+> Comprehensive Discord bot ecosystem with economy, moderation, and community features.
+
+**Features**: Economy system, moderation tools, giveaways, leveling, ticket system
+
+**Tech Stack**: Python + discord.py + SQLite
+
+**[→ Full Setup Guide](DiscordBot/README.md)**
+
+---
+
+## 🚀 Quick Start (All Components)
+
+### Prerequisites
+- **Node.js** (v18+) and **Yarn**
+- **Python** (v3.8+)
+- **Git**
+
+### One-Command Setup (Code Editor)
 ```bash
 git clone https://github.com/f1shyondrugs/Pointer.git
-cd pointer/App
-```
-
-### 2. Frontend Setup
-
-Install the frontend dependencies:
-
-```bash
-npm install
-# or
-yarn install
-```
-
-### 3. Backend Setup
-
-Create and activate a Python virtual environment _(optional)_:
-
-```bash
-# Windows
-python -m venv venv
-.\venv\Scripts\activate
-
-
-# macOS/Linux
-python3 -m venv venv
-source venv/bin/activate
-```
-
-Install the Python dependencies:
-
-```bash
-pip install -r backend/requirements.txt
-```
-
-## Running the Application
-
-### 1. Start the Backend Server
-
-In a terminal window with the virtual environment activated:
-
-```bash
-cd backend
-python run.py
-```
-
-The backend server will start on `http://localhost:8000`
-
-### 2. Start the Frontend Development Server
-
-In a new terminal window:
-
-```bash
-npm run dev
-# or
+cd Pointer/App
+yarn install && pip install -r backend/requirements.txt
 yarn dev
 ```
 
-The frontend development server will start on `http://localhost:3000`
+**For detailed setup of individual components, see their respective README files above.**
 
-## Usage
-
-1. Open your browser and navigate to `http://localhost:3000`
-2. Use the "Open Folder" button in the top bar to open a project directory
-3. Use the file explorer on the left to navigate and edit files
-4. Toggle the terminal using the terminal icon in the tab bar
-5. Access AI assistance through the chat panel on the right
-
-## Development
-
-### Project Structure
+## 📁 Repository Structure
 
 ```
-pointer/App/
-├── src/                    # Frontend source code
-│   ├── components/         # React components
-│   ├── services/          # API and service layers
-│   ├── styles/            # CSS styles
-│   └── utils/             # Utility functions
-├── backend/               # Python backend
-│   ├── file_server.py     # FastAPI server
-│   └── requirements.txt   # Python dependencies
-└── public/                # Static assets
+Pointer/
+├── App/           # 📝 Code Editor (Electron + React + Python)
+│   └── README.md  # → Detailed editor setup guide
+├── Website/       # 🌐 Landing Page (Next.js)
+│   └── README.md  # → Website setup guide  
+├── DiscordBot/    # 🤖 Discord Bots (Python)
+│   └── README.md  # → Bot setup and commands guide
+└── README.md      # 📖 This overview file
 ```
 
-### Environment Variables
+## 🤝 Contributing
 
-Create a `.env` file in the root directory:
+We welcome contributions to any component! Please:
 
-```env
-VITE_API_URL=http://localhost:8000
-```
+1. **Choose a component** and read its specific README
+2. **Fork the repository** 
+3. **Create a feature branch** (`git checkout -b feature/amazing-feature`)
+4. **Follow the component's setup guide** for development
+5. **Submit a pull request** with clear description
 
-## Troubleshooting
+### Development Guidelines
+- **Code Style**: Follow existing patterns in each component
+- **Testing**: Test thoroughly before submitting PRs  
+- **Documentation**: Update relevant README files for changes
+- **Commits**: Use clear, descriptive commit messages
 
-### Common Issues
+## 📜 License
 
-1. **Backend Connection Error**
-   - Ensure the Python backend is running on correct port
-   - Check if there are any CORS issues in the browser console
-   - Verify the virtual environment is activated
+This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
 
-2. **Frontend Build Issues**
-   - Clear the node_modules folder and reinstall dependencies
-   - Ensure all required dependencies are properly installed
-   - Check for Node.js version compatibility
+## 🙏 Acknowledgments
 
-3. **Terminal Integration Issues**
-   - On Windows, ensure you have Windows Terminal installed
-   - On Linux/macOS, verify proper permissions for PTY access
+**Core Technologies**: React, TypeScript, Electron, Python, FastAPI, Next.js, discord.py, Monaco Editor, xterm.js
 
-### Error Messages
+**Special Thanks**: VS Code team, Discord.py community, all contributors and beta testers
 
-If you encounter the error "No directory opened", make sure to:
-1. Click the "Open Folder" button in the top bar
-2. Select a valid project directory
-3. Wait for the file explorer to refresh
+---
 
-## Contributing
+![Works on my machine](https://blog.codinghorror.com/content/images/uploads/2007/03/6a0120a85dcdae970b0128776ff992970c-pi.png)
 
-1. Fork the repository
-2. Create a new branch (`git checkout -b feature/improvement`)
-3. Make your changes
-4. Commit your changes (`git commit -am 'Add new feature'`)
-5. Push to the branch (`git push origin feature/improvement`)
-6. Create a Pull Request
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file of the repository for details.
-
-## Acknowledgments
-
-- Built with [React](https://reactjs.org/)
-- Editor powered by [Monaco Editor](https://microsoft.github.io/monaco-editor/)
-- Terminal integration using [xterm.js](https://xtermjs.org/)
-- Backend powered by [FastAPI](https://fastapi.tiangolo.com/)
-
-
-![works on my machine](https://blog.codinghorror.com/content/images/uploads/2007/03/6a0120a85dcdae970b0128776ff992970c-pi.png)
+*Built with ❤️ by the Pointer community*
