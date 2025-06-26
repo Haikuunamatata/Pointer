@@ -3007,8 +3007,14 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
       
       // Add additional data for agent mode if this is a new message (not an edit)
       if (mode === 'agent' && editIndex === null) {
+        // Get the user's workspace directory instead of the program's working directory
+        const workspaceDir = await fetch('/get-workspace-directory')
+          .then(res => res.json())
+          .then(data => data.workspace_path)
+          .catch(() => currentWorkingDirectory); // Fallback to current if API fails
+          
         const additionalData = {
-          current_file: currentWorkingDirectory ? { path: currentWorkingDirectory } : undefined,
+          current_file: workspaceDir ? { path: workspaceDir } : undefined,
           message_count: messages.length,
           mode: 'agent'
         };
@@ -3840,6 +3846,14 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
               functionCall.id = generateValidToolCallId();
             }
             
+            // Validate tool name (prevent phantom tools)
+            const validToolNames = ['list_directory', 'list_dir', 'read_file', 'create_file', 'edit_file', 'delete_file', 'move_file', 'copy_file', 'get_file_overview', 'get_codebase_overview', 'grep_search', 'web_search', 'fetch_webpage', 'run_terminal_cmd', 'search_codebase', 'query_codebase_natural_language', 'get_relevant_codebase_context', 'get_ai_codebase_context'];
+            
+            if (!validToolNames.includes(functionCall.name)) {
+              console.warn(`Invalid tool name: ${functionCall.name}. Skipping.`);
+              continue;
+            }
+            
             // Only add if this is a new function call
             if (!processedToolCallIds.has(functionCall.id)) {
               functionCalls.push(functionCall);
@@ -3847,6 +3861,8 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
             } else {
               console.log(`Skipping already processed function call: ${functionCall.name} (ID: ${functionCall.id})`);
             }
+          } else {
+            console.warn('Function call has no name, skipping:', functionCall);
           }
         } catch (error) {
           console.error("Error parsing function call:", error);
@@ -3958,6 +3974,18 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
           // If result is null, error was already handled
             if (result) {
               processedAnyCalls = true;
+              
+              // Check if this is a "File not found" error for get_file_overview
+              if (functionCall.name === 'get_file_overview' && 
+                  typeof result.content === 'string' && 
+                  result.content.includes('File not found in index')) {
+                console.log('get_file_overview returned "File not found" - this is normal for non-existent files');
+                // Enhance the error message to provide guidance
+                result.content = result.content.replace(
+                  'File not found in index',
+                  'File not found in index. This is normal for files that haven\'t been created yet. You can proceed to create the file using code blocks.'
+                );
+              }
               
             // Add the tool result to messages
               setMessages(prev => {

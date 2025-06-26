@@ -739,23 +739,334 @@ async def get_relevant_codebase_context(query: str, max_files: int = 5) -> Dict[
         }
 
 
-# Dictionary mapping tool names to handler functions
-TOOL_HANDLERS = {
-    "read_file": read_file,
-    "list_directory": list_directory,
-    "web_search": web_search,
-    "fetch_webpage": fetch_webpage,
-    "grep_search": grep_search,
-    "run_terminal_cmd": run_terminal_cmd,
-    "get_codebase_overview": get_codebase_overview,
-    "search_codebase": search_codebase,
-    "get_file_overview": get_file_overview,
-    "get_codebase_indexing_info": get_codebase_indexing_info,
-    "cleanup_old_codebase_cache": cleanup_old_codebase_cache,
-    "get_ai_codebase_context": get_ai_codebase_context,
-    "query_codebase_natural_language": query_codebase_natural_language,
-    "get_relevant_codebase_context": get_relevant_codebase_context,
-}
+async def create_file(file_path: str, content: str = "", create_directories: bool = True) -> Dict[str, Any]:
+    """
+    Create a new file with the specified content.
+    
+    Args:
+        file_path: Path where the file should be created
+        content: Content to write to the file (default: empty string)
+        create_directories: Whether to create parent directories if they don't exist
+        
+    Returns:
+        Dictionary with creation result
+    """
+    try:
+        # Security check: prevent path traversal
+        abs_path = os.path.abspath(file_path)
+        
+        # Check if file already exists
+        if os.path.exists(abs_path):
+            return {
+                "success": False,
+                "error": f"File already exists: {file_path}"
+            }
+        
+        # Create parent directories if needed
+        if create_directories:
+            parent_dir = os.path.dirname(abs_path)
+            if parent_dir and not os.path.exists(parent_dir):
+                os.makedirs(parent_dir, exist_ok=True)
+        
+        # Create the file
+        with open(abs_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+        
+        # Get file size after creation
+        file_size = os.path.getsize(abs_path)
+        
+        return {
+            "success": True,
+            "message": f"File created successfully: {file_path}",
+            "file_path": file_path,
+            "size": file_size,
+            "lines": len(content.split('\n')) if content else 1
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Error creating file: {str(e)}"
+        }
+
+
+async def edit_file(file_path: str, start_line: int = None, end_line: int = None, new_content: str = "", append: bool = False) -> Dict[str, Any]:
+    """
+    Edit an existing file by replacing lines or appending content.
+    
+    Args:
+        file_path: Path to the file to edit
+        start_line: Starting line number (1-indexed) for replacement
+        end_line: Ending line number (1-indexed) for replacement (inclusive)
+        new_content: New content to insert
+        append: If True, append content to the end of the file
+        
+    Returns:
+        Dictionary with edit result
+    """
+    try:
+        # Security check: prevent path traversal
+        abs_path = os.path.abspath(file_path)
+        
+        # Check if file exists
+        if not os.path.exists(abs_path):
+            return {
+                "success": False,
+                "error": f"File not found: {file_path}"
+            }
+        
+        # Read existing content
+        with open(abs_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+        
+        original_line_count = len(lines)
+        
+        if append:
+            # Append mode: add content to the end
+            if new_content and not new_content.endswith('\n'):
+                new_content += '\n'
+            lines.append(new_content)
+        else:
+            # Edit mode: replace specified lines
+            if start_line is None or end_line is None:
+                return {
+                    "success": False,
+                    "error": "start_line and end_line are required for edit mode (use append=True for appending)"
+                }
+            
+            # Convert to 0-indexed
+            start_idx = start_line - 1
+            end_idx = end_line
+            
+            # Validate line numbers
+            if start_idx < 0 or start_idx >= len(lines):
+                return {
+                    "success": False,
+                    "error": f"start_line {start_line} is out of range (file has {len(lines)} lines)"
+                }
+            
+            if end_idx < start_idx or end_idx > len(lines):
+                return {
+                    "success": False,
+                    "error": f"end_line {end_line} is out of range (file has {len(lines)} lines)"
+                }
+            
+            # Split new content into lines
+            new_lines = new_content.split('\n')
+            if new_content and not new_content.endswith('\n'):
+                new_lines = [line + '\n' for line in new_lines[:-1]] + [new_lines[-1]]
+            else:
+                new_lines = [line + '\n' for line in new_lines if line or new_content.endswith('\n')]
+            
+            # Replace the specified lines
+            lines[start_idx:end_idx] = new_lines
+        
+        # Write the modified content back
+        with open(abs_path, 'w', encoding='utf-8') as f:
+            f.writelines(lines)
+        
+        new_line_count = len(lines)
+        file_size = os.path.getsize(abs_path)
+        
+        return {
+            "success": True,
+            "message": f"File edited successfully: {file_path}",
+            "file_path": file_path,
+            "original_lines": original_line_count,
+            "new_lines": new_line_count,
+            "size": file_size,
+            "operation": "append" if append else f"replaced lines {start_line}-{end_line}"
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Error editing file: {str(e)}"
+        }
+
+
+async def delete_file(file_path: str) -> Dict[str, Any]:
+    """
+    Delete a file.
+    
+    Args:
+        file_path: Path to the file to delete
+        
+    Returns:
+        Dictionary with deletion result
+    """
+    try:
+        # Security check: prevent path traversal
+        abs_path = os.path.abspath(file_path)
+        
+        # Check if file exists
+        if not os.path.exists(abs_path):
+            return {
+                "success": False,
+                "error": f"File not found: {file_path}"
+            }
+        
+        # Check if it's actually a file (not a directory)
+        if not os.path.isfile(abs_path):
+            return {
+                "success": False,
+                "error": f"Path is not a file: {file_path}"
+            }
+        
+        # Delete the file
+        os.remove(abs_path)
+        
+        return {
+            "success": True,
+            "message": f"File deleted successfully: {file_path}",
+            "file_path": file_path
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Error deleting file: {str(e)}"
+        }
+
+
+async def move_file(source_path: str, destination_path: str, create_directories: bool = True) -> Dict[str, Any]:
+    """
+    Move or rename a file.
+    
+    Args:
+        source_path: Current path of the file
+        destination_path: New path for the file
+        create_directories: Whether to create parent directories if they don't exist
+        
+    Returns:
+        Dictionary with move result
+    """
+    try:
+        # Security check: prevent path traversal
+        source_abs = os.path.abspath(source_path)
+        dest_abs = os.path.abspath(destination_path)
+        
+        # Check if source file exists
+        if not os.path.exists(source_abs):
+            return {
+                "success": False,
+                "error": f"Source file not found: {source_path}"
+            }
+        
+        # Check if destination already exists
+        if os.path.exists(dest_abs):
+            return {
+                "success": False,
+                "error": f"Destination already exists: {destination_path}"
+            }
+        
+        # Create parent directories if needed
+        if create_directories:
+            parent_dir = os.path.dirname(dest_abs)
+            if parent_dir and not os.path.exists(parent_dir):
+                os.makedirs(parent_dir, exist_ok=True)
+        
+        # Move the file
+        import shutil
+        shutil.move(source_abs, dest_abs)
+        
+        return {
+            "success": True,
+            "message": f"File moved successfully: {source_path} -> {destination_path}",
+            "source_path": source_path,
+            "destination_path": destination_path
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Error moving file: {str(e)}"
+        }
+
+
+async def copy_file(source_path: str, destination_path: str, create_directories: bool = True) -> Dict[str, Any]:
+    """
+    Copy a file to a new location.
+    
+    Args:
+        source_path: Path of the file to copy
+        destination_path: Path where the copy should be created
+        create_directories: Whether to create parent directories if they don't exist
+        
+    Returns:
+        Dictionary with copy result
+    """
+    try:
+        # Security check: prevent path traversal
+        source_abs = os.path.abspath(source_path)
+        dest_abs = os.path.abspath(destination_path)
+        
+        # Check if source file exists
+        if not os.path.exists(source_abs):
+            return {
+                "success": False,
+                "error": f"Source file not found: {source_path}"
+            }
+        
+        # Check if destination already exists
+        if os.path.exists(dest_abs):
+            return {
+                "success": False,
+                "error": f"Destination already exists: {destination_path}"
+            }
+        
+        # Create parent directories if needed
+        if create_directories:
+            parent_dir = os.path.dirname(dest_abs)
+            if parent_dir and not os.path.exists(parent_dir):
+                os.makedirs(parent_dir, exist_ok=True)
+        
+        # Copy the file
+        import shutil
+        shutil.copy2(source_abs, dest_abs)
+        
+        file_size = os.path.getsize(dest_abs)
+        
+        return {
+            "success": True,
+            "message": f"File copied successfully: {source_path} -> {destination_path}",
+            "source_path": source_path,
+            "destination_path": destination_path,
+            "size": file_size
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Error copying file: {str(e)}"
+        }
+
+
+async def handle_tool_call(tool_name: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Handle a tool call by dispatching to the appropriate handler.
+    
+    Args:
+        tool_name: Name of the tool to call
+        params: Parameters for the tool
+        
+    Returns:
+        Result of the tool execution
+    """
+    if tool_name not in TOOL_HANDLERS:
+        return {
+            "success": False,
+            "error": f"Unknown tool: {tool_name}"
+        }
+    
+    # Get the handler function
+    handler = TOOL_HANDLERS[tool_name]
+    
+    try:
+        # Call the handler with parameters
+        result = await handler(**params)
+        return result
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Error executing tool {tool_name}: {str(e)}"
+        }
+
 
 # Tool definitions for API documentation
 TOOL_DEFINITIONS = [
@@ -775,6 +1086,116 @@ TOOL_DEFINITIONS = [
                 }
             },
             "required": ["file_path"]
+        }
+    },
+    {
+        "name": "create_file",
+        "description": "Create a new file with specified content",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "Path where the file should be created"
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Content to write to the file (default: empty string)"
+                },
+                "create_directories": {
+                    "type": "boolean",
+                    "description": "Whether to create parent directories if they don't exist (default: true)"
+                }
+            },
+            "required": ["file_path"]
+        }
+    },
+    {
+        "name": "edit_file",
+        "description": "Edit an existing file by replacing lines or appending content",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "Path to the file to edit"
+                },
+                "start_line": {
+                    "type": "integer",
+                    "description": "Starting line number (1-indexed) for replacement"
+                },
+                "end_line": {
+                    "type": "integer",
+                    "description": "Ending line number (1-indexed) for replacement (inclusive)"
+                },
+                "new_content": {
+                    "type": "string",
+                    "description": "New content to insert"
+                },
+                "append": {
+                    "type": "boolean",
+                    "description": "If true, append content to the end of the file (default: false)"
+                }
+            },
+            "required": ["file_path"]
+        }
+    },
+    {
+        "name": "delete_file",
+        "description": "Delete a file",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "Path to the file to delete"
+                }
+            },
+            "required": ["file_path"]
+        }
+    },
+    {
+        "name": "move_file",
+        "description": "Move or rename a file",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "source_path": {
+                    "type": "string",
+                    "description": "Current path of the file"
+                },
+                "destination_path": {
+                    "type": "string",
+                    "description": "New path for the file"
+                },
+                "create_directories": {
+                    "type": "boolean",
+                    "description": "Whether to create parent directories if they don't exist (default: true)"
+                }
+            },
+            "required": ["source_path", "destination_path"]
+        }
+    },
+    {
+        "name": "copy_file",
+        "description": "Copy a file to a new location",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "source_path": {
+                    "type": "string",
+                    "description": "Path of the file to copy"
+                },
+                "destination_path": {
+                    "type": "string",
+                    "description": "Path where the copy should be created"
+                },
+                "create_directories": {
+                    "type": "boolean",
+                    "description": "Whether to create parent directories if they don't exist (default: true)"
+                }
+            },
+            "required": ["source_path", "destination_path"]
         }
     },
     {
@@ -965,33 +1386,25 @@ TOOL_DEFINITIONS = [
     }
 ]
 
-
-async def handle_tool_call(tool_name: str, params: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Handle a tool call by dispatching to the appropriate handler.
-    
-    Args:
-        tool_name: Name of the tool to call
-        params: Parameters for the tool
-        
-    Returns:
-        Result of the tool execution
-    """
-    if tool_name not in TOOL_HANDLERS:
-        return {
-            "success": False,
-            "error": f"Unknown tool: {tool_name}"
-        }
-    
-    # Get the handler function
-    handler = TOOL_HANDLERS[tool_name]
-    
-    try:
-        # Call the handler with parameters
-        result = await handler(**params)
-        return result
-    except Exception as e:
-        return {
-            "success": False,
-            "error": f"Error executing tool {tool_name}: {str(e)}"
+# Dictionary mapping tool names to handler functions (defined at end after all functions)
+TOOL_HANDLERS = {
+    "read_file": read_file,
+    "create_file": create_file,
+    "edit_file": edit_file,
+    "delete_file": delete_file,
+    "move_file": move_file,
+    "copy_file": copy_file,
+    "list_directory": list_directory,
+    "web_search": web_search,
+    "fetch_webpage": fetch_webpage,
+    "grep_search": grep_search,
+    "run_terminal_cmd": run_terminal_cmd,
+    "get_codebase_overview": get_codebase_overview,
+    "search_codebase": search_codebase,
+    "get_file_overview": get_file_overview,
+    "get_codebase_indexing_info": get_codebase_indexing_info,
+    "cleanup_old_codebase_cache": cleanup_old_codebase_cache,
+    "get_ai_codebase_context": get_ai_codebase_context,
+    "query_codebase_natural_language": query_codebase_natural_language,
+    "get_relevant_codebase_context": get_relevant_codebase_context,
         } 

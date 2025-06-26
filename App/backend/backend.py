@@ -45,7 +45,17 @@ from codebase_indexer import CodebaseIndexer
 load_dotenv()
 
 app = FastAPI()
-qt_app = QApplication(sys.argv)
+
+# Initialize Qt application with error handling
+try:
+    # Set Qt to use offscreen platform if no display is available
+    if not os.environ.get('DISPLAY') and sys.platform.startswith('linux'):
+        os.environ['QT_QPA_PLATFORM'] = 'offscreen'
+    qt_app = QApplication(sys.argv)
+except Exception as e:
+    print(f"Warning: Could not initialize Qt application: {e}")
+    print("File dialogs may not work properly.")
+    qt_app = None
 
 # Initialize GitHub OAuth
 try:
@@ -631,6 +641,9 @@ async def open_directory():
     """Open a directory using dialog and return its contents."""
     global base_directory, codebase_indexer
     
+    if qt_app is None:
+        raise HTTPException(status_code=500, detail="File dialog not available - Qt not initialized")
+    
     dialog = QFileDialog()
     dialog.setFileMode(QFileDialog.Directory)
     dialog.setOption(QFileDialog.ShowDirsOnly, True)
@@ -964,6 +977,9 @@ async def read_file(path: str, currentDir: str | None = None):
 @app.post("/open-file")
 async def open_file():
     """Open a file using dialog and return its contents."""
+    if qt_app is None:
+        raise HTTPException(status_code=500, detail="File dialog not available - Qt not initialized")
+    
     dialog = QFileDialog()
     dialog.setFileMode(QFileDialog.ExistingFile)
     

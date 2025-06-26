@@ -493,18 +493,87 @@ class LMStudioService {
     let fixedParams = {...params};
     let fixedToolName = toolName;
     
+    // If tool name is empty, try to infer it from parameters
+    if (!fixedToolName || fixedToolName === '') {
+      console.log('Tool name is empty, trying to infer from parameters:', params);
+      
+      if (params.directory_path || params.relative_workspace_path) {
+        fixedToolName = 'list_directory';
+        console.log('Inferred tool name as list_directory from directory parameters');
+      } else if (params.file_path) {
+        // Check if file_path looks like a directory
+        const filePath = params.file_path;
+        const isDirectory = filePath.endsWith('\\') || 
+                           filePath.endsWith('/') || 
+                           !filePath.includes('.') ||
+                           filePath.includes('Documents') ||
+                           filePath.includes('Users') ||
+                           filePath.includes('TestFolder');
+        
+        if (isDirectory) {
+          fixedToolName = 'list_directory';
+          console.log('Inferred tool name as list_directory from file_path that looks like directory');
+        } else {
+          fixedToolName = 'read_file';
+          console.log('Inferred tool name as read_file from file_path that looks like file');
+        }
+      } else if (params.target_file) {
+        fixedToolName = 'read_file';
+        console.log('Inferred tool name as read_file from target_file parameter');
+      } else {
+        console.warn('Could not infer tool name from parameters, defaulting to list_directory');
+        fixedToolName = 'list_directory';
+      }
+    }
+    
     // Check for parameter mismatches and fix them
     if (toolName === 'read_file' && params.directory_path && !params.target_file) {
       // If read_file is used with directory_path, it's likely meant to be list_directory
       console.log('Detected parameter mismatch: read_file with directory_path');
       fixedToolName = 'list_directory';
+    } else if (toolName === 'read_file' && params.file_path && !params.target_file) {
+      // Check if file_path looks like a directory path
+      const filePath = params.file_path;
+      const isDirectory = filePath.endsWith('\\') || 
+                         filePath.endsWith('/') || 
+                         !filePath.includes('.') ||
+                         filePath.includes('Documents') ||
+                         filePath.includes('Users') ||
+                         filePath.includes('TestFolder');
+      
+      if (isDirectory) {
+        console.log('Detected parameter mismatch: read_file with file_path that looks like directory:', filePath);
+        fixedToolName = 'list_directory';
+        fixedParams = {
+          directory_path: filePath
+        };
+      } else {
+        console.log('Converting file_path to target_file for read_file');
+        fixedParams = {
+          target_file: params.file_path
+        };
+      }
     } else if ((toolName === 'list_dir' || toolName === 'list_directory') && params.file_path) {
-      // If list_directory is used with file_path, it's likely meant to be read_file
-      console.log('Detected parameter mismatch: list_directory with file_path. Converting to read_file.');
+      // If list_directory is used with file_path, check if it's actually a file
+      const filePath = params.file_path;
+      const isFile = filePath.includes('.') && 
+                    !filePath.endsWith('\\') && 
+                    !filePath.endsWith('/') &&
+                    !filePath.includes('Documents') &&
+                    !filePath.includes('Users');
+      
+      if (isFile) {
+        console.log('Detected parameter mismatch: list_directory with file_path that looks like file. Converting to read_file.');
       fixedToolName = 'read_file';
       fixedParams = {
         target_file: params.file_path
       };
+      } else {
+        console.log('Converting file_path to directory_path for list_directory');
+        fixedParams = {
+          directory_path: params.file_path
+        };
+      }
     } else if (toolName === 'list_dir' || toolName === 'list_directory') {
       // Make sure list_directory uses directory_path
       if (params.relative_workspace_path && !params.directory_path) {
@@ -999,7 +1068,7 @@ class LMStudioService {
     let toolNames = new Set(tools.map(tool => tool.function?.name).filter(Boolean));
     
     // Add missing required tools
-    const requiredTools = ['read_file', 'list_directory', 'web_search', 'grep_search', 'fetch_webpage', 'run_terminal_cmd'];
+        const requiredTools = ['read_file', 'create_file', 'edit_file', 'delete_file', 'move_file', 'copy_file', 'list_directory', 'web_search', 'grep_search', 'fetch_webpage', 'run_terminal_cmd'];
     const missingTools = requiredTools.filter(name => !toolNames.has(name) && !toolNames.has(frontendToBackendMap[name]));
     
     if (missingTools.length > 0) {
@@ -1069,6 +1138,136 @@ class LMStudioService {
                   }
                 },
                 required: ["target_file"]
+              }
+            }
+          };
+        } else if (name === 'create_file') {
+          return {
+            type: "function",
+            function: {
+              name: "create_file",
+              description: "Create a new file with specified content",
+              parameters: {
+                type: "object",
+                properties: {
+                  file_path: {
+                    type: "string",
+                    description: "Path where the file should be created"
+                  },
+                  content: {
+                    type: "string",
+                    description: "Content to write to the file (default: empty string)"
+                  },
+                  create_directories: {
+                    type: "boolean",
+                    description: "Whether to create parent directories if they don't exist (default: true)"
+                  }
+                },
+                required: ["file_path"]
+              }
+            }
+          };
+        } else if (name === 'edit_file') {
+          return {
+            type: "function",
+            function: {
+              name: "edit_file",
+              description: "Edit an existing file by replacing lines or appending content",
+              parameters: {
+                type: "object",
+                properties: {
+                  file_path: {
+                    type: "string",
+                    description: "Path to the file to edit"
+                  },
+                  start_line: {
+                    type: "integer",
+                    description: "Starting line number (1-indexed) for replacement"
+                  },
+                  end_line: {
+                    type: "integer",
+                    description: "Ending line number (1-indexed) for replacement (inclusive)"
+                  },
+                  new_content: {
+                    type: "string",
+                    description: "New content to insert"
+                  },
+                  append: {
+                    type: "boolean",
+                    description: "If true, append content to the end of the file (default: false)"
+                  }
+                },
+                required: ["file_path"]
+              }
+            }
+          };
+        } else if (name === 'delete_file') {
+          return {
+            type: "function",
+            function: {
+              name: "delete_file",
+              description: "Delete a file",
+              parameters: {
+                type: "object",
+                properties: {
+                  file_path: {
+                    type: "string",
+                    description: "Path to the file to delete"
+                  }
+                },
+                required: ["file_path"]
+              }
+            }
+          };
+        } else if (name === 'move_file') {
+          return {
+            type: "function",
+            function: {
+              name: "move_file",
+              description: "Move or rename a file",
+              parameters: {
+                type: "object",
+                properties: {
+                  source_path: {
+                    type: "string",
+                    description: "Current path of the file"
+                  },
+                  destination_path: {
+                    type: "string",
+                    description: "New path for the file"
+                  },
+                  create_directories: {
+                    type: "boolean",
+                    description: "Whether to create parent directories if they don't exist (default: true)"
+                  }
+                },
+                required: ["source_path", "destination_path"]
+              }
+            }
+          };
+        } else if (name === 'copy_file') {
+          return {
+            type: "function",
+            function: {
+              name: "copy_file",
+              description: "Copy a file to a new location",
+              parameters: {
+                type: "object",
+                properties: {
+                  source_path: {
+                    type: "string",
+                    description: "Path of the file to copy"
+                  },
+                  destination_path: {
+                    type: "string",
+                    description: "Path where the copy should be created"
+                  },
+                  create_directories: {
+                    type: "boolean",
+                    description: "Whether to create parent directories if they don't exist (default: true)"
+                  }
+                },
+                required: ["source_path", "destination_path"]
               }
             }
           };
@@ -1330,9 +1529,8 @@ class LMStudioService {
             if (toolCalls && toolCalls.length > 0) {
               // Process tool call delta
               lastToolCallUpdateTime = Date.now(); // Update timestamp before processing
-              this.processToolCallDelta(toolCalls[0], partialToolCall, accumulatedContent, this.flushToolCall, onUpdate);
               
-              // Update reference to the partial tool call for next iteration
+            // Initialize partial tool call if needed
               if (partialToolCall === null) {
                 partialToolCall = {
                   id: toolCalls[0].id || `tool-call-${Date.now()}`,
@@ -1343,6 +1541,9 @@ class LMStudioService {
                   }
                 };
               }
+            
+            // Process the delta and update the partial tool call
+            partialToolCall = this.processToolCallDelta(toolCalls[0], partialToolCall, accumulatedContent, (toolCall, onUpdate, accumulatedContent) => this.flushToolCall(toolCall, onUpdate, accumulatedContent), onUpdate);
             }
           } catch (error) {
             console.error('Error processing line:', error);
@@ -1434,8 +1635,8 @@ class LMStudioService {
     accumulatedContent: string,
     flushCallback: (toolCall: any, onUpdate: (content: string) => void, accumulatedContent: string) => void,
     onUpdate: (content: string) => void
-  ): void {
-    if (!toolCallDelta) return;
+  ): any {
+    if (!toolCallDelta) return null;
     
     // Initialize partial tool call if needed
     if (!partialToolCall) {
@@ -1524,6 +1725,9 @@ class LMStudioService {
         }
       }
     }
+    
+    // Return the updated partial tool call
+    return partialToolCall;
   }
   
   /**
@@ -1675,29 +1879,60 @@ class LMStudioService {
         toolCall.function = { name: '', arguments: '{}' };
       }
       
-      // Ensure we have a valid function name - use the ID's tool name if available
-      if (!toolCall.function.name && toolCall.id.includes('list_directory')) {
-        toolCall.function.name = 'list_directory';
-      } else if (!toolCall.function.name && toolCall.id.includes('read_file')) {
-        toolCall.function.name = 'read_file';
-      } else if (!toolCall.function.name) {
-        // Extract tool name from the ID if possible
-        const idParts = toolCall.id.split('-');
-        if (idParts.length > 1 && idParts[0] !== 'tool') {
-          toolCall.function.name = idParts[0];
-        } else {
-          console.warn('No tool name found in ID, using default');
-          toolCall.function.name = 'list_dir'; // Default to list_dir as fallback
-        }
-      }
+      toolCall.function.name = ToolService.mapToolName(toolCall.function.name, 'to_frontend');
       
       // Check for tool name in the arguments if it's a string
       if (toolCall.function.name === '' && typeof toolCall.function.arguments === 'string') {
         const argStr = toolCall.function.arguments;
+        console.log('Detecting tool name from arguments:', argStr);
+        
+        // Parse arguments to check parameters
+        try {
+          const args = JSON.parse(argStr);
+          console.log('Parsed arguments for tool detection:', args);
+          
+          // Check if it has directory_path or similar parameters
+          if (args.directory_path || args.relative_workspace_path) {
+            toolCall.function.name = 'list_dir';
+            console.log('Detected list_dir from directory_path parameter');
+          } 
+          // Check if it has file_path parameter and the path is a directory
+          else if (args.file_path) {
+            // Check if file_path looks like a directory (common indicators)
+            const isDirectory = args.file_path.endsWith('\\') || 
+                               args.file_path.endsWith('/') || 
+                               !args.file_path.includes('.') ||
+                               args.file_path.includes('Documents') ||
+                               args.file_path.includes('Users');
+            
+            if (isDirectory) {
+              toolCall.function.name = 'list_dir';
+              console.log('Detected list_dir from file_path that looks like directory:', args.file_path);
+            } else {
+              toolCall.function.name = 'read_file';
+              console.log('Detected read_file from file_path that looks like file:', args.file_path);
+            }
+          }
+          // Check if it has target_file parameter
+          else if (args.target_file) {
+            toolCall.function.name = 'read_file';
+            console.log('Detected read_file from target_file parameter');
+          }
+        } catch (e) {
+          console.warn('Failed to parse arguments for tool detection:', e);
+          // Fallback to string-based detection
         if (argStr.includes('directory_path') || argStr.includes('relative_workspace_path')) {
           toolCall.function.name = 'list_dir';
+          } else if (argStr.includes('file_path')) {
+            // Check if it looks like a directory path
+            if (argStr.includes('Documents') || argStr.includes('Users') || argStr.includes('\\\\')) {
+              toolCall.function.name = 'list_dir';
+            } else {
+              toolCall.function.name = 'read_file';
+            }
         } else if (argStr.includes('target_file')) {
           toolCall.function.name = 'read_file';
+          }
         }
       }
       
@@ -1772,6 +2007,12 @@ class LMStudioService {
       // Another common variant
       /function_call\s*=\s*({[\s\S]*?})\s*$/m,
       
+      // Pattern for escaped JSON in function_call (common with LM Studio)
+      /function_call\s*:\s*\\?"?\{\\?"id\\?":\s*\\?"([^"\\]+)\\?"?,\s*\\?"name\\?":\s*\\?"([^"\\]+)\\?"?,\s*\\?"arguments\\?":\s*\\?"?\{([^}]*)\}\\?"?\s*\}\\?"?\s*$/m,
+      
+      // Pattern for the exact format seen in the logs: function_call: {"id":"...","name":"...","arguments":"..."}
+      /function_call\s*:\s*(\{(?:[^{}]|\{[^}]*\})*\})\s*$/m,
+      
       // Variant with name and arguments directly
       /function_call\s*:\s*\{\s*"name"\s*:\s*"([^"]+)"\s*,\s*"arguments"\s*:\s*({[\s\S]*?})\s*\}\s*$/m,
       
@@ -1792,6 +2033,16 @@ class LMStudioService {
         console.log(`Function call detected with pattern ${pattern}:`, match[1]);
         
         try {
+          // Handle escaped JSON format first (from LM Studio)
+          if (pattern.source.includes('escaped')) {
+            console.log('Processing escaped JSON format function call');
+            return {
+              id: match[1],
+              name: match[2],
+              arguments: `{${match[3]}}`
+            };
+          }
+          
           // If it's the variant with name and arguments directly
           if (match.length > 2 && pattern.source.includes('"name"')) {
             return {
@@ -1800,19 +2051,31 @@ class LMStudioService {
             };
           }
           
+          // Handle the case where the JSON is in string format with escaped quotes
+          let jsonStr = match[1];
+          if (jsonStr.startsWith('"') && jsonStr.endsWith('"')) {
+            // Remove outer quotes and unescape
+            jsonStr = jsonStr.slice(1, -1).replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+            console.log('Processed escaped JSON string:', jsonStr);
+          }
+          
           // Otherwise, parse the entire JSON
-          const parsedCall = JSON.parse(match[1]);
+          const parsedCall = JSON.parse(jsonStr);
           return parsedCall;
         } catch (error) {
           console.warn('Error parsing function call:', error);
+          console.log('Original match:', match[1]);
+          
           // Try to extract with a more lenient approach
           const nameMatch = match[1].match(/"name"\s*:\s*"([^"]+)"/);
           const argsMatch = match[1].match(/"arguments"\s*:\s*({[\s\S]*?})\s*[,}]/);
+          const idMatch = match[1].match(/"id"\s*:\s*"([^"]+)"/);
           
-          if (nameMatch && argsMatch) {
+          if (nameMatch) {
             return {
+              id: idMatch ? idMatch[1] : `function-call-${Date.now()}`,
               name: nameMatch[1],
-              arguments: argsMatch[1]
+              arguments: argsMatch ? argsMatch[1] : '{}'
             };
           }
         }

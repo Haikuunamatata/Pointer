@@ -14,6 +14,11 @@ export class ToolService {
     // Frontend to backend mappings
     'list_dir': 'list_directory',
     'read_file': 'read_file',
+    'create_file': 'create_file',
+    'edit_file': 'edit_file',
+    'delete_file': 'delete_file',
+    'move_file': 'move_file',
+    'copy_file': 'copy_file',
     'web_search': 'web_search',
     'grep_search': 'grep_search',
     'fetch_webpage': 'fetch_webpage',
@@ -132,6 +137,34 @@ export class ToolService {
         const exitCode = result.return_code !== undefined ? result.return_code : 'unknown';
         const executionTime = result.execution_time ? `${result.execution_time}s` : 'unknown';
         return `Ran command [${command}]: ${result.success ? 'Success' : 'Failed'} (exit code: ${exitCode}, time: ${executionTime})`;
+      }
+      else if (toolName === 'create_file') {
+        const path = params.file_path || '';
+        const lines = result.lines || 'unknown';
+        const size = result.size || 'unknown';
+        return `Created file [${path}]: ${result.success ? 'Success' : 'Failed'} (${lines} lines, ${size} bytes)`;
+      }
+      else if (toolName === 'edit_file') {
+        const path = params.file_path || '';
+        const operation = result.operation || 'edit';
+        const originalLines = result.original_lines || 'unknown';
+        const newLines = result.new_lines || 'unknown';
+        return `Edited file [${path}]: ${result.success ? 'Success' : 'Failed'} (${operation}, ${originalLines}→${newLines} lines)`;
+      }
+      else if (toolName === 'delete_file') {
+        const path = params.file_path || '';
+        return `Deleted file [${path}]: ${result.success ? 'Success' : 'Failed'}`;
+      }
+      else if (toolName === 'move_file') {
+        const source = params.source_path || '';
+        const dest = params.destination_path || '';
+        return `Moved file [${source} → ${dest}]: ${result.success ? 'Success' : 'Failed'}`;
+      }
+      else if (toolName === 'copy_file') {
+        const source = params.source_path || '';
+        const dest = params.destination_path || '';
+        const size = result.size || 'unknown';
+        return `Copied file [${source} → ${dest}]: ${result.success ? 'Success' : 'Failed'} (${size} bytes)`;
       }
       // Default format for other tools
       return `Used ${toolName.replace(/_/g, ' ')}: ${result.success === false ? 'Failed' : 'Success'}`;

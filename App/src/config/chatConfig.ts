@@ -27,6 +27,16 @@ export const INITIAL_SYSTEM_MESSAGE: ExtendedMessage = {
 
 read_file (read a file's contents): function_call: {"name": "read_file","arguments": {"file_path": "path/to/file","should_read_entire_file": true,"start_line_one_indexed": 1,"end_line_one_indexed_inclusive": 200}}
 
+create_file (create a new file): function_call: {"name": "create_file","arguments": {"file_path": "path/to/newfile.txt","content": "file content here","create_directories": true}}
+
+edit_file (edit an existing file): function_call: {"name": "edit_file","arguments": {"file_path": "path/to/file.txt","start_line": 1,"end_line": 10,"new_content": "replacement content"}}
+
+delete_file (delete a file): function_call: {"name": "delete_file","arguments": {"file_path": "path/to/file.txt"}}
+
+move_file (move/rename a file): function_call: {"name": "move_file","arguments": {"source_path": "old/path.txt","destination_path": "new/path.txt","create_directories": true}}
+
+copy_file (copy a file): function_call: {"name": "copy_file","arguments": {"source_path": "source/file.txt","destination_path": "dest/file.txt","create_directories": true}}
+
 grep_search (search for patterns in files): function_call: {"name": "grep_search","arguments": {"query": "search pattern","include_pattern": "*.ts","exclude_pattern": "node_modules"}}
 
 web_search (search the web for information): function_call: {"name": "web_search","arguments": {"search_term": "your search query","num_results": 3}}
@@ -111,6 +121,16 @@ export const REFRESH_KNOWLEDGE_PROMPT: ExtendedMessage = {
 
 read_file (read a file's contents): function_call: {"name": "read_file","arguments": {"file_path": "path/to/file","should_read_entire_file": true,"start_line_one_indexed": 1,"end_line_one_indexed_inclusive": 200}}
 
+create_file (create a new file): function_call: {"name": "create_file","arguments": {"file_path": "path/to/newfile.txt","content": "file content here","create_directories": true}}
+
+edit_file (edit an existing file): function_call: {"name": "edit_file","arguments": {"file_path": "path/to/file.txt","start_line": 1,"end_line": 10,"new_content": "replacement content"}}
+
+delete_file (delete a file): function_call: {"name": "delete_file","arguments": {"file_path": "path/to/file.txt"}}
+
+move_file (move/rename a file): function_call: {"name": "move_file","arguments": {"source_path": "old/path.txt","destination_path": "new/path.txt","create_directories": true}}
+
+copy_file (copy a file): function_call: {"name": "copy_file","arguments": {"source_path": "source/file.txt","destination_path": "dest/file.txt","create_directories": true}}
+
 grep_search (search for patterns in files): function_call: {"name": "grep_search","arguments": {"query": "search pattern","include_pattern": "*.ts","exclude_pattern": "node_modules"}}
 
 web_search (search the web for information): function_call: {"name": "web_search","arguments": {"search_term": "your search query","num_results": 3}}
@@ -175,15 +195,16 @@ Rules:
 // Prompt to be added after tool call responses
 export const AFTER_TOOL_CALL_PROMPT: ExtendedMessage = {
   role: 'system',
-  content: `/no_think Now that you have the tool call results, please provide a clear and concise response to the original query. 
-Remember to:
-1. Interpret the tool results accurately
-2. Connect the findings directly to the user's question
-3. Be specific and precise in your answer
-4. Do not repeat the raw tool output unless specifically asked
-5. If additional tools are needed, use them immediately rather than suggesting the user do so
-6. **If the user is asking for code modifications**: First explore the codebase with get_codebase_overview, search_codebase, or get_file_overview if you haven't already done so
-7. **Before implementing changes**: Always search for existing patterns and similar implementations in the codebase`,
+// content: `/no_think Now that you have the tool call results, please provide a clear and concise response to the original query. 
+// Remember to:
+// 1. Interpret the tool results accurately
+// 2. Connect the findings directly to the user's question
+// 3. Be specific and precise in your answer
+// 4. Do not repeat the raw tool output unless specifically asked
+// 5. If additional tools are needed, use them immediately rather than suggesting the user do so
+// 6. **If the user is asking for code modifications**: First explore the codebase with get_codebase_overview, search_codebase, or get_file_overview if you haven't already done so
+// 7. **Before implementing changes**: Always search for existing patterns and similar implementations in the codebase`,
+  content: ``,
   attachments: undefined
 };
 
