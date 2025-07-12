@@ -514,16 +514,27 @@ async def get_codebase_overview() -> Dict[str, Any]:
         Dictionary with codebase overview including languages, file counts, frameworks, etc.
     """
     try:
+        # First try the fresh overview endpoint to ensure we get current data
         async with httpx.AsyncClient() as client:
-            response = await client.get("http://localhost:23816/api/codebase/overview")
+            response = await client.get("http://localhost:23816/api/codebase/overview-fresh")
             
             if response.status_code == 200:
-                return response.json()
+                result = response.json()
+                # Add a note that this was a fresh index
+                if "overview" in result:
+                    result["fresh_index"] = True
+                return result
             else:
-                return {
-                    "success": False,
-                    "error": f"Failed to get codebase overview: HTTP {response.status_code}"
-                }
+                # Fallback to regular overview if fresh fails
+                response = await client.get("http://localhost:23816/api/codebase/overview")
+                
+                if response.status_code == 200:
+                    return response.json()
+                else:
+                    return {
+                        "success": False,
+                        "error": f"Failed to get codebase overview: HTTP {response.status_code}"
+                    }
     except Exception as e:
         return {
             "success": False,
@@ -736,6 +747,69 @@ async def get_relevant_codebase_context(query: str, max_files: int = 5) -> Dict[
         return {
             "success": False,
             "error": f"Error getting relevant context: {str(e)}"
+        }
+
+async def force_codebase_reindex() -> Dict[str, Any]:
+    """
+    Force a fresh reindex of the current codebase to ensure up-to-date information.
+    
+    Returns:
+        Dictionary with reindexing results and updated codebase overview
+    """
+    try:
+        async with httpx.AsyncClient() as client:
+            # First clear the cache
+            clear_response = await client.post("http://localhost:23816/api/codebase/clear-cache")
+            
+            if clear_response.status_code == 200:
+                clear_result = clear_response.json()
+                
+                # Then get a fresh overview
+                overview_response = await client.get("http://localhost:23816/api/codebase/overview-fresh")
+                
+                if overview_response.status_code == 200:
+                    overview_result = overview_response.json()
+                    overview_result["cache_cleared"] = True
+                    overview_result["clear_result"] = clear_result
+                    return overview_result
+                else:
+                    return {
+                        "success": False,
+                        "error": f"Failed to get fresh overview after clearing cache: HTTP {overview_response.status_code}"
+                    }
+            else:
+                return {
+                    "success": False,
+                    "error": f"Failed to clear cache: HTTP {clear_response.status_code}"
+                }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Error forcing codebase reindex: {str(e)}"
+        }
+
+async def cleanup_codebase_database() -> Dict[str, Any]:
+    """
+    Clean up stale entries from the codebase database (files that no longer exist).
+    
+    Returns:
+        Dictionary with cleanup results including number of removed files and elements
+    """
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post("http://localhost:23816/api/codebase/cleanup-database")
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                return {
+                    "success": False,
+                    "error": f"Failed to cleanup database: HTTP {response.status_code}"
+                }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Error cleaning up codebase database: {str(e)}"
         }
 
 
@@ -1383,6 +1457,16 @@ TOOL_DEFINITIONS = [
             },
             "required": ["query"]
         }
+    },
+    {
+        "name": "force_codebase_reindex",
+        "description": "Force a fresh reindex of the current codebase to ensure up-to-date information",
+        "parameters": {}
+    },
+    {
+        "name": "cleanup_codebase_database",
+        "description": "Clean up stale entries from the codebase database (files that no longer exist)",
+        "parameters": {}
     }
 ]
 
@@ -1407,4 +1491,6 @@ TOOL_HANDLERS = {
     "get_ai_codebase_context": get_ai_codebase_context,
     "query_codebase_natural_language": query_codebase_natural_language,
     "get_relevant_codebase_context": get_relevant_codebase_context,
+    "force_codebase_reindex": force_codebase_reindex,
+    "cleanup_codebase_database": cleanup_codebase_database,
         } 

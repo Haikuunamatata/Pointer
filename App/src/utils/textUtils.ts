@@ -155,7 +155,8 @@ export function getLanguageFromFilename(filename: string): string {
  */
 export const stripThinkTags = (text: string): string => {
   // Remove <think>...</think> blocks (case insensitive, handles multiline)
-  return text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+  // return text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+  return text;
 };
 
 /**

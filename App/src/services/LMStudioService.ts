@@ -898,26 +898,25 @@ class LMStudioService {
           }
         }
         
-        // Remove all thinking tags and their content
-        let cleanedContent = originalContent.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
         
-        // Remove any incomplete thinking tags
-        if (cleanedContent.includes('<think>')) {
-          const startIndex = cleanedContent.indexOf('<think>');
-          const endIndex = cleanedContent.indexOf('</think>', startIndex);
-          
-          if (endIndex !== -1) {
-            // Remove everything between <think> and </think>
-            cleanedContent = cleanedContent.substring(0, startIndex) + 
-                            cleanedContent.substring(endIndex + 8); // 8 is length of '</think>'
-          } else {
-            // If opening tag without closing tag, remove everything from opening tag onwards
-            cleanedContent = cleanedContent.substring(0, startIndex).trim();
+        
+        // Preserve thinking tags and content - only remove empty or malformed thinking blocks
+        let cleanedContent = originalContent;
+        
+        // Check if content contains thinking tags
+        const hasThinkingTags = /<think>.*?<\/think>/gi.test(originalContent);
+        
+        if (hasThinkingTags) {
+          // Extract thinking content to preserve it
+          const thinkingMatches = originalContent.match(/<think>([\s\S]*?)<\/think>/gi);
+          if (thinkingMatches && thinkingMatches.length > 0) {
+            console.log('Found thinking tags in content, preserving them');
+            
+            // Only remove thinking tags if they contain empty or invalid content
+            // For now, preserve all thinking content as it might contain valid reasoning
+            cleanedContent = originalContent;
           }
         }
-        
-        // Remove any stray </think> tags
-        cleanedContent = cleanedContent.replace(/<\/think>/g, '').trim();
         
         // Now add the function call back if it was present but was removed during cleanup
         if (functionCallData && !cleanedContent.includes('function_call:')) {

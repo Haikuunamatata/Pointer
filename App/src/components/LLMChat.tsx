@@ -2149,6 +2149,8 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         const lastMsgCount = window.lastSavedMessageCount || 0;
         const currentMsgCount = deduplicatedMessages.length;
         
+        console.log(`Message count comparison: current=${currentMsgCount}, last saved=${lastMsgCount}`);
+        
         if (!window.lastSavedMessageCount) {
           // First save of this session, send all messages
           messagesToSend = messagesToSave;
@@ -2156,13 +2158,11 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         } else if (currentMsgCount > lastMsgCount) {
           // Normal append - only send the new messages
           messagesToSend = messagesToSave.slice(lastMsgCount);
-          console.log(`Appending ${messagesToSend.length} new messages`);
+          console.log(`Appending ${messagesToSend.length} new messages (from index ${lastMsgCount})`);
         } else {
-          // No new messages or message count decreased
-          // This shouldn't happen in append-only mode unless there was an edit
-          // Send the last message to ensure it's up to date
-          messagesToSend = messagesToSave.slice(-1);
-          console.log(`No new messages detected, updating last message`);
+          // For any other case, just send all messages - let the backend handle deduplication
+          console.log(`Sending all ${messagesToSave.length} messages to backend`);
+          messagesToSend = messagesToSave;
         }
       }
       
@@ -2181,6 +2181,20 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         edit_index: editIndex,
         overwrite: false // Only use overwrite in special cases
       };
+      
+      // DEBUG: Log what we're sending to backend
+      console.log(`=== SENDING TO BACKEND ===`);
+      console.log(`Chat ID: ${chatId}`);
+      console.log(`Messages to send: ${messagesToSend.length}`);
+      console.log(`is_edit: ${isEdit}`);
+      console.log(`edit_index: ${editIndex}`);
+      console.log(`overwrite: ${false}`);
+      
+      for (let i = 0; i < messagesToSend.length; i++) {
+        const msg = messagesToSend[i];
+        console.log(`  Sending message ${i}: role=${msg.role}, content_length=${msg.content?.length || 0}, content_preview='${msg.content?.substring(0, 100)}...'`);
+      }
+      console.log(`=== END SENDING TO BACKEND ===`);
       
       try {
         // Use AbortController to set a timeout
@@ -2206,9 +2220,16 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         const saveResult = await saveResponse.json();
         
         // Update our saved message count with the actual count from server
-        if (saveResult.message_count) {
-          window.lastSavedMessageCount = saveResult.message_count;
-          console.log(`Updated lastSavedMessageCount to ${saveResult.message_count} from server`);
+        if (saveResult.message_count !== undefined) {
+          const serverCount = saveResult.message_count;
+          const previousCount = window.lastSavedMessageCount || 0;
+          window.lastSavedMessageCount = serverCount;
+          console.log(`Updated lastSavedMessageCount: ${previousCount} -> ${serverCount} (server response)`);
+          
+          // If there's a significant discrepancy, warn about it
+          if (Math.abs(serverCount - deduplicatedMessages.length) > 1) {
+            console.warn(`Message count mismatch: frontend has ${deduplicatedMessages.length}, server reports ${serverCount}`);
+          }
         }
         
         // Check if our save version is still the most recent
@@ -2403,11 +2424,13 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         
         // If we're fetching only new messages, append them to existing messages
         if (!shouldFetchAll && window.lastSavedMessageCount && messages.length > 0) {
-          console.log(`Appending ${deduplicatedMessages.length} new messages to existing messages`);
+          console.log(`Appending ${deduplicatedMessages.length} new messages to existing ${messages.length} messages`);
           setMessages(prevMessages => [...prevMessages, ...deduplicatedMessages]);
           
           // Update our tracking of message count to include the new messages
-          window.lastSavedMessageCount = (window.lastSavedMessageCount || 0) + deduplicatedMessages.length;
+          const newTotalCount = messages.length + deduplicatedMessages.length;
+          window.lastSavedMessageCount = newTotalCount;
+          console.log(`Updated lastSavedMessageCount to ${newTotalCount} after appending new messages`);
       } else {
           // For full loads, only replace if we actually got messages
           if (deduplicatedMessages.length > 0) {
@@ -2422,7 +2445,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
             // Update our tracking of message count for the full load
             window.lastSavedMessageCount = deduplicatedMessages.length;
             
-            console.log(`Loaded chat ${chatId} with ${deduplicatedMessages.length} total messages`);
+            console.log(`Loaded chat ${chatId} with ${deduplicatedMessages.length} total messages, set lastSavedMessageCount to ${deduplicatedMessages.length}`);
           } else {
             // If we got an empty array but requested a full load, initialize with system message
             console.log('Received empty messages array for full load, initializing with system message');
@@ -3240,10 +3263,14 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
           currentContent = content;
           setMessages(prev => {
             const newMessages = [...prev];
-            newMessages[newMessages.length - 1] = { 
-              role: 'assistant',
-              content
-            };
+            // Preserve the original message properties (especially messageId) and only update content
+            const lastMessage = newMessages[newMessages.length - 1];
+            if (lastMessage && lastMessage.role === 'assistant') {
+              newMessages[newMessages.length - 1] = {
+                ...lastMessage,  // Preserve all original properties
+                content  // Only update the content
+              };
+            }
             return newMessages;
           });
 
@@ -3881,7 +3908,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
           // Check for <think> blocks in the content
           const thinkMatch = /<think>([\s\S]*?)<\/think>/g.exec(lastMsg.content);
           if (thinkMatch && thinkMatch[1]) {
-            thinkingContent = thinkMatch[1];
+            thinkingContent = thinkMatch[0];
             console.log('Extracted thinking content to preserve:', thinkingContent.substring(0, 50) + '...');
           }
           
@@ -3928,14 +3955,23 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
                 content: `${thinkingContent}`
               };
               
-              // Replace the current message with thinking content
-              newMessages[lastAssistantIndex] = thinkingMessage;
+              // Replace the current message with thinking content, preserving original properties
+              const originalMessage = newMessages[lastAssistantIndex];
+              newMessages[lastAssistantIndex] = {
+                ...originalMessage,  // Preserve all original properties (especially messageId)
+                content: thinkingMessage.content
+              };
               
               // Add the tool call as a new message
               newMessages.push(updatedAssistantMessage);
             } else {
-              // No thinking content, just update with tool calls
-              newMessages[lastAssistantIndex] = updatedAssistantMessage;
+              // No thinking content, just update with tool calls, preserving original properties
+              const originalMessage = newMessages[lastAssistantIndex];
+              newMessages[lastAssistantIndex] = {
+                ...originalMessage,  // Preserve all original properties (especially messageId)
+                content: updatedAssistantMessage.content,
+                tool_calls: updatedAssistantMessage.tool_calls
+              };
             }
             
             // Save the updated messages immediately
@@ -4397,8 +4433,15 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
             // Update the messages state with the streaming content
             setMessages(prev => {
               const newMessages = [...prev];
-              // Update the last message with the new content
-              newMessages[newMessages.length - 1] = newMessage;
+              // Preserve the original message properties and only update content/tool_calls
+              const lastMessage = newMessages[newMessages.length - 1];
+              if (lastMessage && lastMessage.role === 'assistant') {
+                newMessages[newMessages.length - 1] = {
+                  ...lastMessage,  // Preserve all original properties (especially messageId)
+                  content: newMessage.content,  // Update content
+                  ...(newMessage.tool_calls && { tool_calls: newMessage.tool_calls })  // Update tool_calls if present
+                };
+              }
               
               // Save chat during streaming with proper tool_calls format
               if (currentChatId && (!window.lastContentLength || 

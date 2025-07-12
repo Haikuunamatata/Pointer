@@ -510,9 +510,53 @@ class CodebaseIndexer:
         
         return " ".join(summary_parts)
     
+    def cleanup_stale_database_entries(self) -> Dict[str, int]:
+        """Remove database entries for files that no longer exist."""
+        removed_files = 0
+        removed_elements = 0
+        
+        with sqlite3.connect(self.db_path) as conn:
+            # Get all file paths from database
+            cursor = conn.execute('SELECT path FROM file_metadata')
+            db_files = [row[0] for row in cursor.fetchall()]
+            
+            # Check which files no longer exist
+            stale_files = []
+            for db_file_path in db_files:
+                # Convert relative path back to absolute path
+                if os.path.isabs(db_file_path):
+                    full_path = Path(db_file_path)
+                else:
+                    full_path = self.workspace_path / db_file_path
+                
+                if not full_path.exists() or self.should_ignore_path(full_path):
+                    stale_files.append(db_file_path)
+            
+            # Remove stale entries
+            for stale_file in stale_files:
+                # Remove code elements first (foreign key constraint)
+                cursor = conn.execute('DELETE FROM code_elements WHERE file_path = ?', (stale_file,))
+                removed_elements += cursor.rowcount
+                
+                # Remove file metadata
+                cursor = conn.execute('DELETE FROM file_metadata WHERE path = ?', (stale_file,))
+                removed_files += cursor.rowcount
+            
+            conn.commit()
+        
+        print(f"Database cleanup: Removed {removed_files} stale files and {removed_elements} stale code elements")
+        return {
+            'removed_files': removed_files,
+            'removed_elements': removed_elements,
+            'stale_file_paths': stale_files
+        }
+
     def index_workspace(self, force_reindex: bool = False) -> bool:
         """Index the entire workspace."""
         print(f"Starting indexing of workspace: {self.workspace_path}")
+        
+        # First, clean up stale database entries
+        cleanup_result = self.cleanup_stale_database_entries()
         
         indexed_count = 0
         skipped_count = 0
@@ -536,6 +580,7 @@ class CodebaseIndexer:
             ''', ('overview', json.dumps(asdict(overview)), time.time()))
         
         print(f"Indexing complete: {indexed_count} files indexed, {skipped_count} files skipped")
+        print(f"Cleanup: {cleanup_result['removed_files']} stale files removed from database")
         return True
     
     def search_code_elements(self, query: str, element_types: List[str] = None, limit: int = 50) -> List[Dict]:

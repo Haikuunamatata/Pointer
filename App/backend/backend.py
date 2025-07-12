@@ -81,6 +81,28 @@ async def start_background_indexing(workspace_path: str):
     except Exception as e:
         print(f"Error during background indexing: {e}")
 
+async def auto_reindex_codebase():
+    """Automatically reindex the codebase if needed."""
+    global codebase_indexer
+    
+    try:
+        if codebase_indexer and user_workspace_directory:
+            # Check if workspace has changed
+            if str(codebase_indexer.workspace_path) != user_workspace_directory:
+                print(f"Auto-reindex: Workspace changed, reinitializing with {user_workspace_directory}")
+                codebase_indexer = CodebaseIndexer(user_workspace_directory)
+            
+            # Start background indexing
+            print(f"Auto-reindex: Triggering background reindex for {codebase_indexer.workspace_path}")
+            asyncio.create_task(start_background_indexing(str(codebase_indexer.workspace_path)))
+        elif user_workspace_directory and not codebase_indexer:
+            # Initialize indexer if it doesn't exist
+            print(f"Auto-reindex: Initializing indexer for workspace: {user_workspace_directory}")
+            codebase_indexer = CodebaseIndexer(user_workspace_directory)
+            asyncio.create_task(start_background_indexing(user_workspace_directory))
+    except Exception as e:
+        print(f"Auto-reindex error: {e}")
+
 # Tool calling API endpoints
 class ToolCallRequest(BaseModel):
     tool_name: str
@@ -91,6 +113,9 @@ async def call_tool(request: ToolCallRequest):
     """
     Call a tool with specified parameters and return mock results.
     """
+    # Auto-reindex codebase before tool execution
+    await auto_reindex_codebase()
+    
     print(f"Tool call request: {request.tool_name}, params: {request.params}")
     result = await handle_tool_call(request.tool_name, request.params)
     return result
@@ -106,35 +131,80 @@ async def list_tools():
 @app.get("/api/codebase/overview")
 async def get_codebase_overview():
     """Get a comprehensive overview of the codebase."""
+    global codebase_indexer
+    
     if not codebase_indexer:
         return {"error": "No codebase indexed"}
     
     try:
+        # Auto-reindex before generating overview
+        await auto_reindex_codebase()
+        
+        # Add debugging information
+        print(f"Codebase indexer workspace path: {codebase_indexer.workspace_path}")
+        print(f"Current base_directory: {base_directory}")
+        print(f"Current user_workspace_directory: {user_workspace_directory}")
+        
+        # Ensure we're using the correct workspace path
+        if user_workspace_directory and str(codebase_indexer.workspace_path) != user_workspace_directory:
+            print(f"Warning: Codebase indexer workspace ({codebase_indexer.workspace_path}) doesn't match user workspace ({user_workspace_directory})")
+            # Reinitialize the codebase indexer with the correct workspace
+            try:
+                codebase_indexer = CodebaseIndexer(user_workspace_directory)
+                print(f"Reinitialized codebase indexer with user workspace: {user_workspace_directory}")
+            except Exception as e:
+                print(f"Failed to reinitialize codebase indexer: {e}")
+                return {"error": f"Workspace mismatch and failed to reinitialize: {str(e)}"}
+        
+        # Force a fresh index of the current workspace
+        print(f"Force reindexing workspace: {codebase_indexer.workspace_path}")
+        try:
+            # Run indexing synchronously to ensure it completes before generating overview
+            codebase_indexer.index_workspace(force_reindex=True)
+            print(f"Successfully reindexed workspace with {codebase_indexer.get_indexing_info().get('total_indexed_files', 0)} files")
+        except Exception as e:
+            print(f"Error during reindexing: {e}")
+            # Continue with existing data if reindexing fails
+        
         overview = codebase_indexer.generate_project_overview()
         summary = codebase_indexer.get_project_summary()
         
         return {
             "overview": overview.__dict__,
             "summary": summary,
-            "workspace_path": str(codebase_indexer.workspace_path)
+            "workspace_path": str(codebase_indexer.workspace_path),
+            "user_workspace": user_workspace_directory,
+            "base_directory": base_directory,
+            "indexing_info": codebase_indexer.get_indexing_info()
         }
     except Exception as e:
+        print(f"Error in get_codebase_overview: {str(e)}")
         return {"error": str(e)}
 
 @app.get("/api/codebase/search")
 async def search_codebase(query: str, element_types: str = None, limit: int = 50):
     """Search for code elements in the indexed codebase."""
+    global codebase_indexer
+    
     if not codebase_indexer:
         return {"error": "No codebase indexed"}
     
     try:
+        # Check workspace mismatch and fix if needed
+        if user_workspace_directory and str(codebase_indexer.workspace_path) != user_workspace_directory:
+            print(f"Search: Workspace mismatch detected. Reinitializing with user workspace: {user_workspace_directory}")
+            codebase_indexer = CodebaseIndexer(user_workspace_directory)
+            # Force reindexing for fresh results
+            codebase_indexer.index_workspace(force_reindex=True)
+        
         element_types_list = element_types.split(',') if element_types else None
         results = codebase_indexer.search_code_elements(query, element_types_list, limit)
         
         return {
             "query": query,
             "results": results,
-            "total": len(results)
+            "total": len(results),
+            "workspace_path": str(codebase_indexer.workspace_path)
         }
     except Exception as e:
         return {"error": str(e)}
@@ -142,10 +212,19 @@ async def search_codebase(query: str, element_types: str = None, limit: int = 50
 @app.get("/api/codebase/file-overview")
 async def get_file_overview(file_path: str):
     """Get overview of a specific file including its code elements."""
+    global codebase_indexer
+    
     if not codebase_indexer:
         return {"error": "No codebase indexed"}
     
     try:
+        # Check workspace mismatch and fix if needed
+        if user_workspace_directory and str(codebase_indexer.workspace_path) != user_workspace_directory:
+            print(f"File overview: Workspace mismatch detected. Reinitializing with user workspace: {user_workspace_directory}")
+            codebase_indexer = CodebaseIndexer(user_workspace_directory)
+            # Start indexing in background
+            asyncio.create_task(start_background_indexing(user_workspace_directory))
+        
         overview = codebase_indexer.get_file_overview(file_path)
         if overview:
             return overview
@@ -157,10 +236,17 @@ async def get_file_overview(file_path: str):
 @app.post("/api/codebase/reindex")
 async def reindex_codebase(force: bool = False):
     """Trigger a reindex of the codebase."""
+    global codebase_indexer
+    
     if not codebase_indexer:
         return {"error": "No codebase indexer initialized"}
     
     try:
+        # Check if we need to reinitialize with the correct workspace
+        if user_workspace_directory and str(codebase_indexer.workspace_path) != user_workspace_directory:
+            print(f"Reindexing: Workspace mismatch detected. Reinitializing with user workspace: {user_workspace_directory}")
+            codebase_indexer = CodebaseIndexer(user_workspace_directory)
+        
         # Start reindexing in background
         import threading
         def run_reindexing():
@@ -169,7 +255,12 @@ async def reindex_codebase(force: bool = False):
         thread = threading.Thread(target=run_reindexing, daemon=True)
         thread.start()
         
-        return {"message": "Reindexing started in background", "force": force}
+        return {
+            "message": "Reindexing started in background", 
+            "force": force,
+            "workspace_path": str(codebase_indexer.workspace_path),
+            "user_workspace": user_workspace_directory
+        }
     except Exception as e:
         return {"error": str(e)}
 
@@ -181,6 +272,15 @@ async def get_codebase_indexing_info():
     
     try:
         info = codebase_indexer.get_indexing_info()
+        
+        # Add additional debugging information
+        info.update({
+            "codebase_indexer_workspace": str(codebase_indexer.workspace_path) if codebase_indexer else None,
+            "user_workspace_directory": user_workspace_directory,
+            "base_directory": base_directory,
+            "workspace_mismatch": user_workspace_directory and codebase_indexer and str(codebase_indexer.workspace_path) != user_workspace_directory
+        })
+        
         return info
     except Exception as e:
         return {"error": str(e)}
@@ -197,25 +297,164 @@ async def cleanup_old_codebase_cache():
     except Exception as e:
         return {"error": str(e)}
 
-@app.get("/api/codebase/ai-context")
-async def get_ai_context_summary():
-    """Get a comprehensive AI-friendly summary of the codebase."""
+@app.post("/api/codebase/clear-cache")
+async def clear_codebase_cache():
+    """Clear the codebase cache and force a fresh index."""
+    global codebase_indexer
+    
     if not codebase_indexer:
         return {"error": "No codebase indexer initialized"}
     
     try:
+        # Get the current workspace path
+        workspace_path = str(codebase_indexer.workspace_path)
+        
+        # Clear the cache by reinitializing the indexer
+        codebase_indexer = CodebaseIndexer(workspace_path)
+        
+        # Force a fresh index
+        success = codebase_indexer.index_workspace(force_reindex=True)
+        
+        if success:
+            indexing_info = codebase_indexer.get_indexing_info()
+            return {
+                "success": True,
+                "message": f"Cache cleared and workspace reindexed. Found {indexing_info.get('total_indexed_files', 0)} files.",
+                "workspace_path": workspace_path,
+                "indexing_info": indexing_info
+            }
+        else:
+            return {"error": "Failed to reindex workspace after clearing cache"}
+    except Exception as e:
+        print(f"Error clearing codebase cache: {str(e)}")
+        return {"error": str(e)}
+
+@app.post("/api/codebase/cleanup-database")
+async def cleanup_codebase_database():
+    """Clean up stale entries from the codebase database."""
+    global codebase_indexer
+    
+    if not codebase_indexer:
+        return {"error": "No codebase indexer initialized"}
+    
+    try:
+        # Check workspace mismatch and fix if needed
+        if user_workspace_directory and str(codebase_indexer.workspace_path) != user_workspace_directory:
+            print(f"Database cleanup: Workspace mismatch detected. Reinitializing with user workspace: {user_workspace_directory}")
+            codebase_indexer = CodebaseIndexer(user_workspace_directory)
+        
+        # Clean up stale database entries
+        cleanup_result = codebase_indexer.cleanup_stale_database_entries()
+        
+        # Get updated indexing info
+        indexing_info = codebase_indexer.get_indexing_info()
+        
+        return {
+            "success": True,
+            "message": f"Database cleanup completed. Removed {cleanup_result['removed_files']} stale files and {cleanup_result['removed_elements']} stale code elements.",
+            "cleanup_result": cleanup_result,
+            "indexing_info": indexing_info,
+            "workspace_path": str(codebase_indexer.workspace_path)
+        }
+    except Exception as e:
+        print(f"Error cleaning up codebase database: {str(e)}")
+        return {"error": str(e)}
+
+@app.get("/api/codebase/ai-context")
+async def get_ai_context_summary():
+    """Get a comprehensive AI-friendly summary of the codebase."""
+    global codebase_indexer
+    
+    if not codebase_indexer:
+        return {"error": "No codebase indexer initialized"}
+    
+    try:
+        # Check workspace mismatch and fix if needed
+        if user_workspace_directory and str(codebase_indexer.workspace_path) != user_workspace_directory:
+            print(f"AI context: Workspace mismatch detected. Reinitializing with user workspace: {user_workspace_directory}")
+            codebase_indexer = CodebaseIndexer(user_workspace_directory)
+            # Start indexing in background
+            asyncio.create_task(start_background_indexing(user_workspace_directory))
+        
         context = codebase_indexer.get_ai_context_summary()
+        context.update({
+            "user_workspace": user_workspace_directory,
+            "workspace_mismatch": user_workspace_directory and str(codebase_indexer.workspace_path) != user_workspace_directory
+        })
         return context
     except Exception as e:
+        return {"error": str(e)}
+
+@app.get("/api/codebase/workspace-status")
+async def get_workspace_status():
+    """Get the current workspace status and any mismatches."""
+    return {
+        "codebase_indexer_workspace": str(codebase_indexer.workspace_path) if codebase_indexer else None,
+        "user_workspace_directory": user_workspace_directory,
+        "base_directory": base_directory,
+        "workspace_mismatch": user_workspace_directory and codebase_indexer and str(codebase_indexer.workspace_path) != user_workspace_directory,
+        "has_codebase_indexer": codebase_indexer is not None
+    }
+
+@app.get("/api/codebase/overview-fresh")
+async def get_codebase_overview_fresh():
+    """Get a comprehensive overview of the codebase with forced fresh indexing."""
+    global codebase_indexer
+    
+    if not codebase_indexer:
+        return {"error": "No codebase indexer initialized"}
+    
+    try:
+        # Add debugging information
+        print(f"Fresh overview requested for workspace: {codebase_indexer.workspace_path}")
+        
+        # Ensure we're using the correct workspace path
+        if user_workspace_directory and str(codebase_indexer.workspace_path) != user_workspace_directory:
+            print(f"Workspace mismatch detected. Reinitializing with user workspace: {user_workspace_directory}")
+            codebase_indexer = CodebaseIndexer(user_workspace_directory)
+        
+        # Force a complete fresh index
+        print(f"Starting fresh indexing of workspace: {codebase_indexer.workspace_path}")
+        success = codebase_indexer.index_workspace(force_reindex=True)
+        
+        if not success:
+            return {"error": "Failed to reindex workspace"}
+        
+        indexing_info = codebase_indexer.get_indexing_info()
+        overview = codebase_indexer.generate_project_overview()
+        summary = codebase_indexer.get_project_summary()
+        
+        print(f"Fresh indexing completed. Found {indexing_info.get('total_indexed_files', 0)} files")
+        
+        return {
+            "overview": overview.__dict__,
+            "summary": summary,
+            "workspace_path": str(codebase_indexer.workspace_path),
+            "user_workspace": user_workspace_directory,
+            "base_directory": base_directory,
+            "indexing_info": indexing_info,
+            "fresh_index": True
+        }
+    except Exception as e:
+        print(f"Error in get_codebase_overview_fresh: {str(e)}")
         return {"error": str(e)}
 
 @app.post("/api/codebase/query")
 async def query_codebase_natural_language(request: dict):
     """Answer natural language questions about the codebase."""
+    global codebase_indexer
+    
     if not codebase_indexer:
         return {"error": "No codebase indexer initialized"}
     
     try:
+        # Check workspace mismatch and fix if needed
+        if user_workspace_directory and str(codebase_indexer.workspace_path) != user_workspace_directory:
+            print(f"Query: Workspace mismatch detected. Reinitializing with user workspace: {user_workspace_directory}")
+            codebase_indexer = CodebaseIndexer(user_workspace_directory)
+            # Start indexing in background
+            asyncio.create_task(start_background_indexing(user_workspace_directory))
+        
         query = request.get("query", "")
         if not query:
             return {"error": "No query provided"}
@@ -228,10 +467,19 @@ async def query_codebase_natural_language(request: dict):
 @app.post("/api/codebase/context")
 async def get_relevant_context(request: dict):
     """Get relevant code context for a specific query or task."""
+    global codebase_indexer
+    
     if not codebase_indexer:
         return {"error": "No codebase indexer initialized"}
     
     try:
+        # Check workspace mismatch and fix if needed
+        if user_workspace_directory and str(codebase_indexer.workspace_path) != user_workspace_directory:
+            print(f"Context: Workspace mismatch detected. Reinitializing with user workspace: {user_workspace_directory}")
+            codebase_indexer = CodebaseIndexer(user_workspace_directory)
+            # Start indexing in background
+            asyncio.create_task(start_background_indexing(user_workspace_directory))
+        
         query = request.get("query", "")
         max_files = request.get("max_files", 5)
         
@@ -246,10 +494,19 @@ async def get_relevant_context(request: dict):
 @app.get("/api/codebase/chat-context")
 async def get_codebase_chat_context():
     """Get a condensed codebase context suitable for chat system messages."""
+    global codebase_indexer
+    
     if not codebase_indexer:
         return {"error": "No codebase indexer initialized", "context": ""}
     
     try:
+        # Check workspace mismatch and fix if needed
+        if user_workspace_directory and str(codebase_indexer.workspace_path) != user_workspace_directory:
+            print(f"Chat context: Workspace mismatch detected. Reinitializing with user workspace: {user_workspace_directory}")
+            codebase_indexer = CodebaseIndexer(user_workspace_directory)
+            # Start indexing in background
+            asyncio.create_task(start_background_indexing(user_workspace_directory))
+        
         # Get basic project info
         overview = codebase_indexer.generate_project_overview()
         summary = codebase_indexer.get_project_summary()
@@ -311,6 +568,7 @@ async def get_codebase_chat_context():
         return {
             "context": context_text,
             "workspace_path": str(codebase_indexer.workspace_path),
+            "user_workspace": user_workspace_directory,
             "summary": summary
         }
     except Exception as e:
@@ -413,6 +671,42 @@ class CreateDirectoryRequest(BaseModel):
 
 class PathRequest(BaseModel):
     path: str
+
+@app.post("/api/codebase/set-workspace")
+async def set_codebase_workspace(request: PathRequest):
+    """Set the workspace for codebase indexing and reinitialize the indexer."""
+    global codebase_indexer
+    
+    try:
+        if not request.path:
+            return {"error": "No workspace path provided"}
+            
+        if not os.path.exists(request.path):
+            return {"error": f"Workspace path does not exist: {request.path}"}
+            
+        if not os.path.isdir(request.path):
+            return {"error": f"Workspace path is not a directory: {request.path}"}
+        
+        # Set the user workspace directory
+        set_user_workspace_directory(request.path)
+        
+        # Reinitialize the codebase indexer with the new workspace
+        codebase_indexer = CodebaseIndexer(request.path)
+        
+        # Start immediate indexing in background
+        print(f"Auto-reindex: Starting immediate indexing for new codebase workspace: {request.path}")
+        asyncio.create_task(start_background_indexing(request.path))
+        
+        print(f"Set codebase workspace to: {request.path}")
+        
+        return {
+            "success": True,
+            "workspace_path": request.path,
+            "message": f"Codebase indexer reinitialized with workspace: {request.path}"
+        }
+    except Exception as e:
+        print(f"Error setting codebase workspace: {str(e)}")
+        return {"error": str(e)}
 
 class RenameRequest(BaseModel):
     path: str
@@ -658,10 +952,11 @@ async def open_directory():
         # Also set as user workspace directory
         set_user_workspace_directory(path)
         
-        # Initialize codebase indexer
+        # Initialize codebase indexer and start immediate indexing
         try:
             codebase_indexer = CodebaseIndexer(path)
-            # Start indexing in background
+            # Start immediate indexing in background
+            print(f"Auto-reindex: Starting immediate indexing for new workspace: {path}")
             asyncio.create_task(start_background_indexing(path))
             print(f"Started codebase indexing for: {path}")
         except Exception as e:
@@ -884,10 +1179,11 @@ async def open_specific_directory(request: PathRequest):
     # Also set this as the user workspace directory
     set_user_workspace_directory(request.path)
     
-    # Initialize codebase indexer
+    # Initialize codebase indexer and start immediate indexing
     try:
         codebase_indexer = CodebaseIndexer(request.path)
-        # Start indexing in background
+        # Start immediate indexing in background
+        print(f"Auto-reindex: Starting immediate indexing for new workspace: {request.path}")
         asyncio.create_task(start_background_indexing(request.path))
         print(f"Started codebase indexing for: {request.path}")
     except Exception as e:
@@ -1180,13 +1476,35 @@ def is_partial_message(msg1, msg2):
     content1 = msg1.get("content", "")
     content2 = msg2.get("content", "")
     
-    # If content1 is a substring of content2, it's a partial message
-    if content1 and content2 and content1 != content2 and content1 in content2:
-        return True
+    # Both contents must be non-empty strings
+    if not content1 or not content2 or content1 == content2:
+        return False
+    
+    # CRITICAL FIX: Only consider it partial if content1 is a proper prefix of content2
+    # AND the new content is significantly longer AND starts with the old content
+    if content2.startswith(content1) and len(content2) > len(content1):
+        # Additional safety checks:
+        # 1. The new content should be significantly longer (at least 100% longer)
+        # 2. The old content should be substantial (not just a few characters)
+        # 3. The new content should not contain the old content in the middle
         
-    # Special case for think blocks - if both start with <think> and one is longer
+        length_ratio = len(content2) / len(content1) if len(content1) > 0 else float('inf')
+        
+        # For longer messages, require 2x length ratio
+        if len(content1) >= 100 and length_ratio >= 2.0:
+            return True
+        
+        # For medium messages, require 1.5x length ratio
+        elif len(content1) >= 50 and length_ratio >= 1.5:
+            return True
+        
+        # For very short messages, require 3x length ratio to avoid false positives
+        elif len(content1) < 50 and length_ratio >= 3.0:
+            return True
+    
+    # Special case for think blocks - only if they start the same and new one is much longer
     if (content1.startswith("<think>") and content2.startswith("<think>") and 
-        len(content2) > len(content1)):
+        len(content2) > len(content1) * 2.0):  # Increased threshold
         return True
     
     return False
@@ -1200,11 +1518,26 @@ async def save_chat(chat_id: str, request: ChatMessage):
     - Edited messages replace the specified message and remove all subsequent messages
     - Setting overwrite=True will completely replace the chat (only for migrations or emergency fixes)
     """
+    # Auto-reindex codebase on every chat message
+    await auto_reindex_codebase()
+    
     try:
         chats_dir = get_chats_directory()
         chats_dir.mkdir(parents=True, exist_ok=True)
         
         chat_file = chats_dir / f"{chat_id}.json"
+        
+        # DEBUG: Log incoming request details
+        print(f"=== SAVE CHAT REQUEST ===")
+        print(f"Chat ID: {chat_id}")
+        print(f"Request messages count: {len(request.messages)}")
+        print(f"is_edit: {request.is_edit}")
+        print(f"edit_index: {request.edit_index}")
+        print(f"overwrite: {request.overwrite}")
+        
+        # Log each incoming message
+        for i, msg in enumerate(request.messages):
+            print(f"  Incoming message {i}: role={msg.get('role')}, content_length={len(msg.get('content', ''))}, content_preview='{msg.get('content', '')[:100]}...'")
         
         # If this is a full overwrite request, simply write the new messages
         if request.overwrite:
@@ -1232,6 +1565,7 @@ async def save_chat(chat_id: str, request: ChatMessage):
             try:
                 with open(chat_file, 'r', encoding='utf-8') as f:
                     chat_data = json.load(f)
+                print(f"Loaded existing chat with {len(chat_data.get('messages', []))} messages")
             except json.JSONDecodeError:
                 # Handle corrupted file
                 print(f"Error: Chat file {chat_id}.json is corrupted, creating new chat")
@@ -1245,6 +1579,13 @@ async def save_chat(chat_id: str, request: ChatMessage):
                 "createdAt": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),
                 "messages": []
             }
+            print(f"Created new chat data")
+        
+        # DEBUG: Log current chat state before processing
+        print(f"Current chat has {len(chat_data['messages'])} messages")
+        if len(chat_data["messages"]) > 0:
+            print(f"Last message role: {chat_data['messages'][-1].get('role')}")
+            print(f"Last message content length: {len(chat_data['messages'][-1].get('content', ''))}")
         
         # Handle message editing (replace message at index and truncate)
         if request.is_edit and request.edit_index >= 0:
@@ -1261,6 +1602,11 @@ async def save_chat(chat_id: str, request: ChatMessage):
                 print(f"Invalid edit index {request.edit_index}, appending instead")
                 operation = "append"
         else:
+            # DEBUG: Log what the frontend is sending
+            print(f"Frontend sent {len(request.messages)} messages (is_streaming_update={request.is_streaming_update}):")
+            for i, msg in enumerate(request.messages):
+                print(f"  Request message {i}: role={msg.get('role')}, content_length={len(msg.get('content', ''))}, content_preview='{msg.get('content', '')[:100]}...'")
+            
             # Check for duplicate tool responses before appending
             new_messages = []
             existing_tool_call_ids = set()
@@ -1282,93 +1628,38 @@ async def save_chat(chat_id: str, request: ChatMessage):
                 # For other message types, or if it's a new tool response, add it
                 new_messages.append(msg)
             
-            # Before appending, check for replaceable partial messages
-            # Handle incremental assistant messages directly during saving
-            if new_messages and len(new_messages) == 1 and new_messages[0].get("role") == "assistant" and not new_messages[0].get("tool_calls"):
-                new_content = new_messages[0].get("content", "")
-                replaced = False
-                
-                # Look for partial messages to replace
-                for i in range(len(chat_data["messages"]) - 1, -1, -1):
-                    existing_msg = chat_data["messages"][i]
-                    
-                    # Only check recent assistant messages without tool calls
-                    if existing_msg.get("role") == "assistant" and not existing_msg.get("tool_calls"):
-                        existing_content = existing_msg.get("content", "")
-                        
-                        # If the existing message is a partial version of the new one
-                        # or new message is a continuation of the existing one
-                        if is_partial_message(existing_msg, new_messages[0]):
-                            
-                            # Replace the existing message with the new one
-                            chat_data["messages"][i] = new_messages[0]
-                            print(f"Replaced partial assistant message at index {i} with more complete version")
-                            replaced = True
-                            break
-                
-                # Only append if we didn't replace an existing message
-                if not replaced:
-                    chat_data["messages"].extend(new_messages)
-                    print(f"Appended {len(new_messages)} new messages to chat {chat_id}")
-            else:
-                # Regular append for non-assistant messages or multiple messages
-                chat_data["messages"].extend(new_messages)
-                print(f"Appended {len(new_messages)} messages to chat {chat_id}, total now: {len(chat_data['messages'])}")
-            
+            # SIMPLIFIED: Just append all messages normally - no special streaming logic
+            print(f"Appending {len(new_messages)} messages to chat {chat_id}")
+            chat_data["messages"].extend(new_messages)
             operation = "append"
         
         # Update chat name if provided in the first message
         if request.messages and len(request.messages) > 0 and 'name' in request.messages[0]:
             chat_data["name"] = request.messages[0]["name"]
         
-        # Deduplicate assistant messages with identical or partial content
-        # This is now our fallback mechanism if the saving process didn't catch all partials
+        # Log the current state for debugging
+        if len(chat_data["messages"]) > 0:
+            print(f"Chat has {len(chat_data['messages'])} messages. Last message role: {chat_data['messages'][-1].get('role')}")
+            if len(chat_data["messages"]) > 1:
+                print(f"Second-to-last message role: {chat_data['messages'][-2].get('role')}")
+        
+        # SIMPLIFIED: Only remove exact duplicates - no more aggressive partial message deduplication
+        # The main replacement logic above should handle streaming updates correctly
         deduplicated_messages = []
-        i = 0
+        seen_exact_messages = set()
+        
+        for i, msg in enumerate(chat_data["messages"]):
+            # Create a simple hash for exact duplicate detection
+            msg_hash = f"{msg.get('role', '')}:{msg.get('content', '')[:200]}:{msg.get('tool_call_id', '')}:{len(msg.get('tool_calls', []))}"
+            
+            # Only remove exact duplicates
+            if msg_hash not in seen_exact_messages:
+                deduplicated_messages.append(msg)
+                seen_exact_messages.add(msg_hash)
+            else:
+                print(f"Removed exact duplicate message at index {i}")
 
-        while i < len(chat_data["messages"]):
-            current_msg = chat_data["messages"][i]
-            
-            # Always keep non-assistant messages or assistant messages with tool calls
-            if current_msg.get("role") != "assistant" or current_msg.get("tool_calls"):
-                deduplicated_messages.append(current_msg)
-                i += 1
-                continue
-            
-            # For assistant messages, find the most complete version
-            most_complete_idx = i
-            most_complete_msg = current_msg
-            
-            # Look ahead for more complete versions of this message
-            j = i + 1
-            while j < len(chat_data["messages"]):
-                next_msg = chat_data["messages"][j]
-                
-                # If the next message is a more complete version of our current message
-                if is_partial_message(most_complete_msg, next_msg):
-                    most_complete_idx = j
-                    most_complete_msg = next_msg
-                # If our current message is a more complete version of the next message
-                elif is_partial_message(next_msg, most_complete_msg):
-                    # Skip this message when we get to it
-                    pass
-                else:
-                    # Not related messages
-                    j += 1
-                    continue
-                    
-                j += 1
-            
-            # If we found a more complete version, skip to that message
-            if most_complete_idx > i:
-                print(f"Skipping partial message at index {i}, using more complete version at {most_complete_idx}")
-                i = most_complete_idx
-            
-            # Add the most complete message
-            deduplicated_messages.append(most_complete_msg)
-            i += 1
-
-        print(f"After deduplication: {len(deduplicated_messages)} messages")
+        print(f"After simple deduplication: {len(deduplicated_messages)} messages (removed {len(chat_data['messages']) - len(deduplicated_messages)} exact duplicates)")
 
         # Update the chat data with deduplicated messages
         chat_data["messages"] = deduplicated_messages
@@ -1377,7 +1668,11 @@ async def save_chat(chat_id: str, request: ChatMessage):
         with open(chat_file, 'w', encoding='utf-8') as f:
             json.dump(chat_data, f, indent=2)
         
-        return {'success': True, 'operation': operation, 'message_count': len(chat_data["messages"])}
+        final_count = len(chat_data["messages"])
+        print(f"Chat {chat_id} saved successfully: {final_count} total messages, operation: {operation}")
+        print(f"=== END SAVE CHAT REQUEST ===")
+        
+        return {'success': True, 'operation': operation, 'message_count': final_count}
     except Exception as e:
         print(f"Error saving chat {chat_id}: {e}")
         return JSONResponse(
@@ -1808,6 +2103,9 @@ async def set_workspace_directory(request: PathRequest):
         
         # Set the user workspace directory
         if set_user_workspace_directory(request.path):
+            # Auto-reindex the new workspace
+            await auto_reindex_codebase()
+            
             return {
                 "success": True, 
                 "workspace": user_workspace_directory
