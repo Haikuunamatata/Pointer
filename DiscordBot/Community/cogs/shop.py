@@ -425,7 +425,7 @@ class Shop(commands.Cog):
             )
         
         # Create and send the view
-        view = self.ShopView(self)
+        view = ShopView(self)
         await interaction.followup.send(embed=embed, view=view)
 
     @app_commands.command(name="inventory", description="View your or another user's inventory")
