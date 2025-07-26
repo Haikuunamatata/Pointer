@@ -248,8 +248,20 @@ export const extractCodeBlocks = (content: string) => {
         startLine = parseInt(lineEditMatch[1], 10);
         endLine = parseInt(lineEditMatch[2], 10);
         filename = lineEditMatch[3];
-        isLineEdit = true;
-        console.log(`Found line-specific edit for ${filename}, lines ${startLine}-${endLine}`);
+        
+        // Validate line numbers
+        if (startLine < 1 || endLine < 1) {
+          console.warn(`Invalid line numbers: ${startLine}-${endLine}. Line numbers must be >= 1`);
+          startLine = undefined;
+          endLine = undefined;
+        } else if (startLine > endLine) {
+          console.warn(`Invalid line range: ${startLine}-${endLine}. Start line must be <= end line`);
+          startLine = undefined;
+          endLine = undefined;
+        } else {
+          isLineEdit = true;
+          console.log(`Found line-specific edit for ${filename}, lines ${startLine}-${endLine} (inclusive)`);
+        }
       }
     }
     

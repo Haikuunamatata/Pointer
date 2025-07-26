@@ -1468,46 +1468,19 @@ class ChatMessage(BaseModel):
 
 def is_partial_message(msg1, msg2):
     """Check if msg1 is a partial/incomplete version of msg2"""
-    # Only compare assistant messages without tool calls
-    if (msg1.get("role") != "assistant" or msg2.get("role") != "assistant" or
-        msg1.get("tool_calls") or msg2.get("tool_calls")):
-        return False
+    # DISABLED: This function was causing legitimate messages to be replaced
+    # The aggressive partial message detection was incorrectly identifying 
+    # complete messages as partial versions of other messages
     
-    content1 = msg1.get("content", "")
-    content2 = msg2.get("content", "")
-    
-    # Both contents must be non-empty strings
-    if not content1 or not content2 or content1 == content2:
-        return False
-    
-    # CRITICAL FIX: Only consider it partial if content1 is a proper prefix of content2
-    # AND the new content is significantly longer AND starts with the old content
-    if content2.startswith(content1) and len(content2) > len(content1):
-        # Additional safety checks:
-        # 1. The new content should be significantly longer (at least 100% longer)
-        # 2. The old content should be substantial (not just a few characters)
-        # 3. The new content should not contain the old content in the middle
-        
-        length_ratio = len(content2) / len(content1) if len(content1) > 0 else float('inf')
-        
-        # For longer messages, require 2x length ratio
-        if len(content1) >= 100 and length_ratio >= 2.0:
-            return True
-        
-        # For medium messages, require 1.5x length ratio
-        elif len(content1) >= 50 and length_ratio >= 1.5:
-            return True
-        
-        # For very short messages, require 3x length ratio to avoid false positives
-        elif len(content1) < 50 and length_ratio >= 3.0:
-            return True
-    
-    # Special case for think blocks - only if they start the same and new one is much longer
-    if (content1.startswith("<think>") and content2.startswith("<think>") and 
-        len(content2) > len(content1) * 2.0):  # Increased threshold
-        return True
-    
+    # Only allow very specific cases where we're absolutely certain
+    # For now, disable all partial message detection to prevent message loss
     return False
+    
+    # TODO: If partial message detection is needed in the future,
+    # implement a much more conservative approach that requires:
+    # 1. Identical message IDs or timestamps within seconds
+    # 2. Exact prefix matching with significant length differences
+    # 3. User confirmation for any message replacement
 
 @app.post("/chats/{chat_id}")
 async def save_chat(chat_id: str, request: ChatMessage):
@@ -1518,10 +1491,10 @@ async def save_chat(chat_id: str, request: ChatMessage):
     - Edited messages replace the specified message and remove all subsequent messages
     - Setting overwrite=True will completely replace the chat (only for migrations or emergency fixes)
     """
-    # Auto-reindex codebase on every chat message
-    await auto_reindex_codebase()
-    
     try:
+        # Auto-reindex codebase on every chat message
+        await auto_reindex_codebase()
+        
         chats_dir = get_chats_directory()
         chats_dir.mkdir(parents=True, exist_ok=True)
         
@@ -1535,8 +1508,16 @@ async def save_chat(chat_id: str, request: ChatMessage):
         print(f"edit_index: {request.edit_index}")
         print(f"overwrite: {request.overwrite}")
         
-        # Log each incoming message
+        # Validate incoming messages structure
+        if not isinstance(request.messages, list):
+            raise ValueError("Request messages must be a list")
+        
+        # Log each incoming message with validation
         for i, msg in enumerate(request.messages):
+            if not isinstance(msg, dict):
+                raise ValueError(f"Message {i} must be a dictionary")
+            if 'role' not in msg:
+                raise ValueError(f"Message {i} missing required 'role' field")
             print(f"  Incoming message {i}: role={msg.get('role')}, content_length={len(msg.get('content', ''))}, content_preview='{msg.get('content', '')[:100]}...'")
         
         # If this is a full overwrite request, simply write the new messages
@@ -1566,9 +1547,12 @@ async def save_chat(chat_id: str, request: ChatMessage):
                 with open(chat_file, 'r', encoding='utf-8') as f:
                     chat_data = json.load(f)
                 print(f"Loaded existing chat with {len(chat_data.get('messages', []))} messages")
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as e:
                 # Handle corrupted file
-                print(f"Error: Chat file {chat_id}.json is corrupted, creating new chat")
+                print(f"Error: Chat file {chat_id}.json is corrupted: {e}, creating new chat")
+                chat_data = None
+            except Exception as e:
+                print(f"Error reading chat file {chat_id}.json: {e}, creating new chat")
                 chat_data = None
         
         # If chat doesn't exist or was corrupted, create a new one
@@ -1581,11 +1565,21 @@ async def save_chat(chat_id: str, request: ChatMessage):
             }
             print(f"Created new chat data")
         
+        # Validate existing chat data structure
+        if not isinstance(chat_data, dict):
+            raise ValueError("Chat data must be a dictionary")
+        if 'messages' not in chat_data:
+            chat_data['messages'] = []
+        if not isinstance(chat_data['messages'], list):
+            chat_data['messages'] = []
+        
         # DEBUG: Log current chat state before processing
         print(f"Current chat has {len(chat_data['messages'])} messages")
         if len(chat_data["messages"]) > 0:
-            print(f"Last message role: {chat_data['messages'][-1].get('role')}")
-            print(f"Last message content length: {len(chat_data['messages'][-1].get('content', ''))}")
+            last_msg = chat_data["messages"][-1]
+            if isinstance(last_msg, dict):
+                print(f"Last message role: {last_msg.get('role')}")
+                print(f"Last message content length: {len(last_msg.get('content', ''))}")
         
         # Handle message editing (replace message at index and truncate)
         if request.is_edit and request.edit_index >= 0:
@@ -1603,9 +1597,10 @@ async def save_chat(chat_id: str, request: ChatMessage):
                 operation = "append"
         else:
             # DEBUG: Log what the frontend is sending
-            print(f"Frontend sent {len(request.messages)} messages (is_streaming_update={request.is_streaming_update}):")
+            print(f"Frontend sent {len(request.messages)} messages (is_streaming_update={getattr(request, 'is_streaming_update', False)}):")
             for i, msg in enumerate(request.messages):
-                print(f"  Request message {i}: role={msg.get('role')}, content_length={len(msg.get('content', ''))}, content_preview='{msg.get('content', '')[:100]}...'")
+                if isinstance(msg, dict):
+                    print(f"  Request message {i}: role={msg.get('role')}, content_length={len(msg.get('content', ''))}, content_preview='{msg.get('content', '')[:100]}...'")
             
             # Check for duplicate tool responses before appending
             new_messages = []
@@ -1613,11 +1608,15 @@ async def save_chat(chat_id: str, request: ChatMessage):
             
             # First, collect existing tool call IDs
             for msg in chat_data["messages"]:
-                if msg.get("role") == "tool" and "tool_call_id" in msg:
+                if isinstance(msg, dict) and msg.get("role") == "tool" and "tool_call_id" in msg:
                     existing_tool_call_ids.add(msg["tool_call_id"])
             
             # Only add new messages that aren't duplicate tool responses
             for msg in request.messages:
+                if not isinstance(msg, dict):
+                    print(f"Skipping invalid message: {msg}")
+                    continue
+                    
                 # For tool responses, check if we already have it by tool_call_id
                 if msg.get("role") == "tool" and "tool_call_id" in msg:
                     if msg["tool_call_id"] in existing_tool_call_ids:
@@ -1634,50 +1633,108 @@ async def save_chat(chat_id: str, request: ChatMessage):
             operation = "append"
         
         # Update chat name if provided in the first message
-        if request.messages and len(request.messages) > 0 and 'name' in request.messages[0]:
+        if request.messages and len(request.messages) > 0 and isinstance(request.messages[0], dict) and 'name' in request.messages[0]:
             chat_data["name"] = request.messages[0]["name"]
         
         # Log the current state for debugging
         if len(chat_data["messages"]) > 0:
-            print(f"Chat has {len(chat_data['messages'])} messages. Last message role: {chat_data['messages'][-1].get('role')}")
-            if len(chat_data["messages"]) > 1:
-                print(f"Second-to-last message role: {chat_data['messages'][-2].get('role')}")
+            last_msg = chat_data["messages"][-1]
+            if isinstance(last_msg, dict):
+                print(f"Chat has {len(chat_data['messages'])} messages. Last message role: {last_msg.get('role')}")
+                if len(chat_data["messages"]) > 1:
+                    second_last_msg = chat_data["messages"][-2]
+                    if isinstance(second_last_msg, dict):
+                        print(f"Second-to-last message role: {second_last_msg.get('role')}")
         
-        # SIMPLIFIED: Only remove exact duplicates - no more aggressive partial message deduplication
-        # The main replacement logic above should handle streaming updates correctly
+        # ULTRA-CONSERVATIVE: Only remove messages with identical content AND role AND tool_call_id
+        # This prevents any legitimate message from being accidentally removed
         deduplicated_messages = []
-        seen_exact_messages = set()
+        exact_duplicates_removed = 0
         
-        for i, msg in enumerate(chat_data["messages"]):
-            # Create a simple hash for exact duplicate detection
-            msg_hash = f"{msg.get('role', '')}:{msg.get('content', '')[:200]}:{msg.get('tool_call_id', '')}:{len(msg.get('tool_calls', []))}"
-            
-            # Only remove exact duplicates
-            if msg_hash not in seen_exact_messages:
-                deduplicated_messages.append(msg)
-                seen_exact_messages.add(msg_hash)
-            else:
-                print(f"Removed exact duplicate message at index {i}")
+        try:
+            for i, msg in enumerate(chat_data["messages"]):
+                # Skip invalid messages
+                if not isinstance(msg, dict):
+                    print(f"Skipping invalid message at index {i}: {type(msg)}")
+                    continue
+                
+                # Only remove if we find an EXACT match in content, role, and tool context
+                is_exact_duplicate = False
+                
+                try:
+                    for existing_msg in deduplicated_messages:
+                        if not isinstance(existing_msg, dict):
+                            continue
+                            
+                        # Check for truly identical messages
+                        if (msg.get('role') == existing_msg.get('role') and
+                            msg.get('content') == existing_msg.get('content') and
+                            msg.get('tool_call_id') == existing_msg.get('tool_call_id') and
+                            len(msg.get('tool_calls', [])) == len(existing_msg.get('tool_calls', [])) and
+                            msg.get('content', '').strip() != ''):  # Don't dedupe empty messages
+                            
+                            # For tool calls, also check that the tool call IDs match exactly
+                            tool_calls_match = True
+                            msg_tool_calls = msg.get('tool_calls', [])
+                            existing_tool_calls = existing_msg.get('tool_calls', [])
+                            
+                            if msg_tool_calls and existing_tool_calls:
+                                if len(msg_tool_calls) == len(existing_tool_calls):
+                                    for tc1, tc2 in zip(msg_tool_calls, existing_tool_calls):
+                                        if not isinstance(tc1, dict) or not isinstance(tc2, dict):
+                                            tool_calls_match = False
+                                            break
+                                        if tc1.get('id') != tc2.get('id'):
+                                            tool_calls_match = False
+                                            break
+                                else:
+                                    tool_calls_match = False
+                            elif msg_tool_calls or existing_tool_calls:
+                                # One has tool calls, the other doesn't
+                                tool_calls_match = False
+                            
+                            if tool_calls_match:
+                                is_exact_duplicate = True
+                                break
+                except Exception as e:
+                    print(f"Error during duplicate check for message {i}: {e}")
+                    # Continue processing, don't let one bad message break everything
+                
+                if not is_exact_duplicate:
+                    deduplicated_messages.append(msg)
+                else:
+                    exact_duplicates_removed += 1
+                    print(f"Removed exact duplicate message at index {i}")
+        except Exception as e:
+            print(f"Error during deduplication: {e}. Using original messages.")
+            deduplicated_messages = [msg for msg in chat_data["messages"] if isinstance(msg, dict)]
 
-        print(f"After simple deduplication: {len(deduplicated_messages)} messages (removed {len(chat_data['messages']) - len(deduplicated_messages)} exact duplicates)")
+        print(f"After conservative deduplication: {len(deduplicated_messages)} messages (removed {exact_duplicates_removed} exact duplicates)")
 
         # Update the chat data with deduplicated messages
         chat_data["messages"] = deduplicated_messages
         
         # Save the updated chat
-        with open(chat_file, 'w', encoding='utf-8') as f:
-            json.dump(chat_data, f, indent=2)
+        try:
+            with open(chat_file, 'w', encoding='utf-8') as f:
+                json.dump(chat_data, f, indent=2)
+        except Exception as e:
+            raise ValueError(f"Failed to write chat file: {e}")
         
         final_count = len(chat_data["messages"])
         print(f"Chat {chat_id} saved successfully: {final_count} total messages, operation: {operation}")
         print(f"=== END SAVE CHAT REQUEST ===")
         
         return {'success': True, 'operation': operation, 'message_count': final_count}
+        
     except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
         print(f"Error saving chat {chat_id}: {e}")
+        print(f"Full traceback: {error_details}")
         return JSONResponse(
             status_code=500,
-            content={"detail": f"Error saving chat: {str(e)}"}
+            content={"detail": f"Error saving chat: {str(e)}", "traceback": error_details}
         )
 
 @app.get("/files")

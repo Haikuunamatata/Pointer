@@ -12,7 +12,7 @@ export interface ExtendedMessage extends Message {
   attachments?: AttachedFile[];
   tool_call_id?: string;
   id?: string; // Unique message identifier
-  messageId?: number; // Sequential unique ID to track messages
+  messageId?: string; // Change from number to string for UUIDs
   tool_calls?: Array<{
     id: string;
     name: string;
@@ -114,6 +114,19 @@ Rules:
   attachments: undefined
 };
 
+// Enhanced system message with codebase context
+export const generateEnhancedSystemMessage = (codebaseContext?: string): ExtendedMessage => {
+  const baseMessage = INITIAL_SYSTEM_MESSAGE.content;
+  const enhancedContent = codebaseContext 
+    ? `${baseMessage}
+\n## CURRENT CODEBASE CONTEXT\n\n${codebaseContext}\n\n## Enhanced AI-Codebase Integration\n\nYou now have access to advanced codebase analysis tools that have indexed this workspace:\n\n🔍 **Smart Codebase Understanding:**\n- get_ai_codebase_context(): Get a comprehensive AI-friendly summary including architecture patterns, tech stack, and important files\n- query_codebase_natural_language(\"question\"): Ask natural language questions like \"How many React components?\" or \"What handles user authentication?\"\n- get_relevant_codebase_context(\"task\"): Get targeted context for specific development tasks\n\n📊 **Indexed Information Available:**\n- Complete project structure and file organization\n- All functions, classes, components, and their relationships\n- Tech stack analysis and framework detection\n- Dependencies and architectural patterns\n- Code quality metrics and statistics\n\n💡 **Best Practices with Indexed Codebase:**\n1. **Start with get_ai_codebase_context()** for comprehensive project understanding\n2. **Use natural language queries** to find specific functionality or patterns\n3. **Get targeted context** before implementing new features\n4. **Leverage the indexed knowledge** to maintain consistency with existing patterns\n\nThe codebase has been fully indexed and analyzed. Use these tools to gain deep insights before making any modifications.`
+    : baseMessage;
+  return {
+    ...INITIAL_SYSTEM_MESSAGE,
+    content: enhancedContent
+  };
+};
+
 // Refresh knowledge prompt for resetting AI's knowledge
 export const REFRESH_KNOWLEDGE_PROMPT: ExtendedMessage = {
   role: 'system',
@@ -195,50 +208,32 @@ Rules:
 // Prompt to be added after tool call responses
 export const AFTER_TOOL_CALL_PROMPT: ExtendedMessage = {
   role: 'system',
-// content: `/no_think Now that you have the tool call results, please provide a clear and concise response to the original query. 
-// Remember to:
-// 1. Interpret the tool results accurately
-// 2. Connect the findings directly to the user's question
-// 3. Be specific and precise in your answer
-// 4. Do not repeat the raw tool output unless specifically asked
-// 5. If additional tools are needed, use them immediately rather than suggesting the user do so
-// 6. **If the user is asking for code modifications**: First explore the codebase with get_codebase_overview, search_codebase, or get_file_overview if you haven't already done so
-// 7. **Before implementing changes**: Always search for existing patterns and similar implementations in the codebase`,
-  content: ``,
-  attachments: undefined
+  content: ``
 };
 
-// Chat system message for concise coding assistant mode
-export const getChatSystemMessage = (currentWorkingDirectory: string): string => {
-  return `You are a concise, helpful coding assistant.
-Current working directory: ${currentWorkingDirectory || 'Unknown'}
-Be direct and to the point. Provide only the essential information needed to answer the user's question.
-Avoid unnecessary explanations, introductions, or conclusions unless specifically requested.`;
+// Default model configurations
+export const defaultModelConfigs = {
+  chat: {
+    temperature: 0.3,
+    maxTokens: null,
+    frequencyPenalty: 0,
+    presencePenalty: 0,
+  },
+  insert: {
+    temperature: 0.2,
+    maxTokens: null,
+  }
 };
 
-// Agent system message for powerful agentic AI mode
-export const getAgentSystemMessage = (): string => {
-  return 'You are a powerful agentic AI coding assistant, powered by Claude 3.7 Sonnet. You operate exclusively in Pointer, the world\'s best IDE.\n\n' +
-    'Your main goal is to follow the USER\'s instructions at each message.\n\n' +
-    '# Codebase Exploration Priority\n' +
-    'BEFORE making ANY code modifications or implementing new features:\n' +
-    '1. **Always start with get_codebase_overview()** to understand the project structure and tech stack\n' +
-    '2. **Use search_codebase()** to find existing implementations, patterns, and related code\n' +
-    '3. **Use get_file_overview()** to understand files you plan to modify\n' +
-    '4. **Never guess** - explore and verify before suggesting changes\n' +
-    '5. **Look for existing patterns** - maintain consistency with the current codebase architecture\n\n' +
-    '# Additional context\n' +
-    'Each time the USER sends a message, we may automatically attach some information about their current state, such as what files they have open, where their cursor is, recently viewed files, edit history in their session so far, linter errors, and more.\n' +
-    'Some information may be summarized or truncated.\n' +
-    'This information may or may not be relevant to the coding task, it is up for you to decide.\n\n' +
-    '# Tone and style\n' +
-    'You should be concise, direct, and to the point.\n' +
-    'Output text to communicate with the user; all text you output outside of tool use is displayed to the user. Only use tools to complete tasks. Never use tools or code comments as means to communicate with the user.\n\n' +
-    'IMPORTANT: You should minimize output tokens as much as possible while maintaining helpfulness, quality, and accuracy. Only address the specific query or task at hand, avoiding tangential information unless absolutely critical for completing the request. If you can answer in 1-3 sentences or a short paragraph, please do.\n' +
-    'IMPORTANT: Keep your responses short. Avoid introductions, conclusions, and explanations. You MUST avoid text before/after your response, such as "The answer is <answer>", "Here is the content of the file..." or "Based on the information provided, the answer is..." or "Here is what I will do next...". Here are some examples to demonstrate appropriate verbosity:\n\n';
-};
+// Chat session interface
+export interface ChatSession {
+  id: string;
+  name: string;
+  createdAt: string;
+  messages: ExtendedMessage[];
+}
 
-// Configuration for file extensions based on language
+// Utility to get file extension by language
 export const getFileExtension = (language: string): string => {
   const extensions: { [key: string]: string } = {
     javascript: 'js',
@@ -265,7 +260,6 @@ export const getFileExtension = (language: string): string => {
     dockerfile: 'Dockerfile',
     plaintext: 'txt'
   };
-  
   return extensions[language] || 'txt';
 };
 
@@ -280,96 +274,37 @@ export const generatePrompts = {
   titleGeneration: (messages: ExtendedMessage[]): string => {
     const userMessages = messages.filter(m => m.role === 'user').map(m => m.content);
     const lastUserMessages = userMessages.slice(-3);
-    
-    return `Generate a short, concise title (maximum 6 words) for a chat that contains these user messages:
-${lastUserMessages.join('\n')}
-
-Title:`;
+    return `Generate a short, concise title (maximum 6 words) for a chat that contains these user messages:\n${lastUserMessages.join('\n')}\n\nTitle:`;
   },
-  
   // Prompt for code merging
   codeMerging: (filename: string, originalContent: string, newContent: string): string => {
-    return `/no_think You are a code merging expert. You need to analyze and merge code changes intelligently.
-
-${originalContent ? `EXISTING FILE (${filename}):\n\`\`\`\n${originalContent}\n\`\`\`\n` : `The file ${filename} is new and will be created.\n`}
-
-${originalContent ? 'NEW CHANGES:' : 'NEW FILE CONTENT:'}
-\`\`\`
-${newContent}
-\`\`\`
-
-Task:
-${originalContent ? 
-  '1. If the new changes are a complete file, determine if they should replace the existing file entirely\n2. If the new changes are partial (e.g., a single function), merge them into the appropriate location\n3. Preserve any existing functionality that isn\'t being explicitly replaced' : 
-  '1. This is a new file, so use the provided content directly.'
-}
-4. Ensure the merged code is properly formatted and maintains consistency
-5. Consider the project structure when merging (e.g., for imports)
-
-Return ONLY the final merged code without any explanations. The code should be ready to use as-is.`;
+    return `/no_think You are a code merging expert. You need to analyze and merge code changes intelligently.\n\n${originalContent ? `EXISTING FILE (${filename}):\n\`\`\`\n${originalContent}\n\`\`\`\n` : `The file ${filename} is new and will be created.\n`}\n${originalContent ? 'NEW CHANGES:' : 'NEW FILE CONTENT:'}\n\`\`\`\n${newContent}\n\`\`\`\n\nTask:\n${originalContent ? '1. If the new changes are a complete file, determine if they should replace the existing file entirely\n2. If the new changes are partial (e.g., a single function), merge them into the appropriate location\n3. Preserve any existing functionality that isn\'t being explicitly replaced' : '1. This is a new file, so use the provided content directly.'}\n4. Ensure the merged code is properly formatted and maintains consistency\n5. Consider the project structure when merging (e.g., for imports)\n\nReturn ONLY the final merged code without any explanations. The code should be ready to use as-is.`;
   }
 };
 
-// Enhanced system message with codebase context
-export const generateEnhancedSystemMessage = (codebaseContext?: string): ExtendedMessage => {
-  const baseMessage = INITIAL_SYSTEM_MESSAGE.content;
-  
-  const enhancedContent = codebaseContext 
-    ? `${baseMessage}
-
-## CURRENT CODEBASE CONTEXT
-
-${codebaseContext}
-
-## Enhanced AI-Codebase Integration
-
-You now have access to advanced codebase analysis tools that have indexed this workspace:
-
-🔍 **Smart Codebase Understanding:**
-- get_ai_codebase_context(): Get a comprehensive AI-friendly summary including architecture patterns, tech stack, and important files
-- query_codebase_natural_language("question"): Ask natural language questions like "How many React components?" or "What handles user authentication?"
-- get_relevant_codebase_context("task"): Get targeted context for specific development tasks
-
-📊 **Indexed Information Available:**
-- Complete project structure and file organization
-- All functions, classes, components, and their relationships
-- Tech stack analysis and framework detection
-- Dependencies and architectural patterns
-- Code quality metrics and statistics
-
-💡 **Best Practices with Indexed Codebase:**
-1. **Start with get_ai_codebase_context()** for comprehensive project understanding
-2. **Use natural language queries** to find specific functionality or patterns
-3. **Get targeted context** before implementing new features
-4. **Leverage the indexed knowledge** to maintain consistency with existing patterns
-
-The codebase has been fully indexed and analyzed. Use these tools to gain deep insights before making any modifications.`
-    : baseMessage;
-
-  return {
-    ...INITIAL_SYSTEM_MESSAGE,
-    content: enhancedContent
-  };
+// Chat system message for concise coding assistant mode
+export const getChatSystemMessage = (currentWorkingDirectory: string): string => {
+  return `You are a concise, helpful coding assistant.\nCurrent working directory: ${currentWorkingDirectory || 'Unknown'}\nBe direct and to the point. Provide only the essential information needed to answer the user's question.\nAvoid unnecessary explanations, introductions, or conclusions unless specifically requested.`;
 };
 
-// Default model configurations
-export const defaultModelConfigs = {
-  chat: {
-    temperature: 0.3,
-    maxTokens: null,
-    frequencyPenalty: 0,
-    presencePenalty: 0,
-  },
-  insert: {
-    temperature: 0.2,
-    maxTokens: null,
-  }
+// Agent system message for powerful agentic AI mode
+export const getAgentSystemMessage = (): string => {
+  return 'You are a powerful agentic AI coding assistant, powered by Claude 3.7 Sonnet. You operate exclusively in Pointer, the world\'s best IDE.\n\n' +
+    'Your main goal is to follow the USER\'s instructions at each message.\n\n' +
+    '# Codebase Exploration Priority\n' +
+    'BEFORE making ANY code modifications or implementing new features:\n' +
+    '1. **Always start with get_codebase_overview()** to understand the project structure and tech stack\n' +
+    '2. **Use search_codebase()** to find existing implementations, patterns, and related code\n' +
+    '3. **Use get_file_overview()** to understand files you plan to modify\n' +
+    '4. **Never guess** - explore and verify before suggesting changes\n' +
+    '5. **Look for existing patterns** - maintain consistency with the current codebase architecture\n\n' +
+    '# Additional context\n' +
+    'Each time the USER sends a message, we may automatically attach some information about their current state, such as what files they have open, where their cursor is, recently viewed files, edit history in their session so far, linter errors, and more.\n' +
+    'Some information may be summarized or truncated.\n' +
+    'This information may or may not be relevant to the coding task, it is up for you to decide.\n\n' +
+    '# Tone and style\n' +
+    'You should be concise, direct, and to the point.\n' +
+    'Output text to communicate with the user; all text you output outside of tool use is displayed to the user. Only use tools to complete tasks. Never use tools or code comments as means to communicate with the user.\n\n' +
+    'IMPORTANT: You should minimize output tokens as much as possible while maintaining helpfulness, quality, and accuracy. Only address the specific query or task at hand, avoiding tangential information unless absolutely critical for completing the request. If you can answer in 1-3 sentences or a short paragraph, please do.\n' +
+    'IMPORTANT: Keep your responses short. Avoid introductions, conclusions, and explanations. You MUST avoid text before/after your response, such as "The answer is <answer>", "Here is the content of the file..." or "Based on the information provided, the answer is..." or "Here is what I will do next...". Here are some examples to demonstrate appropriate verbosity:\n\n';
 };
-
-// Chat session interface
-export interface ChatSession {
-  id: string;
-  name: string;
-  createdAt: string;
-  messages: ExtendedMessage[];
-} 
