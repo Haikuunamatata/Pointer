@@ -46,6 +46,15 @@ load_dotenv()
 
 app = FastAPI()
 
+# Add CORS middleware to allow frontend communication
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, specify exact origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Initialize Qt application with error handling
 try:
     # Set Qt to use offscreen platform if no display is available
@@ -74,34 +83,63 @@ async def start_background_indexing(workspace_path: str):
             # Run indexing in a separate thread to avoid blocking
             import threading
             def run_indexing():
-                codebase_indexer.index_workspace()
+                try:
+                    print(f"Background indexing started for {workspace_path}")
+                    codebase_indexer.index_workspace()
+                    print(f"Background indexing completed for {workspace_path}")
+                except Exception as e:
+                    print(f"Background indexing failed for {workspace_path}: {e}")
             
             thread = threading.Thread(target=run_indexing, daemon=True)
             thread.start()
+        else:
+            print("Background indexing: No codebase indexer available")
     except Exception as e:
         print(f"Error during background indexing: {e}")
+        # Don't let this error propagate
 
 async def auto_reindex_codebase():
     """Automatically reindex the codebase if needed."""
     global codebase_indexer
     
     try:
+        # Check if we have a valid workspace directory
+        if not user_workspace_directory:
+            print("Auto-reindex: No user workspace directory set, skipping reindex")
+            return
+        
+        # Validate that the workspace directory exists and is accessible
+        if not os.path.exists(user_workspace_directory) or not os.path.isdir(user_workspace_directory):
+            print(f"Auto-reindex: Invalid workspace directory: {user_workspace_directory}, skipping reindex")
+            return
+        
         if codebase_indexer and user_workspace_directory:
             # Check if workspace has changed
             if str(codebase_indexer.workspace_path) != user_workspace_directory:
                 print(f"Auto-reindex: Workspace changed, reinitializing with {user_workspace_directory}")
-                codebase_indexer = CodebaseIndexer(user_workspace_directory)
+                try:
+                    codebase_indexer = CodebaseIndexer(user_workspace_directory)
+                except Exception as e:
+                    print(f"Auto-reindex: Failed to initialize CodebaseIndexer: {e}")
+                    return
             
             # Start background indexing
             print(f"Auto-reindex: Triggering background reindex for {codebase_indexer.workspace_path}")
-            asyncio.create_task(start_background_indexing(str(codebase_indexer.workspace_path)))
+            try:
+                asyncio.create_task(start_background_indexing(str(codebase_indexer.workspace_path)))
+            except Exception as e:
+                print(f"Auto-reindex: Failed to start background indexing: {e}")
         elif user_workspace_directory and not codebase_indexer:
             # Initialize indexer if it doesn't exist
             print(f"Auto-reindex: Initializing indexer for workspace: {user_workspace_directory}")
-            codebase_indexer = CodebaseIndexer(user_workspace_directory)
-            asyncio.create_task(start_background_indexing(user_workspace_directory))
+            try:
+                codebase_indexer = CodebaseIndexer(user_workspace_directory)
+                asyncio.create_task(start_background_indexing(user_workspace_directory))
+            except Exception as e:
+                print(f"Auto-reindex: Failed to initialize CodebaseIndexer: {e}")
     except Exception as e:
         print(f"Auto-reindex error: {e}")
+        # Don't let this error propagate and cause a 500 error
 
 # Tool calling API endpoints
 class ToolCallRequest(BaseModel):
@@ -927,8 +965,36 @@ def scan_directory(path: str, parent_id: str | None = None) -> dict:
 
 @app.get("/test-backend")
 async def test_backend():
-    """Test backend connection."""
-    return {"message": "Backend is running"}
+    """Test endpoint to verify the backend is running."""
+    return {"status": "ok", "message": "Backend is running"}
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for backend status."""
+    try:
+        # Check basic functionality
+        health_status = {
+            "status": "healthy",
+            "timestamp": time.time(),
+            "workspace_directory": user_workspace_directory,
+            "base_directory": base_directory,
+            "codebase_indexer_initialized": codebase_indexer is not None
+        }
+        
+        # Check if chat directory is accessible
+        try:
+            chats_dir = get_chats_directory()
+            health_status["chat_directory_accessible"] = chats_dir.exists() or chats_dir.parent.exists()
+        except Exception as e:
+            health_status["chat_directory_accessible"] = False
+            health_status["chat_directory_error"] = str(e)
+        
+        return health_status
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"status": "unhealthy", "error": str(e)}
+        )
 
 @app.post("/open-directory")
 async def open_directory():
