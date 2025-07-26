@@ -16,7 +16,21 @@ class Database:
                 return {}
             
             with open(file_path, 'r') as f:
-                return json.load(f)
+                data = json.load(f)
+                return data
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON decode error in {file_path}: {e}")
+            # Try to backup and recreate the file
+            try:
+                backup_path = f"{file_path}.backup"
+                if os.path.exists(file_path):
+                    os.rename(file_path, backup_path)
+                with open(file_path, 'w') as f:
+                    json.dump({}, f)
+                logger.info(f"Recreated {file_path} due to corruption")
+            except Exception as backup_error:
+                logger.error(f"Failed to backup and recreate {file_path}: {backup_error}")
+            return {}
         except Exception as e:
             logger.error(f"Error loading data from {file_path}: {e}")
             return {}
@@ -95,10 +109,40 @@ class Database:
         user_id = str(user_id)
         
         if user_id not in level_data:
-            level_data[user_id] = {"xp": 0, "level": 0, "last_message_time": 0}
+            level_data[user_id] = {"xp": 0, "level": 0, "last_message_time": 0, "messages": 0}
             Database.save_data("data/levels.json", level_data)
             
         return level_data[user_id]
+    
+    @staticmethod
+    def update_user_message_count(user_id, guild_id=None):
+        """Update a user's message count"""
+        level_data = Database.load_data("data/levels.json")
+        user_id = str(user_id)
+        
+        if user_id not in level_data:
+            level_data[user_id] = {"xp": 0, "level": 0, "last_message_time": 0, "messages": 0}
+        
+        # Increment message count
+        level_data[user_id]["messages"] = level_data[user_id].get("messages", 0) + 1
+        
+        # Store guild ID if provided
+        if guild_id:
+            level_data[user_id]["guild_id"] = guild_id
+        
+        Database.save_data("data/levels.json", level_data)
+        return level_data[user_id]["messages"]
+    
+    @staticmethod
+    def get_user_message_count(user_id):
+        """Get a user's message count"""
+        level_data = Database.load_data("data/levels.json")
+        user_id = str(user_id)
+        
+        if user_id not in level_data:
+            return 0
+            
+        return level_data[user_id].get("messages", 0)
     
     @staticmethod
     def update_user_xp(user_id, xp_to_add, current_time):

@@ -135,7 +135,7 @@ class Shop(commands.Cog):
                 id="fishing_rod",
                 name="Fishing Rod",
                 description="A basic fishing rod. Increases fishing rewards by 20%",
-                price=500,
+                price=2500,
                 category="Boosters",
                 useable=True,
                 effect="fishing_boost"
@@ -144,7 +144,7 @@ class Shop(commands.Cog):
                 id="pickaxe",
                 name="Pickaxe",
                 description="A sturdy pickaxe. Increases mining rewards by 20%",
-                price=500,
+                price=2500,
                 category="Boosters",
                 useable=True,
                 effect="mining_boost"
@@ -173,7 +173,7 @@ class Shop(commands.Cog):
                 id="time_warp",
                 name="Time Warp",
                 description="Resets all cooldowns",
-                price=2000,
+                price=5000,
                 category="Utilities",
                 useable=True,
                 effect="reset_cooldowns"
@@ -184,7 +184,7 @@ class Shop(commands.Cog):
                 id="name_color",
                 name="Name Color",
                 description="Unlock a random color for your name",
-                price=5000,
+                price=25000,
                 category="Cosmetics",
                 useable=True,
                 effect="name_color"
@@ -193,7 +193,7 @@ class Shop(commands.Cog):
                 id="custom_role",
                 name="Custom Role",
                 description="Get a custom role in the server",
-                price=10000,
+                price=1000000,
                 category="Cosmetics",
                 useable=True,
                 effect="custom_role"
@@ -583,7 +583,7 @@ class Shop(commands.Cog):
         elif item.effect == "custom_role":
             # Handle custom role
             await interaction.response.send_message(
-                "Please contact an admin to get your custom role.",
+                "Please open a ticket to get your custom role.",
                 ephemeral=True
             )
             return

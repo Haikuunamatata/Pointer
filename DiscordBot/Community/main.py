@@ -40,6 +40,7 @@ class PointerBot(commands.Bot):
             'cogs.admin',
             'cogs.help',
             'cogs.shop',
+            'cogs.giveaway',
         ]
         
     async def setup_hook(self):
@@ -116,7 +117,7 @@ class PointerBot(commands.Bot):
         # Initialize giveaways data
         if not os.path.exists("data/giveaways.json"):
             with open("data/giveaways.json", "w") as f:
-                json.dump([], f)
+                json.dump({}, f)
             logger.info("Created giveaways.json")
 
 # Run the bot

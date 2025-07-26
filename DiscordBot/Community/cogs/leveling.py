@@ -210,6 +210,9 @@ class Leveling(commands.Cog):
         # Update user XP
         new_level = Database.update_user_xp(user_id, xp_earned, current_time)
         
+        # Update message count
+        Database.update_user_message_count(user_id, message.guild.id)
+        
         # Update last message time
         self.user_last_message[user_id] = current_time
         

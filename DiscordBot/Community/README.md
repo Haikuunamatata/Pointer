@@ -61,10 +61,18 @@ A comprehensive Discord bot for the Pointer community with economy, giveaways, l
 - `/use <item>` - Use an item from your inventory
 
 ### Giveaway Commands
-- `/giveaway start <duration> <prize> [min_balance] [required_role]` - Start a giveaway
-- `/giveaway end <message_id>` - End a giveaway early
-- `/giveaway reroll <message_id>` - Reroll a giveaway winner
-- `/giveaway cancel <message_id>` - Cancel a giveaway
+- `/giveaway <prize> <duration> [winners] [description] [channel]` - Create a new giveaway
+- `/gsetreq <giveaway_id> [required_roles] [min_level] [min_balance] [min_messages]` - Set requirements for a giveaway
+- `/greq <giveaway_id>` - Check requirements for a giveaway
+- `/gstatus <giveaway_id>` - Check status of a giveaway
+- `/gend <giveaway_id>` - End a giveaway early
+- `/gendexpired` - End all expired giveaways
+- `/greroll <giveaway_id> [winners] [exclude_user]` - Reroll a giveaway, optionally excluding a specific user
+- `/grig <giveaway_id> <winners>` - Rig a giveaway for a specific user (100% win rate)
+- `/gunrig <giveaway_id>` - Remove rigging from a giveaway
+- `/gcancel <giveaway_id>` - Cancel a giveaway
+- `/glist` - List active giveaways
+- `/messages [user]` - Check message count for yourself or another user
 
 ### Leveling Commands
 - `/rank [user]` - View your or another user's rank
