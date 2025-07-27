@@ -1211,16 +1211,50 @@ const App: React.FC = () => {
     // Expose applyCustomTheme
     window.applyCustomTheme = applyCustomTheme;
 
-    // Expose loadSettings
-    window.loadSettings = loadSettings;
+      // Expose loadSettings
+  window.loadSettings = loadSettings;
 
-    return () => {
-      window.fileSystem = undefined;
-      window.getCurrentFile = undefined;
-      window.reloadFileContent = undefined;
-      window.applyCustomTheme = undefined;
-      window.loadSettings = undefined;
-    };
+  // Add event listener for opening files from chat
+  const handleOpenFileEvent = (event: CustomEvent) => {
+    const { fileId, content, filename, path } = event.detail;
+    
+    // Add the file to the file system
+    setFileSystem(prev => ({
+      ...prev,
+      items: {
+        ...prev.items,
+        [fileId]: {
+          id: fileId,
+          name: filename,
+          type: 'file',
+          content: content,
+          parentId: prev.rootId,
+          path: path,
+        },
+      },
+      currentFileId: fileId,
+    }));
+
+    // Add to open files
+    setOpenFiles(prev => [...prev, fileId]);
+
+    // Set the editor content
+    if (editor.current) {
+      editor.current.setValue(content);
+      applyCustomTheme();
+    }
+  };
+
+  window.addEventListener('openFile', handleOpenFileEvent as EventListener);
+
+  return () => {
+    window.fileSystem = undefined;
+    window.getCurrentFile = undefined;
+    window.reloadFileContent = undefined;
+    window.applyCustomTheme = undefined;
+    window.loadSettings = undefined;
+    window.removeEventListener('openFile', handleOpenFileEvent as EventListener);
+  };
   }, [fileSystem, reloadFileContent, applyCustomTheme, loadSettings]);
 
   // Add to the App component state declarations

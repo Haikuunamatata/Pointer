@@ -8,7 +8,7 @@ import '../styles/LLMChat.css';
 import { DiffViewer } from './DiffViewer';
 import { FileChangeEventService } from '../services/FileChangeEventService';
 import { AIFileService } from '../services/AIFileService';
-import { Message } from '../types';
+import { Message, FileSystemItem } from '../types';
 import { FileSystemService } from '../services/FileSystemService';
 import { ChatModeSwitch } from './ChatModeSwitch';
 import ToolService from '../services/ToolService';
@@ -41,6 +41,7 @@ declare global {
   chatSaveVersion?: number; // Track the version of saves to prevent old overwrites
   lastSavedMessageCount?: number; // Track the number of messages saved
   highestMessageId?: number; // Track the highest message ID we've seen
+  handleFileSelect?: (fileId: string) => void;
 }
 }
 
@@ -1975,67 +1976,59 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         return true;
       });
       
-      // Deduplicate messages to prevent duplications
+      // Comprehensive deduplication system - prevents ALL duplications
       const deduplicatedMessages: ExtendedMessage[] = [];
-      const processedMessageIds = new Set<string>();
+      const messageSignatures = new Set<string>();
       
-      // Function to generate a unique key for a message
-      const getMessageKey = (msg: ExtendedMessage): string => {
-        // If message has ID, use it as the primary identifier
+      // Generate comprehensive signature for a message that captures all uniqueness
+      const generateMessageSignature = (msg: ExtendedMessage): string => {
+        const parts: string[] = [
+          `role:${msg.role}`,
+          `content:${typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)}`
+        ];
+        
+        // Add message ID if present (highest priority)
         if (msg.messageId !== undefined) {
-          return `id:${msg.messageId}`;
+          parts.push(`messageId:${msg.messageId}`);
         }
         
-        // For tool messages, include the tool_call_id to identify uniquely
-        if (msg.role === 'tool' && msg.tool_call_id) {
-          return `tool:${msg.tool_call_id}:${msg.content.substring(0, 50)}`;
+        // Add tool-related fields for complete tool message identification
+        if (msg.tool_call_id) {
+          parts.push(`tool_call_id:${msg.tool_call_id}`);
         }
-        // For assistant messages with tool calls, include the tool call IDs
-        else if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
-          const toolCallIds = msg.tool_calls.map(tc => tc.id).join(',');
-          return `assistant:toolcalls:${toolCallIds}`;
+        
+        if (msg.tool_calls && msg.tool_calls.length > 0) {
+          // Sort tool calls by ID to ensure consistent ordering
+          const sortedToolCalls = [...msg.tool_calls].sort((a, b) => (a.id || '').localeCompare(b.id || ''));
+          const toolCallsStr = sortedToolCalls.map(tc => 
+            `${tc.id}:${tc.function?.name || ''}:${JSON.stringify(tc.function?.arguments || {})}`
+          ).join('|');
+          parts.push(`tool_calls:${toolCallsStr}`);
         }
-        // For other messages, use role and content (truncated)
-        else {
-          return `${msg.role}:${typeof msg.content === 'string' ? 
-            msg.content.substring(0, 100) : JSON.stringify(msg.content).substring(0, 100)}`;
+        
+        // Add function call information if present (legacy support)
+        if (msg.function_call) {
+          parts.push(`function_call:${JSON.stringify(msg.function_call)}`);
         }
+        
+        // Create a comprehensive hash-like signature
+        return parts.join('||');
       };
       
-      // Deduplicate messages: prioritize using message IDs for deduplication
-      if (filteredMessages.length > 0) {
-        // Always add the first message
-        deduplicatedMessages.push(filteredMessages[0]);
-        if (filteredMessages[0].messageId !== undefined) {
-          processedMessageIds.add(filteredMessages[0].messageId);
-        }
+      // Single-pass deduplication with complete duplicate prevention
+      for (const message of filteredMessages) {
+        const signature = generateMessageSignature(message);
         
-        for (let i = 1; i < filteredMessages.length; i++) {
-          const currentMsg = filteredMessages[i];
-          
-          // If message has ID, use it for deduplication
-          if (currentMsg.messageId !== undefined) {
-            if (!processedMessageIds.has(currentMsg.messageId)) {
-              deduplicatedMessages.push(currentMsg);
-              processedMessageIds.add(currentMsg.messageId);
-              console.log(`Added message with ID: ${currentMsg.messageId}`);
-            } else {
-              console.log(`Skipping duplicate message with ID: ${currentMsg.messageId}`);
-            }
-            continue;
-          }
-          
-          // For messages without ID, use the old comparison logic
-          const prevMsg = deduplicatedMessages[deduplicatedMessages.length - 1];
-          if (currentMsg.role === prevMsg.role && getMessageKey(currentMsg) === getMessageKey(prevMsg)) {
-            console.log(`Skipping duplicate message (identical to previous and same role): ${getMessageKey(currentMsg)}`);
+        if (!messageSignatures.has(signature)) {
+          messageSignatures.add(signature);
+          deduplicatedMessages.push(message);
+          console.log(`Added unique message: ${message.role} (${signature.substring(0, 100)}...)`);
           } else {
-            deduplicatedMessages.push(currentMsg);
-          }
+          console.log(`Skipped duplicate message: ${message.role} (${signature.substring(0, 100)}...)`);
         }
       }
       
-      console.log(`Deduplicated ${filteredMessages.length} messages to ${deduplicatedMessages.length} messages`);
+      console.log(`Comprehensive deduplication: ${filteredMessages.length} → ${deduplicatedMessages.length} messages (removed ${filteredMessages.length - deduplicatedMessages.length} duplicates)`);
       
       const messagesToSave = deduplicatedMessages.map((msg: ExtendedMessage) => {
         const cleanedMsg: any = {
@@ -2453,6 +2446,60 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   // Handle chat selection
   const handleSelectChat = (chatId: string) => {
     onSelectChat(chatId);
+  };
+
+  // Handle opening chat file in editor
+  const handleOpenChatFile = async (chatId: string) => {
+    try {
+      // Get the chat file path and content from the backend
+      const response = await fetch(`http://localhost:23816/get-chat-file-path?chat_id=${chatId}`);
+      if (!response.ok) {
+        console.error('Failed to get chat file');
+        return;
+      }
+      
+      const data = await response.json();
+      const { file_path: chatFilePath, content: chatContent, filename } = data;
+      
+      if (!chatFilePath || !chatContent) {
+        console.error('No chat file data returned');
+        return;
+      }
+
+      // Create a file ID for the chat file
+      const chatFileId = `chat_${chatId}`;
+      
+      // Add the chat file to the file system and open it in the editor
+      if ((window as any).fileSystem) {
+        // Add the chat file to the file system
+        ((window as any).fileSystem.items as any)[chatFileId] = {
+          id: chatFileId,
+          name: filename || `${chatId}.json`,
+          type: 'file',
+          content: chatContent,
+          parentId: 'root',
+          path: chatFilePath,
+        };
+        
+        // Open the file in the editor
+        if ((window as any).handleFileSelect) {
+          (window as any).handleFileSelect(chatFileId);
+        } else {
+          // Fallback: dispatch a custom event to open the file
+          const event = new CustomEvent('openFile', {
+            detail: {
+              fileId: chatFileId,
+              content: chatContent,
+              filename: filename || `${chatId}.json`,
+              path: chatFilePath
+            }
+          });
+          window.dispatchEvent(event);
+        }
+      }
+    } catch (error) {
+      console.error('Error opening chat file:', error);
+    }
   };
 
   // Function to handle line-specific edits
@@ -3612,29 +3659,8 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
         parsedArgs = {};
       }
       
-      // Fix relative directory paths for list_directory calls
-      if (name === "list_directory" && parsedArgs.directory_path) {
-        // Replace "." with actual working directory
-        if (parsedArgs.directory_path === "." || parsedArgs.directory_path === "./") {
-          parsedArgs.directory_path = currentWorkingDirectory || parsedArgs.directory_path;
-          console.log(`Resolved "." to actual working directory: ${parsedArgs.directory_path}`);
-        }
-        // Handle "./" prefix
-        else if (parsedArgs.directory_path.startsWith("./")) {
-          parsedArgs.directory_path = (currentWorkingDirectory || "") + 
-            parsedArgs.directory_path.substring(1); // Remove the "." but keep the "/"
-          console.log(`Resolved "./" prefix to: ${parsedArgs.directory_path}`);
-        }
-      }
-      
-      // Apply similar path resolution to read_file
-      if (name === "read_file" && parsedArgs.file_path) {
-        if (parsedArgs.file_path.startsWith("./")) {
-          parsedArgs.file_path = (currentWorkingDirectory || "") + 
-            parsedArgs.file_path.substring(1); // Remove the "." but keep the "/"
-          console.log(`Resolved relative file path to: ${parsedArgs.file_path}`);
-        }
-      }
+      // Backend now handles relative path resolution automatically
+      // No need for frontend path manipulation
       
       // Call the ToolService to get real results
       const result = await ToolService.callTool(name, parsedArgs);
@@ -3780,18 +3806,54 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
             const nameMatch = functionCallStr.match(/"name"\s*:\s*"([^"]+)"/);
             const name = nameMatch ? nameMatch[1] : '';
             
-            const argsMatch = functionCallStr.match(/"arguments"\s*:\s*({[^}]+}|"[^"]+")/);
-            let args = argsMatch ? argsMatch[1] : '{}';
-            
-            // Clean up string arguments if needed
-            if (args.startsWith('"') && args.endsWith('"')) {
-              try {
-                // Try to parse JSON from string
-                args = JSON.parse(args);
-              } catch (e) {
-                // Keep as is if parsing fails
+            // Improved argument extraction that handles complex JSON
+            let args = '{}';
+            const argsStart = functionCallStr.indexOf('"arguments"');
+            if (argsStart !== -1) {
+              const afterArgs = functionCallStr.substring(argsStart);
+              const colonIndex = afterArgs.indexOf(':');
+              if (colonIndex !== -1) {
+                const afterColon = afterArgs.substring(colonIndex + 1).trim();
+                
+                if (afterColon.startsWith('{')) {
+                  // Find the matching closing brace for complex JSON objects
+                  let braceCount = 0;
+                  let endIndex = -1;
+                  
+                  for (let i = 0; i < afterColon.length; i++) {
+                    if (afterColon[i] === '{') braceCount++;
+                    else if (afterColon[i] === '}') {
+                      braceCount--;
+                      if (braceCount === 0) {
+                        endIndex = i + 1;
+                        break;
+                      }
+                    }
+                  }
+                  
+                  if (endIndex !== -1) {
+                    args = afterColon.substring(0, endIndex);
+                  }
+                } else if (afterColon.startsWith('"')) {
+                  // Handle string arguments
+                  const quoteEnd = afterColon.indexOf('"', 1);
+                  if (quoteEnd !== -1) {
+                    args = afterColon.substring(0, quoteEnd + 1);
+                  }
+                }
               }
             }
+            
+            // Try to parse the arguments as JSON
+            let parsedArgs: any;
+            try {
+              parsedArgs = JSON.parse(args);
+              } catch (e) {
+              console.warn('Failed to parse tool arguments as JSON:', args);
+              parsedArgs = {};
+            }
+            
+            args = parsedArgs;
             
             // Create the function call object
             functionCall = {
@@ -3799,6 +3861,13 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
               name: name,
               arguments: args
             };
+            
+            // Debug logging
+            console.log(`Parsed function call: ${functionCall.name}`, {
+              id: functionCall.id,
+              arguments: functionCall.arguments,
+              argumentsType: typeof functionCall.arguments
+            });
           }
           
           // Add to function calls array if valid
@@ -3812,8 +3881,133 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
             const validToolNames = ['list_directory', 'list_dir', 'read_file', 'create_file', 'edit_file', 'delete_file', 'move_file', 'copy_file', 'get_file_overview', 'get_codebase_overview', 'grep_search', 'web_search', 'fetch_webpage', 'run_terminal_cmd', 'search_codebase', 'query_codebase_natural_language', 'get_relevant_codebase_context', 'get_ai_codebase_context'];
             
             if (!validToolNames.includes(functionCall.name)) {
-              console.warn(`Invalid tool name: ${functionCall.name}. Skipping.`);
-              continue;
+              console.warn(`Invalid tool name: ${functionCall.name}. Cancelling response and retrying.`);
+              
+              // Find the most similar valid tool name
+              const suggestions = validToolNames.filter(validName => 
+                validName.includes(functionCall.name) || 
+                functionCall.name.includes(validName) ||
+                validName.startsWith(functionCall.name) ||
+                functionCall.name.startsWith(validName)
+              );
+              
+              const suggestedTool = suggestions.length > 0 ? suggestions[0] : 'read_file';
+              
+              // Cancel the current response by aborting the controller
+              if (abortControllerRef.current) {
+                abortControllerRef.current.abort();
+                abortControllerRef.current = null;
+              }
+              
+              // Add a failed tool call message to inform the AI about the invalid tool name
+              const failedToolMessage: ExtendedMessage = {
+                role: 'tool',
+                content: `Error: Invalid tool name "${functionCall.name}". Did you mean "${suggestedTool}"? Please try again with the correct tool name.`,
+                tool_call_id: functionCall.id,
+                messageId: getNextMessageId() // Add unique message ID to prevent deduplication
+              };
+              
+              // Add the failed tool call to the conversation
+              setMessages(prev => [...prev, failedToolMessage]);
+              
+              // Save the chat with the error message before continuing
+              if (currentChatId) {
+                // Get current messages including the error we just added
+                let currentMessages: ExtendedMessage[] = [];
+                setMessages(prev => {
+                  currentMessages = [...prev, failedToolMessage];
+                  return prev;
+                });
+                
+                // Allow state update to complete
+                await new Promise(resolve => setTimeout(resolve, 50));
+                
+                await saveChat(currentChatId, currentMessages, false);
+              }
+              
+              // Continue the conversation to let the AI retry
+              setTimeout(() => {
+                continueLLMConversation();
+              }, 100);
+              
+              return { hasToolCalls: false };
+            }
+            
+            // Validate that required arguments are present
+            const requiredArgs = {
+              'edit_file': ['file_path'], // Can also use target_file
+              'read_file': ['file_path'], // Can also use target_file
+              'create_file': ['file_path'], // Can also use target_file
+              'delete_file': ['file_path'], // Can also use target_file
+              'move_file': ['source_path', 'destination_path'],
+              'copy_file': ['source_path', 'destination_path'],
+              'list_directory': ['directory_path']
+            };
+            
+            const requiredForTool = requiredArgs[functionCall.name as keyof typeof requiredArgs];
+            if (requiredForTool) {
+              let missingArgs: string[] = [];
+              
+              // Special handling for file operations that can use either file_path or target_file
+              if (['edit_file', 'read_file', 'create_file', 'delete_file'].includes(functionCall.name)) {
+                const hasFilePath = functionCall.arguments && 
+                  typeof functionCall.arguments === 'object' && 
+                  (functionCall.arguments.file_path || functionCall.arguments.target_file);
+                
+                if (!hasFilePath) {
+                  missingArgs = ['file_path or target_file'];
+                }
+              } else {
+                // Standard validation for other tools
+                missingArgs = requiredForTool.filter(arg => 
+                  !functionCall.arguments || 
+                  typeof functionCall.arguments === 'string' || 
+                  !functionCall.arguments[arg]
+                );
+              }
+              
+              if (missingArgs.length > 0) {
+                console.warn(`Missing required arguments for ${functionCall.name}: ${missingArgs.join(', ')}. Cancelling response and retrying.`);
+                
+                // Cancel the current response by aborting the controller
+                if (abortControllerRef.current) {
+                  abortControllerRef.current.abort();
+                  abortControllerRef.current = null;
+                }
+                
+                // Add a failed tool call message
+                const failedToolMessage: ExtendedMessage = {
+                  role: 'tool',
+                  content: `Error: Missing required arguments for ${functionCall.name}: ${missingArgs.join(', ')}. Please provide all required parameters.`,
+                  tool_call_id: functionCall.id,
+                  messageId: getNextMessageId() // Add unique message ID to prevent deduplication
+                };
+                
+                // Add the failed tool call to the conversation
+                setMessages(prev => [...prev, failedToolMessage]);
+                
+                // Save the chat with the error message before continuing
+                if (currentChatId) {
+                  // Get current messages including the error we just added
+                  let currentMessages: ExtendedMessage[] = [];
+                  setMessages(prev => {
+                    currentMessages = [...prev, failedToolMessage];
+                    return prev;
+                  });
+                  
+                  // Allow state update to complete
+                  await new Promise(resolve => setTimeout(resolve, 50));
+                  
+                  await saveChat(currentChatId, currentMessages, false);
+                }
+                
+                // Continue the conversation to let the AI retry
+                setTimeout(() => {
+                  continueLLMConversation();
+                }, 100);
+                
+                return { hasToolCalls: false };
+              }
             }
             
             // Only add if this is a new function call
@@ -5347,7 +5541,16 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
                     <button
                       key={chat.id}
                       className="chat-button"
-                      onClick={() => handleSelectChat(chat.id)}
+                      onClick={(e) => {
+                        // Check if Ctrl or Cmd key is pressed
+                        if (e.ctrlKey || e.metaKey) {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          handleOpenChatFile(chat.id);
+                        } else {
+                          handleSelectChat(chat.id);
+                        }
+                      }}
                       style={{
                         width: '100%',
                         padding: '8px 12px',
@@ -5359,6 +5562,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
                         textAlign: 'left',
                         fontSize: '12px',
                       }}
+                      title="Click to open chat • Ctrl+Click to open JSON file"
                     >
                       <div style={{ fontSize: '13px', fontWeight: chat.id === currentChatId ? 'bold' : 'normal' }}>
                         {chat.name}

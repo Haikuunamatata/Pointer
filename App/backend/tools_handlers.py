@@ -16,13 +16,46 @@ import time
 import httpx
 
 
+def resolve_path(relative_path: str) -> str:
+    """
+    Resolve a relative path against the current working directory (user's workspace).
+    
+    Args:
+        relative_path: The path to resolve (can be relative or absolute)
+        
+    Returns:
+        Absolute path resolved against the current working directory
+    """
+    if not relative_path:
+        return relative_path
+    
+    # If it's already an absolute path, return as-is
+    if os.path.isabs(relative_path):
+        return relative_path
+    
+    # Resolve the path against the current working directory (user's workspace)
+    resolved_path = os.path.join(os.getcwd(), relative_path)
+    
+    # Normalize the path (resolve any .. or . components)
+    resolved_path = os.path.normpath(resolved_path)
+    
+    # Security check: ensure the resolved path is within the workspace
+    workspace_abs = os.path.abspath(os.getcwd())
+    resolved_abs = os.path.abspath(resolved_path)
+    
+    if not resolved_abs.startswith(workspace_abs):
+        raise ValueError(f"Path {relative_path} resolves outside workspace directory")
+    
+    return resolved_path
+
+
 async def read_file(file_path: str = None, target_file: str = None) -> Dict[str, Any]:
     """
     Read the contents of a file and return as a dictionary.
     
     Args:
-        file_path: Path to the file to read
-        target_file: Alternative path to the file to read (takes precedence over file_path)
+        file_path: Path to the file to read (can be relative to workspace)
+        target_file: Alternative path to the file to read (takes precedence over file_path, can be relative)
         
     Returns:
         Dictionary with file content and metadata
@@ -37,28 +70,52 @@ async def read_file(file_path: str = None, target_file: str = None) -> Dict[str,
         }
     
     try:
-        # Security check: prevent path traversal
-        abs_path = os.path.abspath(actual_path)
+        # Resolve relative path against current working directory (user's workspace)
+        resolved_path = resolve_path(actual_path)
         
         # Check if file exists
-        if not os.path.exists(abs_path):
+        if not os.path.exists(resolved_path):
+            # Try to suggest similar files that do exist
+            suggestions = []
+            try:
+                # Check if there are any files with similar names
+                workspace_dir = os.getcwd()
+                for root, dirs, files in os.walk(workspace_dir):
+                    for file in files:
+                        file_path = os.path.join(root, file)
+                        # Check if the requested filename is contained in this file
+                        if actual_path.lower() in file.lower() or file.lower() in actual_path.lower():
+                            # Get relative path from workspace
+                            rel_path = os.path.relpath(file_path, workspace_dir)
+                            suggestions.append(rel_path)
+                            if len(suggestions) >= 5:  # Limit suggestions
+                                break
+                    if len(suggestions) >= 5:
+                        break
+            except:
+                pass
+            
+            error_msg = f"File not found: {actual_path} (resolved to: {resolved_path})"
+            if suggestions:
+                error_msg += f". Similar files found: {', '.join(suggestions[:3])}"
+            
             return {
                 "success": False,
-                "error": f"File not found: {actual_path}"
+                "error": error_msg
             }
         
         # Get file extension and size
-        file_extension = os.path.splitext(abs_path)[1].lower()
-        file_size = os.path.getsize(abs_path)
+        file_extension = os.path.splitext(resolved_path)[1].lower()
+        file_size = os.path.getsize(resolved_path)
         
         # Read file based on extension
         if file_extension == '.json':
-            with open(abs_path, 'r', encoding='utf-8') as f:
+            with open(resolved_path, 'r', encoding='utf-8') as f:
                 content = json.load(f)
                 file_type = "json"
         else:
             # Default to text for all other file types
-            with open(abs_path, 'r', encoding='utf-8') as f:
+            with open(resolved_path, 'r', encoding='utf-8') as f:
                 content = f.read()
                 file_type = "text"
         
@@ -67,6 +124,7 @@ async def read_file(file_path: str = None, target_file: str = None) -> Dict[str,
             "content": content,
             "metadata": {
                 "path": actual_path,
+                "resolved_path": resolved_path,
                 "size": file_size,
                 "type": file_type,
                 "extension": file_extension
@@ -74,7 +132,7 @@ async def read_file(file_path: str = None, target_file: str = None) -> Dict[str,
         }
     except json.JSONDecodeError:
         # Handle invalid JSON
-        with open(abs_path, 'r', encoding='utf-8') as f:
+        with open(resolved_path, 'r', encoding='utf-8') as f:
             content = f.read()
         
         return {
@@ -83,6 +141,7 @@ async def read_file(file_path: str = None, target_file: str = None) -> Dict[str,
             "content": content,
             "metadata": {
                 "path": actual_path,
+                "resolved_path": resolved_path,
                 "size": file_size,
                 "type": "text",
                 "extension": file_extension
@@ -95,6 +154,7 @@ async def read_file(file_path: str = None, target_file: str = None) -> Dict[str,
             "error": "Cannot read binary file as text",
             "metadata": {
                 "path": actual_path,
+                "resolved_path": resolved_path,
                 "size": file_size,
                 "type": "binary",
                 "extension": file_extension
@@ -116,31 +176,60 @@ async def list_directory(directory_path: str) -> Dict[str, Any]:
     List the contents of a directory.
     
     Args:
-        directory_path: Path to the directory to list
+        directory_path: Path to the directory to list (can be relative to workspace)
         
     Returns:
         Dictionary with directory contents
     """
     try:
-        # Security check: prevent path traversal
-        abs_path = os.path.abspath(directory_path)
+        # Resolve relative path against current working directory (user's workspace)
+        resolved_path = resolve_path(directory_path)
         
         # Check if directory exists
-        if not os.path.exists(abs_path) or not os.path.isdir(abs_path):
+        if not os.path.exists(resolved_path) or not os.path.isdir(resolved_path):
+            # Try to suggest similar paths that do exist
+            suggestions = []
+            try:
+                # Check if there are any directories with similar names
+                workspace_dir = os.getcwd()
+                for item in os.listdir(workspace_dir):
+                    item_path = os.path.join(workspace_dir, item)
+                    if os.path.isdir(item_path):
+                        # Check if the requested directory name is contained in this directory
+                        if directory_path.lower() in item.lower() or item.lower() in directory_path.lower():
+                            suggestions.append(item)
+                        # Also check if there's a subdirectory with the requested name
+                        try:
+                            subdir_path = os.path.join(item_path, directory_path)
+                            if os.path.exists(subdir_path) and os.path.isdir(subdir_path):
+                                suggestions.append(f"{item}/{directory_path}")
+                        except:
+                            pass
+            except:
+                pass
+            
+            error_msg = f"Directory not found: {directory_path} (resolved to: {resolved_path})"
+            if suggestions:
+                error_msg += f". Similar directories found: {', '.join(suggestions)}"
+            
             return {
                 "success": False,
-                "error": f"Directory not found: {directory_path}"
+                "error": error_msg
             }
         
         # List directory contents
         contents = []
-        for item in os.listdir(abs_path):
-            item_path = os.path.join(abs_path, item)
+        for item in os.listdir(resolved_path):
+            item_path = os.path.join(resolved_path, item)
             item_type = "directory" if os.path.isdir(item_path) else "file"
+            
+            # Create relative path for display
+            relative_item_path = os.path.join(directory_path, item)
             
             contents.append({
                 "name": item,
-                "path": os.path.join(directory_path, item),
+                "path": relative_item_path,
+                "resolved_path": item_path,
                 "type": item_type,
                 "size": os.path.getsize(item_path) if item_type == "file" else None
             })
@@ -148,6 +237,7 @@ async def list_directory(directory_path: str) -> Dict[str, Any]:
         return {
             "success": True,
             "directory": directory_path,
+            "resolved_directory": resolved_path,
             "contents": contents
         }
     except Exception as e:
@@ -813,46 +903,57 @@ async def cleanup_codebase_database() -> Dict[str, Any]:
         }
 
 
-async def create_file(file_path: str, content: str = "", create_directories: bool = True) -> Dict[str, Any]:
+async def create_file(file_path: str = None, target_file: str = None, content: str = "", create_directories: bool = True) -> Dict[str, Any]:
     """
     Create a new file with the specified content.
     
     Args:
-        file_path: Path where the file should be created
+        file_path: Path where the file should be created (can be relative to workspace)
+        target_file: Alternative path where the file should be created (takes precedence over file_path, can be relative)
         content: Content to write to the file (default: empty string)
         create_directories: Whether to create parent directories if they don't exist
         
     Returns:
         Dictionary with creation result
     """
+    # Use target_file if provided, otherwise use file_path
+    actual_path = target_file if target_file is not None else file_path
+    
+    if actual_path is None:
+        return {
+            "success": False,
+            "error": "No file path provided"
+        }
+    
     try:
-        # Security check: prevent path traversal
-        abs_path = os.path.abspath(file_path)
+        # Resolve relative path against current working directory (user's workspace)
+        resolved_path = resolve_path(actual_path)
         
         # Check if file already exists
-        if os.path.exists(abs_path):
+        if os.path.exists(resolved_path):
             return {
                 "success": False,
-                "error": f"File already exists: {file_path}"
+                "error": f"File already exists: {actual_path} (resolved to: {resolved_path})"
             }
         
         # Create parent directories if needed
         if create_directories:
-            parent_dir = os.path.dirname(abs_path)
+            parent_dir = os.path.dirname(resolved_path)
             if parent_dir and not os.path.exists(parent_dir):
                 os.makedirs(parent_dir, exist_ok=True)
         
         # Create the file
-        with open(abs_path, 'w', encoding='utf-8') as f:
+        with open(resolved_path, 'w', encoding='utf-8') as f:
             f.write(content)
         
         # Get file size after creation
-        file_size = os.path.getsize(abs_path)
+        file_size = os.path.getsize(resolved_path)
         
         return {
             "success": True,
-            "message": f"File created successfully: {file_path}",
-            "file_path": file_path,
+            "message": f"File created successfully: {actual_path}",
+            "file_path": actual_path,
+            "resolved_path": resolved_path,
             "size": file_size,
             "lines": len(content.split('\n')) if content else 1
         }
@@ -863,12 +964,13 @@ async def create_file(file_path: str, content: str = "", create_directories: boo
         }
 
 
-async def edit_file(file_path: str, start_line: int = None, end_line: int = None, new_content: str = "", append: bool = False) -> Dict[str, Any]:
+async def edit_file(file_path: str = None, target_file: str = None, start_line: int = None, end_line: int = None, new_content: str = "", append: bool = False) -> Dict[str, Any]:
     """
     Edit an existing file by replacing lines or appending content.
     
     Args:
-        file_path: Path to the file to edit
+        file_path: Path to the file to edit (can be relative to workspace)
+        target_file: Alternative path to the file to edit (takes precedence over file_path, can be relative)
         start_line: Starting line number (1-indexed) for replacement
         end_line: Ending line number (1-indexed) for replacement (inclusive)
         new_content: New content to insert
@@ -877,19 +979,28 @@ async def edit_file(file_path: str, start_line: int = None, end_line: int = None
     Returns:
         Dictionary with edit result
     """
+    # Use target_file if provided, otherwise use file_path
+    actual_path = target_file if target_file is not None else file_path
+    
+    if actual_path is None:
+        return {
+            "success": False,
+            "error": "No file path provided"
+        }
+    
     try:
-        # Security check: prevent path traversal
-        abs_path = os.path.abspath(file_path)
+        # Resolve relative path against current working directory (user's workspace)
+        resolved_path = resolve_path(actual_path)
         
         # Check if file exists
-        if not os.path.exists(abs_path):
+        if not os.path.exists(resolved_path):
             return {
                 "success": False,
-                "error": f"File not found: {file_path}"
+                "error": f"File not found: {file_path} (resolved to: {resolved_path})"
             }
         
         # Read existing content
-        with open(abs_path, 'r', encoding='utf-8') as f:
+        with open(resolved_path, 'r', encoding='utf-8') as f:
             lines = f.readlines()
         
         original_line_count = len(lines)
@@ -935,16 +1046,17 @@ async def edit_file(file_path: str, start_line: int = None, end_line: int = None
             lines[start_idx:end_idx] = new_lines
         
         # Write the modified content back
-        with open(abs_path, 'w', encoding='utf-8') as f:
+        with open(resolved_path, 'w', encoding='utf-8') as f:
             f.writelines(lines)
         
         new_line_count = len(lines)
-        file_size = os.path.getsize(abs_path)
+        file_size = os.path.getsize(resolved_path)
         
         return {
             "success": True,
-            "message": f"File edited successfully: {file_path}",
-            "file_path": file_path,
+            "message": f"File edited successfully: {actual_path}",
+            "file_path": actual_path,
+            "resolved_path": resolved_path,
             "original_lines": original_line_count,
             "new_lines": new_line_count,
             "size": file_size,
@@ -957,41 +1069,52 @@ async def edit_file(file_path: str, start_line: int = None, end_line: int = None
         }
 
 
-async def delete_file(file_path: str) -> Dict[str, Any]:
+async def delete_file(file_path: str = None, target_file: str = None) -> Dict[str, Any]:
     """
     Delete a file.
     
     Args:
-        file_path: Path to the file to delete
+        file_path: Path to the file to delete (can be relative to workspace)
+        target_file: Alternative path to the file to delete (takes precedence over file_path, can be relative)
         
     Returns:
         Dictionary with deletion result
     """
+    # Use target_file if provided, otherwise use file_path
+    actual_path = target_file if target_file is not None else file_path
+    
+    if actual_path is None:
+        return {
+            "success": False,
+            "error": "No file path provided"
+        }
+    
     try:
-        # Security check: prevent path traversal
-        abs_path = os.path.abspath(file_path)
+        # Resolve relative path against current working directory (user's workspace)
+        resolved_path = resolve_path(actual_path)
         
         # Check if file exists
-        if not os.path.exists(abs_path):
+        if not os.path.exists(resolved_path):
             return {
                 "success": False,
-                "error": f"File not found: {file_path}"
+                "error": f"File not found: {file_path} (resolved to: {resolved_path})"
             }
         
         # Check if it's actually a file (not a directory)
-        if not os.path.isfile(abs_path):
+        if not os.path.isfile(resolved_path):
             return {
                 "success": False,
-                "error": f"Path is not a file: {file_path}"
+                "error": f"Path is not a file: {file_path} (resolved to: {resolved_path})"
             }
         
         # Delete the file
-        os.remove(abs_path)
+        os.remove(resolved_path)
         
         return {
             "success": True,
-            "message": f"File deleted successfully: {file_path}",
-            "file_path": file_path
+            "message": f"File deleted successfully: {actual_path}",
+            "file_path": actual_path,
+            "resolved_path": resolved_path
         }
     except Exception as e:
         return {
@@ -1005,47 +1128,49 @@ async def move_file(source_path: str, destination_path: str, create_directories:
     Move or rename a file.
     
     Args:
-        source_path: Current path of the file
-        destination_path: New path for the file
+        source_path: Current path of the file (can be relative to workspace)
+        destination_path: New path for the file (can be relative to workspace)
         create_directories: Whether to create parent directories if they don't exist
         
     Returns:
         Dictionary with move result
     """
     try:
-        # Security check: prevent path traversal
-        source_abs = os.path.abspath(source_path)
-        dest_abs = os.path.abspath(destination_path)
+        # Resolve relative paths against current working directory (user's workspace)
+        source_resolved = resolve_path(source_path)
+        dest_resolved = resolve_path(destination_path)
         
         # Check if source file exists
-        if not os.path.exists(source_abs):
+        if not os.path.exists(source_resolved):
             return {
                 "success": False,
-                "error": f"Source file not found: {source_path}"
+                "error": f"Source file not found: {source_path} (resolved to: {source_resolved})"
             }
         
         # Check if destination already exists
-        if os.path.exists(dest_abs):
+        if os.path.exists(dest_resolved):
             return {
                 "success": False,
-                "error": f"Destination already exists: {destination_path}"
+                "error": f"Destination already exists: {destination_path} (resolved to: {dest_resolved})"
             }
         
         # Create parent directories if needed
         if create_directories:
-            parent_dir = os.path.dirname(dest_abs)
+            parent_dir = os.path.dirname(dest_resolved)
             if parent_dir and not os.path.exists(parent_dir):
                 os.makedirs(parent_dir, exist_ok=True)
         
         # Move the file
         import shutil
-        shutil.move(source_abs, dest_abs)
+        shutil.move(source_resolved, dest_resolved)
         
         return {
             "success": True,
             "message": f"File moved successfully: {source_path} -> {destination_path}",
             "source_path": source_path,
-            "destination_path": destination_path
+            "source_resolved": source_resolved,
+            "destination_path": destination_path,
+            "destination_resolved": dest_resolved
         }
     except Exception as e:
         return {
@@ -1059,49 +1184,51 @@ async def copy_file(source_path: str, destination_path: str, create_directories:
     Copy a file to a new location.
     
     Args:
-        source_path: Path of the file to copy
-        destination_path: Path where the copy should be created
+        source_path: Path of the file to copy (can be relative to workspace)
+        destination_path: Path where the copy should be created (can be relative to workspace)
         create_directories: Whether to create parent directories if they don't exist
         
     Returns:
         Dictionary with copy result
     """
     try:
-        # Security check: prevent path traversal
-        source_abs = os.path.abspath(source_path)
-        dest_abs = os.path.abspath(destination_path)
+        # Resolve relative paths against current working directory (user's workspace)
+        source_resolved = resolve_path(source_path)
+        dest_resolved = resolve_path(destination_path)
         
         # Check if source file exists
-        if not os.path.exists(source_abs):
+        if not os.path.exists(source_resolved):
             return {
                 "success": False,
-                "error": f"Source file not found: {source_path}"
+                "error": f"Source file not found: {source_path} (resolved to: {source_resolved})"
             }
         
         # Check if destination already exists
-        if os.path.exists(dest_abs):
+        if os.path.exists(dest_resolved):
             return {
                 "success": False,
-                "error": f"Destination already exists: {destination_path}"
+                "error": f"Destination already exists: {destination_path} (resolved to: {dest_resolved})"
             }
         
         # Create parent directories if needed
         if create_directories:
-            parent_dir = os.path.dirname(dest_abs)
+            parent_dir = os.path.dirname(dest_resolved)
             if parent_dir and not os.path.exists(parent_dir):
                 os.makedirs(parent_dir, exist_ok=True)
         
         # Copy the file
         import shutil
-        shutil.copy2(source_abs, dest_abs)
+        shutil.copy2(source_resolved, dest_resolved)
         
-        file_size = os.path.getsize(dest_abs)
+        file_size = os.path.getsize(dest_resolved)
         
         return {
             "success": True,
             "message": f"File copied successfully: {source_path} -> {destination_path}",
             "source_path": source_path,
+            "source_resolved": source_resolved,
             "destination_path": destination_path,
+            "destination_resolved": dest_resolved,
             "size": file_size
         }
     except Exception as e:
@@ -1132,7 +1259,7 @@ async def handle_tool_call(tool_name: str, params: Dict[str, Any]) -> Dict[str, 
     handler = TOOL_HANDLERS[tool_name]
     
     try:
-        # Call the handler with parameters
+        # Call the handler with parameters (no workspace_dir needed since cwd is set)
         result = await handler(**params)
         return result
     except Exception as e:
@@ -1152,11 +1279,11 @@ TOOL_DEFINITIONS = [
             "properties": {
                 "file_path": {
                     "type": "string",
-                    "description": "The path to the file to read"
+                    "description": "The path to the file to read (can be relative to workspace)"
                 },
                 "target_file": {
                     "type": "string",
-                    "description": "Alternative path to the file to read (takes precedence over file_path)"
+                    "description": "Alternative path to the file to read (takes precedence over file_path, can be relative)"
                 }
             },
             "required": ["file_path"]
@@ -1170,7 +1297,11 @@ TOOL_DEFINITIONS = [
             "properties": {
                 "file_path": {
                     "type": "string",
-                    "description": "Path where the file should be created"
+                    "description": "Path where the file should be created (can be relative to workspace)"
+                },
+                "target_file": {
+                    "type": "string",
+                    "description": "Alternative path where the file should be created (takes precedence over file_path, can be relative)"
                 },
                 "content": {
                     "type": "string",
@@ -1192,7 +1323,11 @@ TOOL_DEFINITIONS = [
             "properties": {
                 "file_path": {
                     "type": "string",
-                    "description": "Path to the file to edit"
+                    "description": "Path to the file to edit (can be relative to workspace)"
+                },
+                "target_file": {
+                    "type": "string",
+                    "description": "Alternative path to the file to edit (takes precedence over file_path, can be relative)"
                 },
                 "start_line": {
                     "type": "integer",
@@ -1222,7 +1357,11 @@ TOOL_DEFINITIONS = [
             "properties": {
                 "file_path": {
                     "type": "string",
-                    "description": "Path to the file to delete"
+                    "description": "Path to the file to delete (can be relative to workspace)"
+                },
+                "target_file": {
+                    "type": "string",
+                    "description": "Alternative path to the file to delete (takes precedence over file_path, can be relative)"
                 }
             },
             "required": ["file_path"]
@@ -1236,11 +1375,11 @@ TOOL_DEFINITIONS = [
             "properties": {
                 "source_path": {
                     "type": "string",
-                    "description": "Current path of the file"
+                    "description": "Current path of the file (can be relative to workspace)"
                 },
                 "destination_path": {
                     "type": "string",
-                    "description": "New path for the file"
+                    "description": "New path for the file (can be relative to workspace)"
                 },
                 "create_directories": {
                     "type": "boolean",
@@ -1258,11 +1397,11 @@ TOOL_DEFINITIONS = [
             "properties": {
                 "source_path": {
                     "type": "string",
-                    "description": "Path of the file to copy"
+                    "description": "Path of the file to copy (can be relative to workspace)"
                 },
                 "destination_path": {
                     "type": "string",
-                    "description": "Path where the copy should be created"
+                    "description": "Path where the copy should be created (can be relative to workspace)"
                 },
                 "create_directories": {
                     "type": "boolean",
@@ -1280,7 +1419,7 @@ TOOL_DEFINITIONS = [
             "properties": {
                 "directory_path": {
                     "type": "string",
-                    "description": "The path to the directory to list"
+                    "description": "The path to the directory to list (can be relative to workspace)"
                 }
             },
             "required": ["directory_path"]
