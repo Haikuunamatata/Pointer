@@ -450,12 +450,27 @@ export const DiffViewer: React.FC = () => {
     if (diffs.length > 0) {
       const currentDiff = diffs[currentDiffIndex];
       
+      // Get the current theme from the app settings
+      const currentTheme = window.appSettings?.theme;
+      let themeName = 'vs-dark'; // default fallback
+      
+      // If we have a custom theme, use it
+      if (currentTheme && (currentTheme.name !== 'vs-dark' || 
+          Object.keys(currentTheme.editorColors || {}).length > 0 || 
+          (currentTheme.tokenColors || []).length > 0)) {
+        themeName = 'custom-theme';
+        // Ensure the custom theme is applied
+        if (window.applyCustomTheme) {
+          window.applyCustomTheme();
+        }
+      }
+      
       diffEditorRef.current = monaco.editor.createDiffEditor(containerRef.current, {
         automaticLayout: true,
         readOnly: true,
         renderSideBySide: true,
         ignoreTrimWhitespace: false,
-        theme: 'vs-dark',
+        theme: themeName,
         fontSize: 12,
         lineHeight: 1.5,
         minimap: { enabled: false },
@@ -814,6 +829,34 @@ export const DiffViewer: React.FC = () => {
       document.removeEventListener('keydown', handleKeyDown);
     };
   }, [isModalOpen, isFullscreen]);
+
+  // Listen for theme changes and update the diff editor theme
+  useEffect(() => {
+    const handleThemeChange = () => {
+      if (diffEditorRef.current && isModalOpen) {
+        // Get the current theme from the app settings
+        const currentTheme = window.appSettings?.theme;
+        let themeName = 'vs-dark'; // default fallback
+        
+        // If we have a custom theme, use it
+        if (currentTheme && (currentTheme.name !== 'vs-dark' || 
+            Object.keys(currentTheme.editorColors || {}).length > 0 || 
+            (currentTheme.tokenColors || []).length > 0)) {
+          themeName = 'custom-theme';
+        }
+        
+        // Update the diff editor theme
+        diffEditorRef.current.updateOptions({ theme: themeName });
+      }
+    };
+    
+    // Listen for theme change events
+    window.addEventListener('theme-changed', handleThemeChange);
+    
+    return () => {
+      window.removeEventListener('theme-changed', handleThemeChange);
+    };
+  }, [isModalOpen]);
 
   // Update calculateDiffStats for all diffs if they don't have stats
   useEffect(() => {
